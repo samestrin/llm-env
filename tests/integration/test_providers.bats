@@ -3,19 +3,18 @@
 # Integration tests for provider functionality
 
 setup() {
-    # Source the main script
-    source "$BATS_TEST_DIRNAME/../../llm-env"
-    
     # Create temporary config directory
     export TEST_CONFIG_DIR="$BATS_TMPDIR/llm-env-test-$$"
-    mkdir -p "$TEST_CONFIG_DIR"
+    mkdir -p "$TEST_CONFIG_DIR/.config/llm-env"
     
     # Override config paths for testing
-    export XDG_CONFIG_HOME="$TEST_CONFIG_DIR"
     export HOME="$TEST_CONFIG_DIR"
     
-    # Create test configuration file
-    cat > "$TEST_CONFIG_DIR/config.conf" << 'EOF'
+    # Source the main script after setting HOME
+    source "$BATS_TEST_DIRNAME/../../llm-env"
+    
+    # Create test configuration file in the correct location
+    cat > "$TEST_CONFIG_DIR/.config/llm-env/config.conf" << 'EOF'
 [test_provider]
 base_url=https://api.example.com/v1
 api_key_var=LLM_TEST_API_KEY
@@ -137,8 +136,8 @@ teardown() {
     cmd_config_backup
     
     # Modify config
-    echo "[new_provider]" >> "$TEST_CONFIG_DIR/config.conf"
-    echo "base_url=https://new.api.com/v1" >> "$TEST_CONFIG_DIR/config.conf"
+    echo "[new_provider]" >> "$TEST_CONFIG_DIR/.config/llm-env/config.conf"
+    echo "base_url=https://new.api.com/v1" >> "$TEST_CONFIG_DIR/.config/llm-env/config.conf"
     
     # Find backup file
     local backup_files=("$TEST_CONFIG_DIR"/*.backup.*)
@@ -148,13 +147,13 @@ teardown() {
     [ "$status" -eq 0 ]
     
     # Check that config was restored (new_provider should be gone)
-    run grep "new_provider" "$TEST_CONFIG_DIR/config.conf"
+    run grep "new_provider" "$TEST_CONFIG_DIR/.config/llm-env/config.conf"
     [ "$status" -eq 1 ]
 }
 
 @test "configuration parsing: handles malformed config gracefully" {
     # Create malformed config
-    cat > "$TEST_CONFIG_DIR/config.conf" << 'EOF'
+    cat > "$TEST_CONFIG_DIR/.config/llm-env/config.conf" << 'EOF'
 [valid_provider]
 base_url=https://api.valid.com/v1
 api_key_var=LLM_VALID_API_KEY
