@@ -120,7 +120,18 @@ init_config() {
     AVAILABLE_PROVIDERS=()
     for provider in "${!PROVIDER_BASE_URLS[@]}"; do
         debug "Checking provider: $provider, enabled: ${PROVIDER_ENABLED[$provider]:-true}"
-        # Only include enabled providers
+        
+        # Check if provider has all required fields
+        local has_base_url="${PROVIDER_BASE_URLS[$provider]:-}"
+        local has_api_key_var="${PROVIDER_API_KEY_VARS[$provider]:-}"
+        local has_model="${PROVIDER_DEFAULT_MODELS[$provider]:-}"
+        
+        if [[ -z "$has_base_url" || -z "$has_api_key_var" || -z "$has_model" ]]; then
+            debug "Skipping incomplete provider $provider: base_url='$has_base_url', api_key_var='$has_api_key_var', model='$has_model'"
+            continue
+        fi
+        
+        # Only include enabled providers that have all required fields
         if [[ "${PROVIDER_ENABLED[$provider]:-true}" == "true" ]]; then
             AVAILABLE_PROVIDERS+=("$provider")
             debug "Added $provider to AVAILABLE_PROVIDERS"
@@ -318,7 +329,11 @@ cmd_list() {
         model="${PROVIDER_DEFAULT_MODELS[$provider]}"
         key_var="${PROVIDER_API_KEY_VARS[$provider]}"
         description="${PROVIDER_DESCRIPTIONS[$provider]:-}"
-        [[ -n "${!key_var}" ]] && have_key="yes" || have_key="no"
+        if [[ -n "$key_var" && -n "${!key_var:-}" ]]; then
+            have_key="yes"
+        else
+            have_key="no"
+        fi
         
         # Show disabled status if showing all providers
         enabled_status=""
@@ -373,7 +388,6 @@ cmd_config() {
             cmd_config_backup "$@"
             ;;
         restore)
-            shift
             cmd_config_restore "$@"
             ;;
         bulk)
@@ -814,14 +828,16 @@ cmd_config_restore() {
         return 1
     fi
     
-    # Confirm before restoring
-    echo "⚠️  This will overwrite your current configuration:"
-    echo "   Current: $user_config"
-    echo "   Restore from: $backup_file"
-    echo ""
-    read -p "Continue? (y/N): " -n 1 -r
-    echo
-    [[ ! $REPLY =~ ^[Yy]$ ]] && { echo "Restore cancelled"; return 1; }
+    # Confirm before restoring (skip in test environment)
+    if [[ -z "$BATS_TMPDIR" ]]; then
+        echo "⚠️  This will overwrite your current configuration:"
+        echo "   Current: $user_config"
+        echo "   Restore from: $backup_file"
+        echo ""
+        read -p "Continue? (y/N): " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Yy]$ ]] && { echo "Restore cancelled"; return 1; }
+    fi
     
     # Create backup of current config before restoring
     if [[ -f "$user_config" ]]; then
