@@ -880,22 +880,21 @@ cmd_config_bulk() {
         # Update configuration file
         # Use awk to update the enabled value for the provider
         awk -v provider="$provider" -v enabled="$enabled_value" '
-            BEGIN { in_section = 0; found = 0 }
+            BEGIN { in_section = 0; found = 0; found_enabled = 0 }
             /^\[/ { 
                 if ($0 == "[" provider "]") {
                     in_section = 1
                     found = 1
                 } else {
+                    if (in_section && !found_enabled) {
+                        print "enabled=" enabled
+                        found_enabled = 1
+                    }
                     in_section = 0
                 }
             }
             in_section && /^enabled=/ { 
                 print "enabled=" enabled
-                next
-            }
-            in_section && /^$/ && !found_enabled {
-                print "enabled=" enabled
-                print ""
                 found_enabled = 1
                 next
             }
