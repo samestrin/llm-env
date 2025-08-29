@@ -1,10 +1,12 @@
 # LLM Environment Manager
 
-[![Star on GitHub](https://img.shields.io/github/stars/samestrin/qwen-prompts?style=social)](https://github.com/samestrin/qwen-prompts/stargazers) [![Fork on GitHub](https://img.shields.io/github/forks/samestrin/qwen-prompts?style=social)](https://github.com/samestrin/qwen-prompts/network/members) [![Watch on GitHub](https://img.shields.io/github/watchers/samestrin/qwen-prompts?style=social)](https://github.com/samestrin/qwen-prompts/watchers)
+[![Star on GitHub](https://img.shields.io/github/stars/samestrin/llm-env?style=social)](https://github.com/samestrin/llm-env/stargazers) [![Fork on GitHub](https://img.shields.io/github/forks/samestrin/llm-env?style=social)](https://github.com/samestrin/llm-env/network/members) [![Watch on GitHub](https://img.shields.io/github/watchers/samestrin/llm-env?style=social)](https://github.com/samestrin/llm-env/watchers)
 
-![Version 1.0.0](https://img.shields.io/badge/Version-1.0.0-blue) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Built with Bash](https://img.shields.io/badge/Built%20with-Bash-darkblue)](https://www.gnu.org/software/bash/)
+![Version 1.1.0](https://img.shields.io/badge/Version-1.1.0-blue) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Built with Bash](https://img.shields.io/badge/Built%20with-Bash-darkblue)](https://www.gnu.org/software/bash/)
 
 A simple, powerful bash script for seamlessly switching between different LLM providers and models. Perfect for developers who work with multiple AI services and need to quickly switch between free tiers, paid models, or different providers based on availability and cost.
+
+**New in v1.1.0:** Enhanced with comprehensive help system, API connectivity testing, configuration backup/restore, bulk operations, and debug mode for easier troubleshooting.
 
 ## Overview
 
@@ -23,16 +25,15 @@ This tool provides quick provider switching between OpenAI, Cerebras, Groq, Open
 ### Quick Install
 
 ```bash
-# Download and install
-curl -o /usr/local/bin/llm-env https://raw.githubusercontent.com/yourusername/llm-env/main/llm-env
-chmod +x /usr/local/bin/llm-env
+# Download and install (recommended)
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | bash
 ```
 
 ### Manual Install
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/llm-env.git
+   git clone https://github.com/samestrin/llm-env.git
    cd llm-env
    ```
 
@@ -45,7 +46,7 @@ chmod +x /usr/local/bin/llm-env
 3. Add the helper function to your shell profile (`~/.bashrc` or `~/.zshrc`):
    ```bash
    # LLM Environment Manager
-   llm_manager() {
+   llm-env() {
      source /usr/local/bin/llm-env "$@"
    }
    ```
@@ -70,32 +71,38 @@ chmod +x /usr/local/bin/llm-env
 
 ```bash
 # List all available providers
-llm_manager list
+llm-env list
 
 # Set a provider (switches all OpenAI-compatible env vars)
-llm_manager set cerebras
-llm_manager set openai
-llm_manager set groq
+llm-env set cerebras
+llm-env set openai
+llm-env set groq
 
 # Show current configuration
-llm_manager show
+llm-env show
 
 # Unset all LLM environment variables
-llm_manager unset
+llm-env unset
+
+# Get help
+llm-env --help
+
+# Test provider connectivity
+llm-env test cerebras
 ```
 
 ### Example Workflow
 
 ```bash
 # Start with free tier
-llm_manager set openrouter2  # Uses deepseek free model
+llm-env set openrouter2  # Uses deepseek free model
 
 # When free tier is exhausted, switch to paid
-llm_manager set cerebras     # Fast and affordable
+llm-env set cerebras     # Fast and affordable
 
 # For specific tasks, use specialized models
-llm_manager set groq         # For speed
-llm_manager set openai       # For quality
+llm-env set groq         # For speed
+llm-env set openai       # For quality
 ```
 
 ### Integration Examples
@@ -124,28 +131,28 @@ llm "What is the capital of France?"  # Uses current provider automatically
 #### 1. Development Workflow
 ```bash
 # Use free tier for testing
-llm_manager set openrouter3  # qwen free model
+llm-env set openrouter3  # qwen free model
 
 # Switch to paid when deploying
-llm_manager set cerebras     # Fast and reliable
+llm-env set cerebras     # Fast and reliable
 ```
 
 #### 2. Cost Optimization
 ```bash
 # Start with cheapest option
-llm_manager set openrouter2  # Free deepseek
+llm-env set openrouter2  # Free deepseek
 
 # Escalate based on needs
-llm_manager set groq         # When speed matters
-llm_manager set openai       # When quality is critical
+llm-env set groq         # When speed matters
+llm-env set openai       # When quality is critical
 ```
 
 #### 3. Provider Redundancy
 ```bash
 # Primary provider down? Switch instantly
-llm_manager set cerebras
+llm-env set cerebras
 # If cerebras is down:
-llm_manager set groq
+llm-env set groq
 ```
 
 ## Configuration
@@ -168,6 +175,16 @@ source llm-env config add my-provider
 
 # Validate configuration
 source llm-env config validate
+
+# Backup configuration
+source llm-env config backup
+
+# Restore from backup
+source llm-env config restore /path/to/backup.conf
+
+# Bulk operations
+source llm-env config bulk enable cerebras openai
+source llm-env config bulk disable groq openrouter
 ```
 
 📖 **For detailed configuration options, examples, and advanced setup, see the [Configuration Guide](docs/configuration.md)**
@@ -177,10 +194,16 @@ source llm-env config validate
 ### Quick Diagnostics
 ```bash
 # Verify setup
-llm_manager list
-llm_manager show
+llm-env list
+llm-env show
 
 # Test API connectivity
+llm-env test cerebras
+
+# Enable debug mode for detailed troubleshooting
+LLM_ENV_DEBUG=1 llm-env list
+
+# Or manual test
 curl -H "Authorization: Bearer $OPENAI_API_KEY" $OPENAI_BASE_URL/models
 ```
 
@@ -228,4 +251,4 @@ Additional [Applications, Scripts, and Frameworks compatible with LLM-env](docs/
 
 ## Share
 
-[![Twitter](https://img.shields.io/badge/X-Tweet-blue)](https://twitter.com/intent/tweet?text=Check%20out%20this%20awesome%20project!&url=https://github.com/samestrin/qwen-prompts) [![Facebook](https://img.shields.io/badge/Facebook-Share-blue)](https://www.facebook.com/sharer/sharer.php?u=https://github.com/samestrin/qwen-prompts) [![LinkedIn](https://img.shields.io/badge/LinkedIn-Share-blue)](https://www.linkedin.com/sharing/share-offsite/?url=https://github.com/samestrin/qwen-prompts)
+[![Twitter](https://img.shields.io/badge/X-Tweet-blue)](https://twitter.com/intent/tweet?text=Check%20out%20this%20LLM%20Environment%20Manager!&url=https://github.com/samestrin/llm-env) [![Facebook](https://img.shields.io/badge/Facebook-Share-blue)](https://www.facebook.com/sharer/sharer.php?u=https://github.com/samestrin/llm-env) [![LinkedIn](https://img.shields.io/badge/LinkedIn-Share-blue)](https://www.linkedin.com/sharing/share-offsite/?url=https://github.com/samestrin/llm-env)
