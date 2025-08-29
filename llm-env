@@ -336,13 +336,26 @@ cmd_config() {
         validate)
             cmd_config_validate "$@"
             ;;
+        backup)
+            cmd_config_backup "$@"
+            ;;
+        restore)
+            shift
+            cmd_config_restore "$@"
+            ;;
+        bulk)
+            cmd_config_bulk "$@"
+            ;;
         *)
-            echo "Usage: source llm-env config {init|edit|add|remove|validate}"
+            echo "Usage: source llm-env config {init|edit|add|remove|validate|backup|restore|bulk}"
             echo "  init              Create user configuration file"
             echo "  edit              Edit user configuration file"
             echo "  add <provider>    Add a new provider interactively"
             echo "  remove <provider> Remove a provider"
             echo "  validate          Validate configuration file"
+            echo "  backup            Create a backup of configuration"
+            echo "  restore <file>    Restore configuration from backup"
+            echo "  bulk <action> <providers...>  Perform bulk operations (enable|disable)"
             ;;
     esac
 }
@@ -484,6 +497,155 @@ cmd_config_remove() {
     echo "💡 Backup saved as $user_config.backup"
 }
 
+cmd_test() {
+    local provider="$1"
+    if [[ -z "$provider" ]]; then
+        echo "Usage: source llm-env test <provider>"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        return 1
+    fi
+    
+    # Validate provider name format
+    if ! validate_provider_name "$provider"; then
+        return 1
+    fi
+    
+    # Validate provider
+    if ! validate_provider "$provider"; then
+        case $? in
+            1) echo "❌ Unknown provider: $provider" ;;
+            2) echo "❌ Provider disabled: $provider" ;;
+        esac
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        return 1
+    fi
+    
+    echo "🧪 Testing provider: $provider"
+    
+    local key_var base_url api_key
+    key_var="${PROVIDER_API_KEY_VARS[$provider]}"
+    base_url="${PROVIDER_BASE_URLS[$provider]}"
+    api_key="${!key_var}"
+    
+    # Check if API key is available
+    if [[ -z "$api_key" ]]; then
+        echo "❌ API key not found. Set $key_var in your environment."
+        return 1
+    fi
+    
+    echo "✅ API key found: $(mask "$api_key")"
+    echo "🔗 Base URL: $base_url"
+    
+    # Test API connectivity
+    local models_endpoint="${base_url}/models"
+    echo "🌐 Testing connectivity to: $models_endpoint"
+    
+    local start_time=$(date +%s.%N)
+    local response
+    
+    # Use curl to test API endpoint
+    if command -v curl >/dev/null 2>&1; then
+        response=$(curl -s -w "%{http_code}" -o /dev/null \
+            --max-time 10 \
+            -H "Authorization: Bearer $api_key" \
+            -H "Content-Type: application/json" \
+            "$models_endpoint" 2>/dev/null)
+        
+        local end_time=$(date +%s.%N)
+        local duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
+        
+        case "$response" in
+            200)
+                echo "✅ API connectivity test passed (HTTP $response)"
+                echo "⏱️  Response time: ${duration}s"
+                ;;
+            401)
+                echo "❌ Authentication failed (HTTP $response)"
+                echo "💡 Check your API key: $key_var"
+                return 1
+                ;;
+            403)
+                echo "❌ Access forbidden (HTTP $response)"
+                echo "💡 Check API key permissions"
+                return 1
+                ;;
+            404)
+                echo "⚠️  Models endpoint not found (HTTP $response)"
+                echo "💡 Provider may not support /models endpoint"
+                ;;
+            "")
+                echo "❌ Connection timeout or network error"
+                echo "💡 Check internet connection and base URL"
+                return 1
+                ;;
+            *)
+                echo "⚠️  Unexpected response (HTTP $response)"
+                echo "💡 Provider may have different API format"
+                ;;
+        esac
+        
+        echo "🏁 Test completed for provider: $provider"
+    else
+        echo "❌ curl command not found. Install curl to test API connectivity."
+        return 1
+    fi
+}
+
+cmd_help() {
+    echo "llm-env - LLM Environment Manager v$VERSION"
+    echo
+    echo "USAGE:"
+    echo "    source llm-env <command> [options]"
+    echo
+    echo "COMMANDS:"
+    echo "    set <provider>        Set LLM provider and export environment variables"
+    echo "    unset                 Clear all LLM environment variables"
+    echo "    list                  List all available providers"
+    echo "    show                  Show current environment"
+    echo "    config <subcommand>   Manage configuration"
+    echo "    test <provider>       Test provider API connectivity"
+    echo "    --version             Show version information"
+    echo "    --help                Show this help message"
+    echo
+    echo "CONFIG SUBCOMMANDS:"
+    echo "    init                  Create user configuration file"
+    echo "    edit                  Edit user configuration file"
+    echo "    add <provider>        Add a new provider interactively"
+    echo "    remove <provider>     Remove a provider"
+    echo "    validate              Validate configuration file"
+    echo "    backup                Create a backup of configuration"
+    echo "    restore <file>        Restore configuration from backup"
+    echo "    bulk <action> <providers...>  Perform bulk operations"
+    echo
+    echo "EXAMPLES:"
+    echo "    # Set up OpenAI provider"
+    echo "    source llm-env set openai"
+    echo
+    echo "    # List all available providers"
+    echo "    source llm-env list"
+    echo
+    echo "    # Show current environment"
+    echo "    source llm-env show"
+    echo
+    echo "    # Test provider connectivity"
+    echo "    source llm-env test cerebras"
+    echo
+    echo "    # Create configuration file"
+    echo "    source llm-env config init"
+    echo
+    echo "    # Add a new provider"
+    echo "    source llm-env config add my_provider"
+    echo
+    echo "    # Enable debug mode"
+    echo "    LLM_ENV_DEBUG=1 source llm-env list"
+    echo
+    echo "ENVIRONMENT VARIABLES:"
+    echo "    LLM_ENV_DEBUG=1       Enable debug output"
+    echo "    OPENAI_MODEL_OVERRIDE Override default model"
+    echo
+    echo "For more information, visit: https://github.com/samestrin/llm-env"
+}
+
 cmd_config_validate() {
     echo "🔍 Validating configuration..."
     
@@ -561,6 +723,217 @@ cmd_config_validate() {
     fi
 }
 
+cmd_config_backup() {
+    local user_config="$HOME/.config/llm-env/config.conf"
+    
+    if [[ ! -f "$user_config" ]]; then
+        echo "❌ Configuration file not found: $user_config"
+        echo "💡 Run 'source llm-env config init' to create one"
+        return 1
+    fi
+    
+    # Create backup directory if it doesn't exist
+    local backup_dir="$HOME/.config/llm-env/backups"
+    mkdir -p "$backup_dir"
+    
+    # Generate timestamp for backup filename
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local backup_file="$backup_dir/config_${timestamp}.conf"
+    
+    # Create backup
+    if cp "$user_config" "$backup_file"; then
+        echo "✅ Configuration backed up to: $backup_file"
+        echo "💡 To restore: source llm-env config restore $backup_file"
+        
+        # List recent backups
+        echo ""
+        echo "Recent backups:"
+        ls -lt "$backup_dir"/*.conf 2>/dev/null | head -5 | while read -r line; do
+            echo "  $line"
+        done
+    else
+        echo "❌ Failed to create backup"
+        return 1
+    fi
+}
+
+cmd_config_restore() {
+    local backup_file="$1"
+    local user_config="$HOME/.config/llm-env/config.conf"
+    
+    if [[ -z "$backup_file" ]]; then
+        echo "Usage: source llm-env config restore <backup_file>"
+        echo ""
+        echo "Available backups:"
+        local backup_dir="$HOME/.config/llm-env/backups"
+        if [[ -d "$backup_dir" ]]; then
+            ls -lt "$backup_dir"/*.conf 2>/dev/null | head -10 | while read -r line; do
+                echo "  $line"
+            done
+        else
+            echo "  No backups found"
+        fi
+        return 1
+    fi
+    
+    if [[ ! -f "$backup_file" ]]; then
+        echo "❌ Backup file not found: $backup_file"
+        return 1
+    fi
+    
+    # Confirm before restoring
+    echo "⚠️  This will overwrite your current configuration:"
+    echo "   Current: $user_config"
+    echo "   Restore from: $backup_file"
+    echo ""
+    read -p "Continue? (y/N): " -n 1 -r
+    echo
+    [[ ! $REPLY =~ ^[Yy]$ ]] && { echo "Restore cancelled"; return 1; }
+    
+    # Create backup of current config before restoring
+    if [[ -f "$user_config" ]]; then
+        local current_backup="${user_config}.pre-restore.$(date +%Y%m%d_%H%M%S)"
+        cp "$user_config" "$current_backup"
+        echo "💾 Current config backed up to: $current_backup"
+    fi
+    
+    # Restore from backup
+    if cp "$backup_file" "$user_config"; then
+        echo "✅ Configuration restored from: $backup_file"
+        echo "💡 Run 'source llm-env config validate' to verify"
+    else
+        echo "❌ Failed to restore configuration"
+        return 1
+    fi
+}
+
+cmd_config_bulk() {
+    local action="$1"
+    shift
+    local providers=("$@")
+    local user_config="$HOME/.config/llm-env/config.conf"
+    
+    if [[ -z "$action" ]]; then
+        echo "Usage: source llm-env config bulk <action> <provider1> [provider2] ..."
+        echo ""
+        echo "Actions:"
+        echo "  enable    Enable specified providers"
+        echo "  disable   Disable specified providers"
+        echo ""
+        echo "Examples:"
+        echo "  source llm-env config bulk enable cerebras openai"
+        echo "  source llm-env config bulk disable groq openrouter"
+        return 1
+    fi
+    
+    if [[ ${#providers[@]} -eq 0 ]]; then
+        echo "❌ No providers specified"
+        echo "Available providers: ${!PROVIDER_BASE_URLS[*]}"
+        return 1
+    fi
+    
+    case "$action" in
+        enable|disable)
+            ;;
+        *)
+            echo "❌ Invalid action: $action"
+            echo "Valid actions: enable, disable"
+            return 1
+            ;;
+    esac
+    
+    if [[ ! -f "$user_config" ]]; then
+        echo "❌ Configuration file not found: $user_config"
+        echo "💡 Run 'source llm-env config init' to create one"
+        return 1
+    fi
+    
+    # Create backup before making changes
+    local backup_file="${user_config}.bulk-backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$user_config" "$backup_file"
+    echo "💾 Configuration backed up to: $backup_file"
+    
+    echo "🔄 Performing bulk $action operation..."
+    local success_count=0
+    local failed_providers=()
+    
+    for provider in "${providers[@]}"; do
+        # Validate provider name format
+        if ! validate_provider_name "$provider"; then
+            failed_providers+=("$provider (invalid name)")
+            continue
+        fi
+        
+        # Check if provider exists in config
+        if [[ -z "${PROVIDER_BASE_URLS[$provider]:-}" ]]; then
+            failed_providers+=("$provider (not found)")
+            continue
+        fi
+        
+        # Set enabled value based on action
+        local enabled_value
+        case "$action" in
+            enable) enabled_value="true" ;;
+            disable) enabled_value="false" ;;
+        esac
+        
+        # Update configuration file
+        # Use awk to update the enabled value for the provider
+        awk -v provider="$provider" -v enabled="$enabled_value" '
+            BEGIN { in_section = 0; found = 0 }
+            /^\[/ { 
+                if ($0 == "[" provider "]") {
+                    in_section = 1
+                    found = 1
+                } else {
+                    in_section = 0
+                }
+            }
+            in_section && /^enabled=/ { 
+                print "enabled=" enabled
+                next
+            }
+            in_section && /^$/ && !found_enabled {
+                print "enabled=" enabled
+                print ""
+                found_enabled = 1
+                next
+            }
+            { print }
+            END {
+                if (found && !found_enabled) {
+                    print "enabled=" enabled
+                }
+            }
+        ' "$user_config" > "$user_config.tmp" && mv "$user_config.tmp" "$user_config"
+        
+        if [[ $? -eq 0 ]]; then
+            echo "  ✅ $provider: $action"
+            ((success_count++))
+        else
+            failed_providers+=("$provider (update failed)")
+        fi
+    done
+    
+    echo ""
+    echo "📊 Bulk operation results:"
+    echo "  Successful: $success_count/${#providers[@]}"
+    
+    if [[ ${#failed_providers[@]} -gt 0 ]]; then
+        echo "  Failed:"
+        for failure in "${failed_providers[@]}"; do
+            echo "    ❌ $failure"
+        done
+    fi
+    
+    # Reload configuration to reflect changes
+    init_config
+    
+    echo ""
+    echo "💡 Run 'source llm-env config validate' to verify changes"
+    echo "💡 Run 'source llm-env list' to see updated provider list"
+}
+
 # ---------- Entry Point ----------
 
 # Initialize configuration on script load
@@ -570,6 +943,9 @@ init_config
 case "$1" in
     --version)
         echo "llm-env v$VERSION"
+        ;;
+    --help|help)
+        cmd_help
         ;;
     set)
         shift
@@ -584,17 +960,15 @@ case "$1" in
     show)
         cmd_show
         ;;
+    test)
+        shift
+        cmd_test "$1"
+        ;;
     config)
         shift
         cmd_config "$@"
         ;;
     *)
-        echo "Usage: source llm-env {set <provider>|unset|list|show|config <command>|--version}"
-        echo "  set <provider>    Set LLM provider and export environment variables"
-        echo "  unset             Clear all LLM environment variables"
-        echo "  list              List all available providers"
-        echo "  show              Show current environment"
-        echo "  config <command>  Manage configuration (init|edit|add|remove|validate)"
-        echo "  --version         Show version information"
+        cmd_help
         ;;
 esac
