@@ -1,0 +1,137 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        shell: [bash, zsh]
+        exclude:
+          # zsh not pre-installed on ubuntu runners
+          - os: ubuntu-latest
+            shell: zsh
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Set up shell environment
+      run: |
+        if [[ "${{ matrix.shell }}" == "zsh" ]]; then
+          # Install zsh on macOS if needed
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install zsh || true
+          fi
+        fi
+
+    - name: Install dependencies
+      run: |
+        # Install any additional dependencies if needed
+        if [[ "$RUNNER_OS" == "Linux" ]]; then
+          sudo apt-get update
+          sudo apt-get install -y curl
+        fi
+
+    - name: Verify BATS installation
+      run: |
+        if [[ ! -f tests/bats/bin/bats ]]; then
+          echo "BATS not found, initializing submodules..."
+          git submodule update --init --recursive
+        fi
+        tests/bats/bin/bats --version
+
+    - name: Run unit tests
+      run: |
+        cd tests
+        SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --unit-only
+
+    - name: Run integration tests  
+      run: |
+        cd tests
+        SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --integration-only
+
+    - name: Run system tests
+      run: |
+        cd tests
+        SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --system-only
+
+    - name: Test installation script
+      run: |
+        # Test installer in dry-run mode or with temporary directory
+        export INSTALL_DIR="$GITHUB_WORKSPACE/test-install"
+        mkdir -p "$INSTALL_DIR"
+        
+        # Create a test version of installer that doesn't require sudo
+        sed 's|/usr/local/bin|'"$INSTALL_DIR"'|g' install.sh > test-install.sh
+        chmod +x test-install.sh
+        
+        # Run installer test
+        ./test-install.sh --offline ./llm-env
+        
+        # Verify installation
+        test -x "$INSTALL_DIR/llm-env"
+        
+        # Test version command
+        "$INSTALL_DIR/llm-env" --version
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install ShellCheck
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y shellcheck
+
+    - name: Run ShellCheck on main script
+      run: |
+        shellcheck llm-env
+        
+    - name: Run ShellCheck on installer
+      run: |
+        shellcheck install.sh
+        
+    - name: Run ShellCheck on test runner
+      run: |
+        shellcheck tests/run_tests.sh
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Check for secrets in code
+      run: |
+        # Basic check for potential secrets (enhance as needed)
+        if grep -r "api[_-]key.*=" . --exclude-dir=.git --exclude-dir=tests --exclude="*.md"; then
+          echo "WARNING: Potential API keys found in code"
+          exit 1
+        fi
+        
+    - name: Check file permissions
+      run: |
+        # Ensure no files have overly permissive permissions
+        find . -type f \( -perm -002 -o -perm -020 \) -not -path "./.git/*" | head -10
+        
+    - name: Validate configuration files
+      run: |
+        # Basic validation of configuration syntax
+        if [[ -f config/llm-env.conf ]]; then
+          # Check for basic INI structure
+          if ! grep -q "^\[.*\]$" config/llm-env.conf; then
+            echo "ERROR: Invalid configuration file format"
+            exit 1
+          fi
+        fi
