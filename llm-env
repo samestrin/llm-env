@@ -37,6 +37,10 @@ load_config() {
     local current_provider=""
     local line_num=0
     
+    # Read file content and process line by line to avoid subshell issues
+    local file_content
+    file_content="$(cat "$config_file")"
+    
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_num++))
         
@@ -47,6 +51,7 @@ load_config() {
         # Provider section header
         if [[ "$line" =~ ^\[([^]]+)\]$ ]]; then
             current_provider="${BASH_REMATCH[1]}"
+            debug "Found provider section: $current_provider"
             continue
         fi
         
@@ -62,9 +67,12 @@ load_config() {
             key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             
+            debug "Setting $current_provider.$key = $value"
+            
             case "$key" in
                 base_url)
                     PROVIDER_BASE_URLS["$current_provider"]="$value"
+                    debug "PROVIDER_BASE_URLS[$current_provider] = ${PROVIDER_BASE_URLS[$current_provider]}"
                     ;;
                 api_key_var)
                     PROVIDER_API_KEY_VARS["$current_provider"]="$value"
@@ -80,7 +88,7 @@ load_config() {
                     ;;
             esac
         fi
-    done < "$config_file"
+    done <<< "$file_content"
     
     return 0
 }
@@ -107,13 +115,18 @@ init_config() {
     fi
     
     # Build list of available providers
+    debug "Building available providers list"
+    debug "PROVIDER_BASE_URLS keys: ${!PROVIDER_BASE_URLS[*]}"
     AVAILABLE_PROVIDERS=()
     for provider in "${!PROVIDER_BASE_URLS[@]}"; do
+        debug "Checking provider: $provider, enabled: ${PROVIDER_ENABLED[$provider]:-true}"
         # Only include enabled providers
         if [[ "${PROVIDER_ENABLED[$provider]:-true}" == "true" ]]; then
             AVAILABLE_PROVIDERS+=("$provider")
+            debug "Added $provider to AVAILABLE_PROVIDERS"
         fi
     done
+    debug "Final AVAILABLE_PROVIDERS: ${AVAILABLE_PROVIDERS[*]}"
     
     # Sort providers alphabetically
     IFS=$'\n' AVAILABLE_PROVIDERS=($(sort <<<"${AVAILABLE_PROVIDERS[*]}"))
@@ -282,22 +295,42 @@ cmd_unset() {
 }
 
 cmd_list() {
+    local show_all=false
+    [[ "$1" == "--all" ]] && show_all=true
+    
     echo "Available providers:"
-    for provider in "${AVAILABLE_PROVIDERS[@]}"; do
+    
+    local providers_to_show=()
+    if $show_all; then
+        # Show all providers (enabled and disabled)
+        providers_to_show=("${!PROVIDER_BASE_URLS[@]}")
+    else
+        # Show only enabled providers
+        providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
+    fi
+    
+    for provider in "${providers_to_show[@]}"; do
         local mark=" "
         [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
         
-        local base model key_var have_key description
+        local base model key_var have_key description enabled_status
         base="${PROVIDER_BASE_URLS[$provider]}"
         model="${PROVIDER_DEFAULT_MODELS[$provider]}"
         key_var="${PROVIDER_API_KEY_VARS[$provider]}"
         description="${PROVIDER_DESCRIPTIONS[$provider]:-}"
         [[ -n "${!key_var}" ]] && have_key="yes" || have_key="no"
         
-        printf " %s %-12s  %-30s  %-24s  key:%-3s  %s\n" \
-            "$mark" "$provider" "$base" "$model" "$have_key" "$description"
+        # Show disabled status if showing all providers
+        enabled_status=""
+        if $show_all && [[ "${PROVIDER_ENABLED[$provider]:-true}" != "true" ]]; then
+            enabled_status=" (disabled)"
+        fi
+        
+        printf " %s %-12s  %-30s  %-24s  key:%-3s  %s%s\n" \
+            "$mark" "$provider" "$base" "$model" "$have_key" "$description" "$enabled_status"
     done
     [[ -n "$LLM_PROVIDER" ]] && echo "* current provider"
+    return 0  # Explicit success return
 }
 
 cmd_show() {
