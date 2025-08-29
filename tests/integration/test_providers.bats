@@ -3,13 +3,26 @@
 # Integration tests for provider functionality
 
 setup() {
-    # Create temporary config directory and set HOME FIRST
+    # ==========================================
+    # CRITICAL TIMING SEQUENCE FOR INTEGRATION TESTS
+    # ==========================================
+    # This setup function follows a specific order to ensure proper configuration loading:
+    # 1. Set up test environment variables BEFORE sourcing the script
+    # 2. Create test config file BEFORE sourcing the script  
+    # 3. Source the script (which triggers init_config() automatically)
+    # 4. Re-declare arrays if needed for BATS compatibility
+    #
+    # IMPORTANT: The order matters because init_config() runs during script sourcing
+    # and needs to find the test configuration file to override built-in defaults.
+    
+    # Step 1: Create temporary config directory and set HOME FIRST
     export TEST_CONFIG_DIR="$BATS_TMPDIR/llm-env-test-$$"
     mkdir -p "$TEST_CONFIG_DIR/.config/llm-env"
     export HOME="$TEST_CONFIG_DIR"
     
-    # Create test configuration file BEFORE sourcing script
+    # Step 2: Create test configuration file BEFORE sourcing script
     # This ensures init_config() finds the test config instead of falling back to built-in defaults
+    # The test config includes both enabled and disabled providers for comprehensive testing
     cat > "$TEST_CONFIG_DIR/.config/llm-env/config.conf" << 'EOF'
 [test_provider]
 base_url=https://api.example.com/v1
@@ -26,10 +39,11 @@ description=Disabled test provider
 enabled=false
 EOF
 
-    # Enable debug mode for troubleshooting (disable for production)
+    # Step 3: Enable debug mode for troubleshooting (disable for production)
     # export LLM_ENV_DEBUG=1
     
-    # Re-declare associative arrays to ensure they work in BATS context
+    # Step 4: Re-declare associative arrays to ensure they work in BATS context
+    # BATS has scoping issues with associative arrays, so we pre-declare them
     declare -A PROVIDER_BASE_URLS
     declare -A PROVIDER_API_KEY_VARS
     declare -A PROVIDER_DEFAULT_MODELS
@@ -37,11 +51,13 @@ EOF
     declare -A PROVIDER_ENABLED
     declare -a AVAILABLE_PROVIDERS
     
-    # NOW source the main script - init_config() will find our test configuration
+    # Step 5: NOW source the main script - init_config() will find our test configuration
     # Because HOME is set correctly, CONFIG_LOCATIONS will point to our test config
+    # This is the critical moment where configuration loading occurs
     source "$BATS_TEST_DIRNAME/../../llm-env"
     
-    # Debug: Check arrays immediately after sourcing (disable for production)
+    # Step 6: Debug verification (disable for production)
+    # Uncomment to verify arrays are populated correctly after sourcing:
     # echo "SETUP DEBUG: AVAILABLE_PROVIDERS: ${AVAILABLE_PROVIDERS[*]}" >&2
 }
 
@@ -52,15 +68,31 @@ teardown() {
     unset LLM_TEST_API_KEY LLM_DISABLED_API_KEY
 }
 
-# Helper function to initialize arrays in test context (workaround for BATS scoping issues)
+# ==========================================
+# HELPER FUNCTION: ARRAY RE-INITIALIZATION
+# ==========================================
+# This helper function addresses BATS scoping limitations with associative arrays.
+# Some tests need to re-initialize arrays after modifying config files during test execution.
+#
+# USAGE: Call init_test_arrays() at the start of any test that:
+#   - Modifies config files after setup() completes
+#   - Needs fresh array population from updated configuration
+#   - Experiences array scoping issues in BATS environment
+#
+# TECHNICAL NOTES:
+#   - Uses 'declare -gA' for global associative arrays
+#   - Uses 'declare -ga' for global indexed arrays  
+#   - Calls init_config() to repopulate arrays from current config state
 init_test_arrays() {
-    # Re-declare arrays globally in test context
+    # Re-declare arrays globally in test context to work around BATS scoping issues
     declare -gA PROVIDER_BASE_URLS
     declare -gA PROVIDER_API_KEY_VARS
     declare -gA PROVIDER_DEFAULT_MODELS
     declare -gA PROVIDER_DESCRIPTIONS
     declare -gA PROVIDER_ENABLED
     declare -ga AVAILABLE_PROVIDERS
+    
+    # Repopulate arrays from current configuration state
     init_config
 }
 
