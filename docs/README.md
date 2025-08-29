@@ -39,13 +39,13 @@ docs/
 ### Basic Commands
 ```bash
 # List providers
-llm_manager list
+llm-env list
 
 # Set provider
-llm_manager set cerebras
+llm-env set cerebras
 
 # Show current config
-llm_manager show
+llm-env show
 
 # Configuration management
 source llm-env config init

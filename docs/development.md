@@ -306,7 +306,7 @@ echo "Basic tests passed"
    ./install.sh
    
    # Test all providers
-   llm_manager list
+   llm-env list
    ```
 
 3. **Create GitHub release**
