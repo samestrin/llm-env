@@ -1,0 +1,525 @@
+#!/usr/bin/env bash
+# llm-env - LLM Environment Manager
+# Usage:
+#   source ./llm-env set <provider>
+#   source ./llm-env unset
+#   source ./llm-env list
+#   source ./llm-env show
+#   source ./llm-env config <command>
+
+# ---------- Configuration Loading ----------
+
+# Configuration file locations (in order of precedence)
+CONFIG_LOCATIONS=(
+    "$HOME/.config/llm-env/config.conf"
+    "/usr/local/etc/llm-env/config.conf"
+    "$(dirname "${BASH_SOURCE[0]}")/config/llm-env.conf"
+)
+
+# Global associative arrays for configuration
+declare -A PROVIDER_BASE_URLS
+declare -A PROVIDER_API_KEY_VARS
+declare -A PROVIDER_DEFAULT_MODELS
+declare -A PROVIDER_DESCRIPTIONS
+declare -A PROVIDER_ENABLED
+declare -a AVAILABLE_PROVIDERS
+
+# Load configuration from file
+load_config() {
+    local config_file="$1"
+    [[ ! -f "$config_file" ]] && return 1
+    
+    local current_provider=""
+    local line_num=0
+    
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ((line_num++))
+        
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        
+        # Provider section header
+        if [[ "$line" =~ ^\[([^]]+)\]$ ]]; then
+            current_provider="${BASH_REMATCH[1]}"
+            continue
+        fi
+        
+        # Skip if no current provider
+        [[ -z "$current_provider" ]] && continue
+        
+        # Parse key=value pairs
+        if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+            local key="${BASH_REMATCH[1]}"
+            local value="${BASH_REMATCH[2]}"
+            
+            # Trim whitespace
+            key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            
+            case "$key" in
+                base_url)
+                    PROVIDER_BASE_URLS["$current_provider"]="$value"
+                    ;;
+                api_key_var)
+                    PROVIDER_API_KEY_VARS["$current_provider"]="$value"
+                    ;;
+                default_model)
+                    PROVIDER_DEFAULT_MODELS["$current_provider"]="$value"
+                    ;;
+                description)
+                    PROVIDER_DESCRIPTIONS["$current_provider"]="$value"
+                    ;;
+                enabled)
+                    PROVIDER_ENABLED["$current_provider"]="$value"
+                    ;;
+            esac
+        fi
+    done < "$config_file"
+    
+    return 0
+}
+
+# Initialize configuration
+init_config() {
+    local config_loaded=false
+    
+    # Try to load configuration files in order of precedence
+    for config_file in "${CONFIG_LOCATIONS[@]}"; do
+        if load_config "$config_file"; then
+            config_loaded=true
+            break
+        fi
+    done
+    
+    if ! $config_loaded; then
+        echo "⚠️  No configuration file found. Using built-in defaults."
+        echo "   Create ~/.config/llm-env/config.conf for custom configuration."
+        load_builtin_config
+    fi
+    
+    # Build list of available providers
+    AVAILABLE_PROVIDERS=()
+    for provider in "${!PROVIDER_BASE_URLS[@]}"; do
+        # Only include enabled providers
+        if [[ "${PROVIDER_ENABLED[$provider]:-true}" == "true" ]]; then
+            AVAILABLE_PROVIDERS+=("$provider")
+        fi
+    done
+    
+    # Sort providers alphabetically
+    IFS=$'\n' AVAILABLE_PROVIDERS=($(sort <<<"${AVAILABLE_PROVIDERS[*]}"))
+    unset IFS
+}
+
+# Fallback built-in configuration
+load_builtin_config() {
+    # Core providers
+    PROVIDER_BASE_URLS["cerebras"]="https://api.cerebras.ai/v1"
+    PROVIDER_API_KEY_VARS["cerebras"]="LLM_CEREBRAS_API_KEY"
+    PROVIDER_DEFAULT_MODELS["cerebras"]="qwen-3-coder-480b"
+    PROVIDER_DESCRIPTIONS["cerebras"]="Fast inference, great for coding"
+    PROVIDER_ENABLED["cerebras"]="true"
+    
+    PROVIDER_BASE_URLS["openai"]="https://api.openai.com/v1"
+    PROVIDER_API_KEY_VARS["openai"]="LLM_OPENAI_API_KEY"
+    PROVIDER_DEFAULT_MODELS["openai"]="gpt-5-2025-08-07"
+    PROVIDER_DESCRIPTIONS["openai"]="Industry standard, highest quality"
+    PROVIDER_ENABLED["openai"]="true"
+    
+    PROVIDER_BASE_URLS["groq"]="https://api.groq.com/openai/v1"
+    PROVIDER_API_KEY_VARS["groq"]="LLM_GROQ_API_KEY"
+    PROVIDER_DEFAULT_MODELS["groq"]="openai/gpt-oss-120b"
+    PROVIDER_DESCRIPTIONS["groq"]="Lightning-fast inference"
+    PROVIDER_ENABLED["groq"]="true"
+    
+    PROVIDER_BASE_URLS["openrouter"]="https://openrouter.ai/api/v1"
+    PROVIDER_API_KEY_VARS["openrouter"]="LLM_OPENROUTER_API_KEY"
+    PROVIDER_DEFAULT_MODELS["openrouter"]="deepseek/deepseek-chat-v3.1:free"
+    PROVIDER_DESCRIPTIONS["openrouter"]="Free tier option"
+    PROVIDER_ENABLED["openrouter"]="true"
+}
+
+# ---------- Helper Functions ----------
+
+mask() {
+    # mask everything but last 4 chars
+    local s="$1"
+    [[ -z "$s" ]] && { echo "∅"; return; }
+    local n=${#s}
+    (( n<=4 )) && { printf "%s\n" "$s"; return; }
+    printf "%*s%s\n" $((n-4)) "" "${s: -4}" | tr ' ' '•'
+}
+
+host_from_url() {
+    awk -F/ '{print $3}' <<<"$1"
+}
+
+# Validate provider exists and is enabled
+validate_provider() {
+    local provider="$1"
+    
+    # Check if provider exists
+    if [[ -z "${PROVIDER_BASE_URLS[$provider]:-}" ]]; then
+        return 1
+    fi
+    
+    # Check if provider is enabled
+    if [[ "${PROVIDER_ENABLED[$provider]:-true}" != "true" ]]; then
+        return 2
+    fi
+    
+    return 0
+}
+
+# ---------- Commands ----------
+
+cmd_set() {
+    local provider="$1"
+    if [[ -z "$provider" ]]; then
+        echo "Usage: source llm-env set <provider>"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        return 1
+    fi
+    
+    # Validate provider
+    if ! validate_provider "$provider"; then
+        case $? in
+            1) echo "❌ Unknown provider: $provider" ;;
+            2) echo "❌ Provider disabled: $provider" ;;
+        esac
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        return 1
+    fi
+    
+    local key_var model base key
+    key_var="${PROVIDER_API_KEY_VARS[$provider]}"
+    base="${PROVIDER_BASE_URLS[$provider]}"
+    model="${OPENAI_MODEL_OVERRIDE:-${PROVIDER_DEFAULT_MODELS[$provider]}}"
+    key="${!key_var}"
+    
+    if [[ -z "$key" ]]; then
+        echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
+        return 1
+    fi
+    
+    if [[ -z "$base" || -z "$model" ]]; then
+        echo "❌ Missing base URL or model for $provider"
+        return 1
+    fi
+    
+    export OPENAI_API_KEY="$key"
+    export OPENAI_BASE_URL="$base"
+    export OPENAI_MODEL="$model"
+    export LLM_PROVIDER="$provider"
+    
+    local host
+    host=$(host_from_url "$OPENAI_BASE_URL")
+    echo "✅ Set: provider=$LLM_PROVIDER host=$host model=$OPENAI_MODEL key=$(mask "$OPENAI_API_KEY")"
+}
+
+cmd_unset() {
+    local prev_p="$LLM_PROVIDER"
+    local prev_host
+    prev_host=$(host_from_url "${OPENAI_BASE_URL:-}")
+    local prev_model="$OPENAI_MODEL"
+    
+    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL LLM_PROVIDER
+    echo "🗑️ Unset OpenAI-compatible envs (was: provider=${prev_p:-∅} host=${prev_host:-∅} model=${prev_model:-∅})"
+}
+
+cmd_list() {
+    echo "Available providers:"
+    for provider in "${AVAILABLE_PROVIDERS[@]}"; do
+        local mark=" "
+        [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
+        
+        local base model key_var have_key description
+        base="${PROVIDER_BASE_URLS[$provider]}"
+        model="${PROVIDER_DEFAULT_MODELS[$provider]}"
+        key_var="${PROVIDER_API_KEY_VARS[$provider]}"
+        description="${PROVIDER_DESCRIPTIONS[$provider]:-}"
+        [[ -n "${!key_var}" ]] && have_key="yes" || have_key="no"
+        
+        printf " %s %-12s  %-30s  %-24s  key:%-3s  %s\n" \
+            "$mark" "$provider" "$base" "$model" "$have_key" "$description"
+    done
+    [[ -n "$LLM_PROVIDER" ]] && echo "* current provider"
+}
+
+cmd_show() {
+    echo "Current environment:"
+    echo "  LLM_PROVIDER     = ${LLM_PROVIDER:-∅}"
+    echo "  OPENAI_BASE_URL  = ${OPENAI_BASE_URL:-∅}"
+    echo "  OPENAI_MODEL     = ${OPENAI_MODEL:-∅}"
+    echo "  OPENAI_API_KEY   = $(mask "${OPENAI_API_KEY:-}")"
+    
+    # Show configuration source
+    for config_file in "${CONFIG_LOCATIONS[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            echo "  Config file      = $config_file"
+            break
+        fi
+    done
+}
+
+cmd_config() {
+    local subcmd="$1"
+    shift
+    
+    case "$subcmd" in
+        init)
+            cmd_config_init "$@"
+            ;;
+        edit)
+            cmd_config_edit "$@"
+            ;;
+        add)
+            cmd_config_add "$@"
+            ;;
+        remove)
+            cmd_config_remove "$@"
+            ;;
+        validate)
+            cmd_config_validate "$@"
+            ;;
+        *)
+            echo "Usage: source llm-env config {init|edit|add|remove|validate}"
+            echo "  init              Create user configuration file"
+            echo "  edit              Edit user configuration file"
+            echo "  add <provider>    Add a new provider interactively"
+            echo "  remove <provider> Remove a provider"
+            echo "  validate          Validate configuration file"
+            ;;
+    esac
+}
+
+cmd_config_init() {
+    local user_config="$HOME/.config/llm-env/config.conf"
+    
+    if [[ -f "$user_config" ]]; then
+        echo "⚠️  Configuration file already exists: $user_config"
+        read -p "Overwrite? (y/N): " -n 1 -r
+        echo
+        [[ ! $REPLY =~ ^[Yy]$ ]] && return 1
+    fi
+    
+    # Create directory if it doesn't exist
+    mkdir -p "$(dirname "$user_config")"
+    
+    # Copy default configuration
+    local default_config
+    for config_file in "${CONFIG_LOCATIONS[@]}"; do
+        if [[ -f "$config_file" ]]; then
+            default_config="$config_file"
+            break
+        fi
+    done
+    
+    if [[ -n "$default_config" ]]; then
+        cp "$default_config" "$user_config"
+        echo "✅ Created user configuration: $user_config"
+        echo "💡 Edit this file to customize your providers and models"
+    else
+        echo "❌ No default configuration found to copy"
+        return 1
+    fi
+}
+
+cmd_config_edit() {
+    local user_config="$HOME/.config/llm-env/config.conf"
+    
+    if [[ ! -f "$user_config" ]]; then
+        echo "⚠️  User configuration not found. Creating it first..."
+        cmd_config_init || return 1
+    fi
+    
+    # Use user's preferred editor
+    local editor="${EDITOR:-${VISUAL:-nano}}"
+    "$editor" "$user_config"
+    
+    echo "💡 Run 'source llm-env config validate' to check your configuration"
+}
+
+cmd_config_add() {
+    local provider="$1"
+    if [[ -z "$provider" ]]; then
+        echo "Usage: source llm-env config add <provider_name>"
+        return 1
+    fi
+    
+    echo "Adding new provider: $provider"
+    echo "Please provide the following information:"
+    
+    read -p "Base URL: " base_url
+    read -p "API Key Environment Variable: " api_key_var
+    read -p "Default Model: " default_model
+    read -p "Description (optional): " description
+    
+    local user_config="$HOME/.config/llm-env/config.conf"
+    
+    # Create user config if it doesn't exist
+    if [[ ! -f "$user_config" ]]; then
+        cmd_config_init || return 1
+    fi
+    
+    # Append new provider
+    {
+        echo ""
+        echo "[$provider]"
+        echo "base_url=$base_url"
+        echo "api_key_var=$api_key_var"
+        echo "default_model=$default_model"
+        [[ -n "$description" ]] && echo "description=$description"
+        echo "enabled=true"
+    } >> "$user_config"
+    
+    echo "✅ Added provider '$provider' to $user_config"
+    echo "💡 Don't forget to set $api_key_var in your shell profile"
+}
+
+cmd_config_remove() {
+    local provider="$1"
+    if [[ -z "$provider" ]]; then
+        echo "Usage: source llm-env config remove <provider_name>"
+        return 1
+    fi
+    
+    local user_config="$HOME/.config/llm-env/config.conf"
+    
+    if [[ ! -f "$user_config" ]]; then
+        echo "❌ User configuration not found: $user_config"
+        return 1
+    fi
+    
+    # Create backup
+    cp "$user_config" "$user_config.backup"
+    
+    # Remove provider section
+    awk -v provider="$provider" '
+        BEGIN { in_section = 0 }
+        /^\[/ { 
+            if ($0 == "[" provider "]") {
+                in_section = 1
+                next
+            } else {
+                in_section = 0
+            }
+        }
+        !in_section { print }
+    ' "$user_config.backup" > "$user_config"
+    
+    echo "✅ Removed provider '$provider' from $user_config"
+    echo "💡 Backup saved as $user_config.backup"
+}
+
+cmd_config_validate() {
+    echo "🔍 Validating configuration..."
+    
+    local errors=0
+    local warnings=0
+    
+    # Re-initialize to test configuration loading
+    init_config
+    
+    # Check each provider
+    for provider in "${!PROVIDER_BASE_URLS[@]}"; do
+        local base_url="${PROVIDER_BASE_URLS[$provider]}"
+        local api_key_var="${PROVIDER_API_KEY_VARS[$provider]}"
+        local default_model="${PROVIDER_DEFAULT_MODELS[$provider]}"
+        local enabled="${PROVIDER_ENABLED[$provider]:-true}"
+        
+        echo "Checking provider: $provider"
+        
+        # Check required fields
+        if [[ -z "$base_url" ]]; then
+            echo "  ❌ Missing base_url"
+            ((errors++))
+        elif [[ ! "$base_url" =~ ^https?:// ]]; then
+            echo "  ⚠️  base_url should start with http:// or https://"
+            ((warnings++))
+        else
+            echo "  ✅ base_url: $base_url"
+        fi
+        
+        if [[ -z "$api_key_var" ]]; then
+            echo "  ❌ Missing api_key_var"
+            ((errors++))
+        else
+            echo "  ✅ api_key_var: $api_key_var"
+            
+            # Check if API key is set
+            if [[ -z "${!api_key_var}" ]]; then
+                echo "  ⚠️  API key not set: $api_key_var"
+                ((warnings++))
+            else
+                echo "  ✅ API key is set"
+            fi
+        fi
+        
+        if [[ -z "$default_model" ]]; then
+            echo "  ❌ Missing default_model"
+            ((errors++))
+        else
+            echo "  ✅ default_model: $default_model"
+        fi
+        
+        if [[ "$enabled" != "true" && "$enabled" != "false" ]]; then
+            echo "  ⚠️  enabled should be 'true' or 'false', got: $enabled"
+            ((warnings++))
+        fi
+        
+        echo
+    done
+    
+    echo "Validation complete:"
+    echo "  Providers: ${#PROVIDER_BASE_URLS[@]}"
+    echo "  Enabled: ${#AVAILABLE_PROVIDERS[@]}"
+    echo "  Errors: $errors"
+    echo "  Warnings: $warnings"
+    
+    if (( errors > 0 )); then
+        echo "❌ Configuration has errors that need to be fixed"
+        return 1
+    elif (( warnings > 0 )); then
+        echo "⚠️  Configuration has warnings but should work"
+        return 0
+    else
+        echo "✅ Configuration is valid"
+        return 0
+    fi
+}
+
+# ---------- Entry Point ----------
+
+# Initialize configuration on script load
+init_config
+
+# Handle commands
+case "$1" in
+    set)
+        shift
+        cmd_set "$1"
+        ;;
+    unset)
+        cmd_unset
+        ;;
+    list)
+        cmd_list
+        ;;
+    show)
+        cmd_show
+        ;;
+    config)
+        shift
+        cmd_config "$@"
+        ;;
+    *)
+        echo "Usage: source llm-env {set <provider>|unset|list|show|config <command>}"
+        echo "  set <provider>    Set LLM provider and export environment variables"
+        echo "  unset             Clear all LLM environment variables"
+        echo "  list              List all available providers"
+        echo "  show              Show current environment"
+        echo "  config <command>  Manage configuration (init|edit|add|remove|validate)"
+        ;;
+esac
