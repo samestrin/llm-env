@@ -7,6 +7,9 @@
 #   source ./llm-env show
 #   source ./llm-env config <command>
 
+# Version information
+VERSION="1.1.0"
+
 # ---------- Configuration Loading ----------
 
 # Configuration file locations (in order of precedence)
@@ -27,8 +30,10 @@ declare -a AVAILABLE_PROVIDERS
 # Load configuration from file
 load_config() {
     local config_file="$1"
-    [[ ! -f "$config_file" ]] && return 1
+    debug "Attempting to load config from: $config_file"
+    [[ ! -f "$config_file" ]] && { debug "Config file not found: $config_file"; return 1; }
     
+    debug "Loading configuration from: $config_file"
     local current_provider=""
     local line_num=0
     
@@ -82,17 +87,20 @@ load_config() {
 
 # Initialize configuration
 init_config() {
+    debug "Initializing configuration"
     local config_loaded=false
     
     # Try to load configuration files in order of precedence
     for config_file in "${CONFIG_LOCATIONS[@]}"; do
         if load_config "$config_file"; then
+            debug "Successfully loaded config from: $config_file"
             config_loaded=true
             break
         fi
     done
     
     if ! $config_loaded; then
+        debug "No configuration file found, loading built-in defaults"
         echo "⚠️  No configuration file found. Using built-in defaults."
         echo "   Create ~/.config/llm-env/config.conf for custom configuration."
         load_builtin_config
@@ -142,6 +150,13 @@ load_builtin_config() {
 
 # ---------- Helper Functions ----------
 
+# Debug logging function
+debug() {
+    if [[ "${LLM_ENV_DEBUG:-0}" == "1" ]]; then
+        echo "[DEBUG] $*" >&2
+    fi
+}
+
 mask() {
     # mask everything but last 4 chars
     local s="$1"
@@ -155,20 +170,47 @@ host_from_url() {
     awk -F/ '{print $3}' <<<"$1"
 }
 
+# Validate provider name format
+validate_provider_name() {
+    local name="$1"
+    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo "Error: Invalid provider name '$name'. Only letters, numbers, underscores, and hyphens are allowed." >&2
+        return 1
+    fi
+    return 0
+}
+
+# Sanitize configuration values to prevent injection
+sanitize_config_value() {
+    local value="$1"
+    # Remove potential command substitution and other dangerous patterns
+    value="${value//\$(/}"
+    value="${value//\`/}"
+    value="${value//\$/}"
+    value="${value//;/}"
+    value="${value//&/}"
+    value="${value//|/}"
+    echo "$value"
+}
+
 # Validate provider exists and is enabled
 validate_provider() {
     local provider="$1"
+    debug "Validating provider: $provider"
     
     # Check if provider exists
     if [[ -z "${PROVIDER_BASE_URLS[$provider]:-}" ]]; then
+        debug "Provider not found: $provider"
         return 1
     fi
     
     # Check if provider is enabled
     if [[ "${PROVIDER_ENABLED[$provider]:-true}" != "true" ]]; then
+        debug "Provider disabled: $provider"
         return 2
     fi
     
+    debug "Provider validation successful: $provider"
     return 0
 }
 
@@ -179,6 +221,11 @@ cmd_set() {
     if [[ -z "$provider" ]]; then
         echo "Usage: source llm-env set <provider>"
         echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        return 1
+    fi
+    
+    # Validate provider name format
+    if ! validate_provider_name "$provider"; then
         return 1
     fi
     
@@ -197,6 +244,12 @@ cmd_set() {
     base="${PROVIDER_BASE_URLS[$provider]}"
     model="${OPENAI_MODEL_OVERRIDE:-${PROVIDER_DEFAULT_MODELS[$provider]}}"
     key="${!key_var}"
+    
+    debug "Resolving environment for provider $provider:"
+    debug "  key_var=$key_var"
+    debug "  base=$base"
+    debug "  model=$model"
+    debug "  key_set=$([ -n "$key" ] && echo "yes" || echo "no")"
     
     if [[ -z "$key" ]]; then
         echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
@@ -348,13 +401,26 @@ cmd_config_add() {
         return 1
     fi
     
+    # Validate provider name format
+    if ! validate_provider_name "$provider"; then
+        return 1
+    fi
+    
     echo "Adding new provider: $provider"
     echo "Please provide the following information:"
     
-    read -p "Base URL: " base_url
-    read -p "API Key Environment Variable: " api_key_var
-    read -p "Default Model: " default_model
-    read -p "Description (optional): " description
+    # Set timeout for read operations
+    local TMOUT=30
+    read -t $TMOUT -p "Base URL: " base_url || { echo "Timeout reached"; return 1; }
+    read -t $TMOUT -p "API Key Environment Variable: " api_key_var || { echo "Timeout reached"; return 1; }
+    read -t $TMOUT -p "Default Model: " default_model || { echo "Timeout reached"; return 1; }
+    read -t $TMOUT -p "Description (optional): " description || { echo "Timeout reached"; return 1; }
+    
+    # Sanitize input values
+    base_url=$(sanitize_config_value "$base_url")
+    api_key_var=$(sanitize_config_value "$api_key_var")
+    default_model=$(sanitize_config_value "$default_model")
+    description=$(sanitize_config_value "$description")
     
     local user_config="$HOME/.config/llm-env/config.conf"
     
@@ -382,6 +448,11 @@ cmd_config_remove() {
     local provider="$1"
     if [[ -z "$provider" ]]; then
         echo "Usage: source llm-env config remove <provider_name>"
+        return 1
+    fi
+    
+    # Validate provider name format
+    if ! validate_provider_name "$provider"; then
         return 1
     fi
     
@@ -497,6 +568,9 @@ init_config
 
 # Handle commands
 case "$1" in
+    --version)
+        echo "llm-env v$VERSION"
+        ;;
     set)
         shift
         cmd_set "$1"
@@ -515,11 +589,12 @@ case "$1" in
         cmd_config "$@"
         ;;
     *)
-        echo "Usage: source llm-env {set <provider>|unset|list|show|config <command>}"
+        echo "Usage: source llm-env {set <provider>|unset|list|show|config <command>|--version}"
         echo "  set <provider>    Set LLM provider and export environment variables"
         echo "  unset             Clear all LLM environment variables"
         echo "  list              List all available providers"
         echo "  show              Show current environment"
         echo "  config <command>  Manage configuration (init|edit|add|remove|validate)"
+        echo "  --version         Show version information"
         ;;
 esac
