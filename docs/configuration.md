@@ -143,11 +143,11 @@ Override the default model for any provider using environment variables:
 ```bash
 # Override OpenAI model
 export OPENAI_MODEL_OVERRIDE="gpt-4o-mini"
-llm_manager set openai  # Will use gpt-4o-mini instead of default
+llm-env set openai  # Will use gpt-4o-mini instead of default
 
 # Override Groq model
 export OPENAI_MODEL_OVERRIDE="llama-3.1-8b-instant"
-llm_manager set groq
+llm-env set groq
 ```
 
 ### API Key Management
@@ -203,6 +203,33 @@ This checks for:
 ```bash
 # Open configuration in your default editor
 source llm-env config edit
+```
+
+### Backup and Restore
+
+```bash
+# Create a backup of your configuration
+source llm-env config backup
+
+# Restore from a backup file
+source llm-env config restore /path/to/backup.conf
+
+# List available backups
+source llm-env config restore  # Shows available backups
+```
+
+### Bulk Operations
+
+```bash
+# Enable multiple providers at once
+source llm-env config bulk enable cerebras openai groq
+
+# Disable multiple providers at once
+source llm-env config bulk disable openrouter anthropic
+
+# Example: Enable only production providers
+source llm-env config bulk disable openrouter openrouter2 openrouter3
+source llm-env config bulk enable cerebras openai
 ```
 
 ## Default Provider Configurations
@@ -288,7 +315,7 @@ enabled=true
    grep -A5 "\[provider_name\]" ~/.config/llm-env/config.conf
    
    # List all providers
-   llm_manager list
+   llm-env list
    ```
 
 3. **API key not found**
@@ -307,7 +334,7 @@ Enable debug output to troubleshoot configuration issues:
 ```bash
 # Enable debug mode
 export LLM_ENV_DEBUG=1
-llm_manager list
+llm-env list
 ```
 
 This will show:

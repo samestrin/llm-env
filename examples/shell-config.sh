@@ -7,7 +7,7 @@
 # ============================================================================
 
 # LLM Environment Manager function
-llm_manager() {
+llm-env() {
     source /usr/local/bin/llm-env "$@"
 }
 
@@ -24,7 +24,7 @@ export LLM_OPENROUTER_API_KEY="sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # Optional: Set a default provider on shell startup
 # Uncomment the line below to automatically set a provider when opening a new terminal
-# llm_manager set cerebras
+# llm-env set cerebras
 
 # Optional: Model overrides
 # Uncomment and modify these to override default models for specific providers
@@ -35,18 +35,18 @@ export LLM_OPENROUTER_API_KEY="sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # ============================================================================
 
 # Quick provider switching aliases
-alias llm-cerebras='llm_manager set cerebras'
-alias llm-openai='llm_manager set openai'
-alias llm-groq='llm_manager set groq'
-alias llm-free='llm_manager set openrouter2'  # Free tier
-alias llm-status='llm_manager show'
-alias llm-list='llm_manager list'
-alias llm-reset='llm_manager unset'
+alias llm-cerebras='llm-env set cerebras'
+alias llm-openai='llm-env set openai'
+alias llm-groq='llm-env set groq'
+alias llm-free='llm-env set openrouter2'  # Free tier
+alias llm-status='llm-env show'
+alias llm-list='llm-env list'
+alias llm-reset='llm-env unset'
 
 # Quick model testing
 llm_test() {
     if [[ -z "$OPENAI_API_KEY" ]]; then
-        echo "❌ No LLM provider set. Use 'llm_manager set <provider>' first."
+        echo "❌ No LLM provider set. Use 'llm-env set <provider>' first."
         return 1
     fi
     
@@ -71,31 +71,31 @@ llm_test() {
 # Switch to free tier when you want to conserve costs
 llm_free_tier() {
     echo "🆓 Switching to free tier providers..."
-    llm_manager set openrouter2  # DeepSeek free
+    llm-env set openrouter2  # DeepSeek free
     echo "💡 Tip: Use 'llm_paid_tier' when you need better performance"
 }
 
 # Switch to paid tier for better performance
 llm_paid_tier() {
     echo "💰 Switching to paid tier for better performance..."
-    llm_manager set cerebras  # Fast and affordable
+    llm-env set cerebras  # Fast and affordable
     echo "💡 Tip: Use 'llm_free_tier' to conserve costs"
 }
 
 # Smart switching based on task type
 llm_for_coding() {
     echo "💻 Optimizing for coding tasks..."
-    llm_manager set cerebras  # qwen-3-coder-480b is great for coding
+    llm-env set cerebras  # qwen-3-coder-480b is great for coding
 }
 
 llm_for_speed() {
     echo "⚡ Optimizing for speed..."
-    llm_manager set groq  # Fastest inference
+    llm-env set groq  # Fastest inference
 }
 
 llm_for_quality() {
     echo "🎯 Optimizing for quality..."
-    llm_manager set openai  # Best quality responses
+    llm-env set openai  # Best quality responses
 }
 
 # ============================================================================
@@ -110,7 +110,7 @@ ask_llm() {
     fi
     
     if [[ -z "$OPENAI_API_KEY" ]]; then
-        echo "❌ No LLM provider set. Use 'llm_manager set <provider>' first."
+        echo "❌ No LLM provider set. Use 'llm-env set <provider>' first."
         return 1
     fi
     
@@ -155,4 +155,4 @@ code_review() {
     ask_llm "Please review this code for bugs, improvements, and best practices:\n\n$code_content"
 }
 
-echo "🚀 LLM Environment Manager loaded! Try 'llm_manager list' to get started."
+echo "🚀 LLM Environment Manager loaded! Try 'llm-env list' to get started."
