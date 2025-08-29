@@ -2,19 +2,41 @@
 
 This guide helps you diagnose and resolve common issues with LLM Environment Manager.
 
+## Version Information
+
+**Current Version:** v1.1.0
+
+### Version Compatibility
+- **v1.1.0**: Added --help, test, backup/restore, bulk operations, debug mode
+- **v1.0.0**: Initial release with basic provider switching
+
+### New in v1.1.0
+- `llm-env --help`: Comprehensive help system
+- `llm-env test <provider>`: API connectivity testing
+- `llm-env config backup/restore`: Configuration backup and restore
+- `llm-env config bulk <action>`: Bulk enable/disable operations
+- `LLM_ENV_DEBUG=1`: Debug mode for troubleshooting
+- Enhanced installer with multi-shell support and uninstall
+
 ## Quick Diagnostics
 
 ### Check Your Setup
 
 ```bash
 # Verify all providers and keys
-llm_manager list
+llm-env list
 
 # Check current environment
-llm_manager show
+llm-env show
 
-# Test a simple request
+# Test provider connectivity (new in v1.1.0)
+llm-env test cerebras
+
+# Test a simple request manually
 curl -H "Authorization: Bearer $OPENAI_API_KEY" $OPENAI_BASE_URL/models
+
+# Get comprehensive help
+llm-env --help
 ```
 
 ### Enable Debug Mode
@@ -22,7 +44,7 @@ curl -H "Authorization: Bearer $OPENAI_API_KEY" $OPENAI_BASE_URL/models
 ```bash
 # Enable detailed logging
 export LLM_ENV_DEBUG=1
-llm_manager list
+llm-env list
 ```
 
 ## Common Issues
@@ -66,14 +88,14 @@ llm_manager list
 ### 2. "Unknown provider" Error
 
 **Symptoms:**
-- Provider not listed in `llm_manager list`
+- Provider not listed in `llm-env list`
 - Error when trying to set a provider
 
 **Solutions:**
 
 1. **Check available providers:**
    ```bash
-   llm_manager list
+   llm-env list
    ```
 
 2. **Verify provider is enabled in configuration:**
@@ -88,10 +110,10 @@ llm_manager list
    source llm-env config add provider_name
    ```
 
-### 3. "Command not found: llm_manager"
+### 3. "Command not found: llm-env"
 
 **Symptoms:**
-- Shell can't find the `llm_manager` command
+- Shell can't find the `llm-env` command
 - Script works with full path but not as command
 
 **Solutions:**
@@ -110,10 +132,10 @@ llm_manager list
 3. **Check shell function is defined:**
    ```bash
    # Check if function exists
-   type llm_manager
+   type llm-env
    
    # Add function to shell profile if missing
-   echo 'llm_manager() { source /usr/local/bin/llm-env "$@"; }' >> ~/.bashrc
+   echo 'llm-env() { source /usr/local/bin/llm-env "$@"; }' >> ~/.bashrc
    source ~/.bashrc
    ```
 
@@ -129,7 +151,7 @@ llm_manager list
    ```bash
    # Check which config file is being used
    export LLM_ENV_DEBUG=1
-   llm_manager list
+   llm-env list
    ```
 
 2. **Verify file permissions:**
@@ -180,7 +202,7 @@ llm_manager list
 
 **Symptoms:**
 - Variables work in current session but disappear after restart
-- Need to run `llm_manager set` every time
+- Need to run `llm-env set` every time
 
 **Solutions:**
 
@@ -219,7 +241,7 @@ llm_manager list
 export LLM_ENV_DEBUG=1
 
 # Check configuration loading
-llm_manager list
+llm-env list
 
 # This will show:
 # - Which config files are checked
@@ -248,7 +270,7 @@ echo "Groq: $LLM_GROQ_API_KEY"
 # Test each provider's endpoint
 for provider in cerebras openai groq openrouter; do
   echo "Testing $provider..."
-  llm_manager set $provider
+  llm-env set $provider
   curl -s -o /dev/null -w "%{http_code}" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     "$OPENAI_BASE_URL/models"
@@ -319,6 +341,27 @@ ls -la /usr/local/bin/llm-env
    # Use /c/Users/username/ instead of ~
    ```
 
+3. **WSL-specific issues:**
+   ```bash
+   # Check WSL version
+   wsl --version
+   
+   # Ensure proper shell configuration
+   echo $SHELL
+   
+   # WSL2 networking issues
+   # May need to restart WSL if API calls fail
+   wsl --shutdown
+   ```
+
+4. **PowerShell integration:**
+   ```powershell
+   # If using PowerShell, you can create a wrapper function
+   function llm-env { 
+       bash -c "source /usr/local/bin/llm-env '$args'"
+   }
+   ```
+
 ## Getting Help
 
 ### Collect Debug Information
@@ -341,7 +384,7 @@ env | grep LLM_ | sed 's/=.*/=***HIDDEN***/'
 
 # Current state
 echo "Current provider:"
-llm_manager show
+llm-env show
 ```
 
 ### Report Issues

@@ -9,28 +9,28 @@ This document provides real-world examples of how to use the LLM Environment Man
 ### Morning Setup
 ```bash
 # Check what providers you have configured
-llm_manager list
+llm-env list
 
 # Start with free tier for light tasks
-llm_manager set openrouter2  # DeepSeek free model
+llm-env set openrouter2  # DeepSeek free model
 
 # Verify setup
-llm_manager show
+llm-env show
 ```
 
 ### When Free Tier Runs Out
 ```bash
 # Switch to affordable paid option
-llm_manager set cerebras
+llm-env set cerebras
 
 # Or if you need maximum speed
-llm_manager set groq
+llm-env set groq
 ```
 
 ### End of Day Cleanup
 ```bash
 # Clear environment variables
-llm_manager unset
+llm-env unset
 ```
 
 ## Scenario 2: Cost-Conscious Development
@@ -39,16 +39,16 @@ llm_manager unset
 
 ```bash
 # 1. Start with completely free options
-llm_manager set openrouter3  # Qwen free
+llm-env set openrouter3  # Qwen free
 
 # 2. When free quota exhausted, move to cheap options
-llm_manager set cerebras     # Very affordable
+llm-env set cerebras     # Very affordable
 
 # 3. For critical tasks, use premium
-llm_manager set openai       # Best quality
+llm-env set openai       # Best quality
 
 # 4. For speed-critical tasks
-llm_manager set groq         # Fastest inference
+llm-env set groq         # Fastest inference
 ```
 
 ### Monthly Budget Tracking
@@ -74,7 +74,7 @@ export LLM_CEREBRAS_API_KEY="team_cerebras_key"
 export LLM_GROQ_API_KEY="team_groq_key"
 
 # Default to cost-effective option
-llm_manager set cerebras
+llm-env set cerebras
 echo "✅ Team LLM environment loaded (cerebras)"
 EOF
 
@@ -85,15 +85,15 @@ source team-llm-config.sh
 ### Environment Switching for Different Tasks
 ```bash
 # Code review (needs good reasoning)
-llm_manager set openai
+llm-env set openai
 git diff HEAD~1 | llm "Review this code change"
 
 # Quick documentation (speed matters)
-llm_manager set groq
+llm-env set groq
 llm "Write a brief README for this function: $(cat utils.py)"
 
 # Bulk processing (cost matters)
-llm_manager set openrouter2
+llm-env set openrouter2
 for file in *.py; do
     llm "Summarize this file: $(cat $file)" > "$file.summary"
 done
@@ -117,14 +117,14 @@ jobs:
         run: |
           curl -o llm-env https://raw.githubusercontent.com/yourusername/llm-env/main/llm-env
           chmod +x llm-env
-          echo 'llm_manager() { source ./llm-env "$@"; }' >> ~/.bashrc
+          echo 'llm-env() { source ./llm-env "$@"; }' >> ~/.bashrc
           source ~/.bashrc
         
       - name: AI Code Review
         env:
           LLM_CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
         run: |
-          llm_manager set cerebras
+          llm-env set cerebras
           git diff origin/main...HEAD | llm "Review this code change"
 ```
 
@@ -138,14 +138,14 @@ RUN curl -o /usr/local/bin/llm-env https://raw.githubusercontent.com/yourusernam
     chmod +x /usr/local/bin/llm-env
 
 # Add to shell profile
-RUN echo 'llm_manager() { source /usr/local/bin/llm-env "$@"; }' >> ~/.bashrc
+RUN echo 'llm-env() { source /usr/local/bin/llm-env "$@"; }' >> ~/.bashrc
 
 # Your app code
 COPY . /app
 WORKDIR /app
 
 # Use LLM in your application
-CMD ["bash", "-c", "source ~/.bashrc && llm_manager set cerebras && python app.py"]
+CMD ["bash", "-c", "source ~/.bashrc && llm-env set cerebras && python app.py"]
 ```
 
 ## Scenario 5: Multi-Project Management
@@ -154,17 +154,17 @@ CMD ["bash", "-c", "source ~/.bashrc && llm_manager set cerebras && python app.p
 ```bash
 # Project A: High-quality documentation
 cd ~/projects/important-client
-echo 'llm_manager set openai' > .llmrc
+echo 'llm-env set openai' > .llmrc
 echo 'echo "📚 Using premium LLM for documentation"' >> .llmrc
 
 # Project B: Rapid prototyping
 cd ~/projects/prototype
-echo 'llm_manager set groq' > .llmrc
+echo 'llm-env set groq' > .llmrc
 echo 'echo "⚡ Using fast LLM for prototyping"' >> .llmrc
 
 # Project C: Cost-sensitive
 cd ~/projects/personal
-echo 'llm_manager set openrouter2' > .llmrc
+echo 'llm-env set openrouter2' > .llmrc
 echo 'echo "💰 Using free LLM for personal project"' >> .llmrc
 ```
 
@@ -190,7 +190,7 @@ llm_smart_set() {
     
     for provider in "${providers[@]}"; do
         echo "🔄 Trying $provider..."
-        if llm_manager set "$provider" 2>/dev/null; then
+        if llm-env set "$provider" 2>/dev/null; then
             # Test with a simple request
             if curl -s -f -H "Authorization: Bearer $OPENAI_API_KEY" \
                     "$OPENAI_BASE_URL/models" >/dev/null; then
@@ -216,7 +216,7 @@ echo "============================="
 for provider in cerebras openai groq openrouter; do
     echo -n "$provider: "
     
-    if llm_manager set "$provider" 2>/dev/null; then
+    if llm-env set "$provider" 2>/dev/null; then
         if timeout 10 curl -s -f -H "Authorization: Bearer $OPENAI_API_KEY" \
                 "$OPENAI_BASE_URL/models" >/dev/null 2>&1; then
             echo "✅ Healthy"
@@ -228,7 +228,7 @@ for provider in cerebras openai groq openrouter; do
     fi
 done
 
-llm_manager unset
+llm-env unset
 ```
 
 ## Scenario 7: Integration with Popular Tools
@@ -239,23 +239,23 @@ llm_manager unset
 pip install llm
 
 # Use with different providers
-llm_manager set cerebras
+llm-env set cerebras
 llm "Explain this code: $(cat script.py)"
 
-llm_manager set groq
+llm-env set groq
 llm "Translate this to Spanish: Hello world"
 ```
 
 ### With Aider (AI Pair Programming)
 ```bash
 # Set provider before using aider
-llm_manager set cerebras
+llm-env set cerebras
 aider --model $OPENAI_MODEL --api-base $OPENAI_BASE_URL
 
 # Or create a wrapper script
 cat > aider-cerebras << 'EOF'
 #!/bin/bash
-llm_manager set cerebras
+llm-env set cerebras
 aider --model $OPENAI_MODEL --api-base $OPENAI_BASE_URL "$@"
 EOF
 chmod +x aider-cerebras
@@ -268,7 +268,7 @@ chmod +x aider-cerebras
 import os
 import openai
 
-# The environment is already set by llm_manager
+# The environment is already set by llm-env
 client = openai.OpenAI(
     api_key=os.environ['OPENAI_API_KEY'],
     base_url=os.environ['OPENAI_BASE_URL']
@@ -291,10 +291,10 @@ if __name__ == "__main__":
 
 ```bash
 # Use the Python script with different providers
-llm_manager set cerebras
+llm-env set cerebras
 python ai-helper.py "What's the weather like?"
 
-llm_manager set groq
+llm-env set groq
 python ai-helper.py "Write a haiku about coding"
 ```
 
@@ -312,26 +312,26 @@ python ai-helper.py "Write a haiku about coding"
 ### Provider Not Working
 ```bash
 # Check configuration
-llm_manager show
+llm-env show
 
 # Test API connectivity
 curl -H "Authorization: Bearer $OPENAI_API_KEY" "$OPENAI_BASE_URL/models"
 
 # Try different provider
-llm_manager set groq
+llm-env set groq
 ```
 
 ### Rate Limits
 ```bash
 # Switch to different provider when rate limited
 echo "Rate limited on $LLM_PROVIDER, switching..."
-llm_manager set cerebras  # or another provider
+llm-env set cerebras  # or another provider
 ```
 
 ### API Key Issues
 ```bash
 # Verify API keys are set
-llm_manager list
+llm-env list
 
 # Check specific key
 echo "Cerebras key: ${LLM_CEREBRAS_API_KEY:0:10}..."
