@@ -1,0 +1,9 @@
+# ShellCheck configuration for llm-env project
+# Disable SC1091 (not following sourced files) for compatibility library
+disable=SC1091
+
+# Enable additional checks for better code quality
+enable=require-variable-braces
+
+# External sources that ShellCheck should know about
+external-sources=true
