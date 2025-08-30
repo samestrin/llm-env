@@ -69,8 +69,47 @@ clear_provider_arrays() {
 init_test_environment() {
     local compatibility_mode="${1:-false}"
     
-    # Set bash compatibility mode
-    export BASH_ASSOC_ARRAY_SUPPORT="$([[ "$compatibility_mode" == "true" ]] && echo "false" || echo "true")"
+    # Source the main script to get parse_bash_version function and initialize compatibility variables
+    source "$BATS_TEST_DIRNAME/../../llm-env" > /dev/null 2>&1 || {
+        # Fallback: define parse_bash_version locally if sourcing fails
+        parse_bash_version() {
+            local version="${BASH_VERSION:-4.0.0}"
+            local major minor
+            
+            if [[ "${version}" =~ ^([0-9]+)\.([0-9]+) ]]; then
+                major="${BASH_REMATCH[1]}"
+                minor="${BASH_REMATCH[2]}"
+            else
+                major=3
+                minor=2
+            fi
+            
+            if [[ ${major} -gt 4 || (${major} -eq 4 && ${minor} -ge 0) ]]; then
+                BASH_ASSOC_ARRAY_SUPPORT=true
+            else
+                BASH_ASSOC_ARRAY_SUPPORT=false
+            fi
+            
+            if [[ ${major} -gt 4 || (${major} -eq 4 && ${minor} -ge 2) ]]; then
+                BASH_DECLARE_GLOBAL_SUPPORT=true
+            else
+                BASH_DECLARE_GLOBAL_SUPPORT=false
+            fi
+            
+            export BASH_MAJOR_VERSION=${major}
+            export BASH_MINOR_VERSION=${minor}
+            export BASH_ASSOC_ARRAY_SUPPORT
+            export BASH_DECLARE_GLOBAL_SUPPORT
+        }
+        
+        # Call the fallback function
+        parse_bash_version
+    }
+    
+    # Override with compatibility mode if requested
+    if [[ "$compatibility_mode" == "true" ]]; then
+        export BASH_ASSOC_ARRAY_SUPPORT="false"
+    fi
     
     # Clear any existing arrays
     clear_provider_arrays
