@@ -10,6 +10,51 @@
 # Version information
 VERSION="1.1.0"
 
+# ---------- Bash Version Detection ----------
+
+# Parse bash version for compatibility features
+parse_bash_version() {
+    local version="${BASH_VERSION:-4.0.0}"
+    local major minor
+    
+    # Extract major and minor version numbers
+    if [[ "$version" =~ ^([0-9]+)\.([0-9]+) ]]; then
+        major="${BASH_REMATCH[1]}"
+        minor="${BASH_REMATCH[2]}"
+    else
+        # Fallback to conservative defaults if parsing fails
+        major=3
+        minor=2
+    fi
+    
+    # Set global compatibility flags
+    if [[ $major -gt 4 || ($major -eq 4 && $minor -ge 0) ]]; then
+        BASH_ASSOC_ARRAY_SUPPORT=true
+    else
+        BASH_ASSOC_ARRAY_SUPPORT=false
+    fi
+    
+    BASH_MAJOR_VERSION=$major
+    BASH_MINOR_VERSION=$minor
+    
+    debug "Bash version: $major.$minor, associative array support: $BASH_ASSOC_ARRAY_SUPPORT"
+}
+
+# Debug function (needed early for version detection)
+debug() {
+    if [[ "${LLM_ENV_DEBUG:-0}" == "1" ]]; then
+        echo "[DEBUG] $*" >&2
+    fi
+}
+
+# Initialize bash version detection
+parse_bash_version
+
+# Load bash compatibility library for older bash versions
+if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "false" ]]; then
+    source "$(dirname "${BASH_SOURCE[0]}")/lib/bash_compat.sh"
+fi
+
 # ---------- Configuration Loading ----------
 
 # Configuration file locations (in order of precedence)
@@ -19,13 +64,82 @@ CONFIG_LOCATIONS=(
     "$(dirname "${BASH_SOURCE[0]}")/config/llm-env.conf"
 )
 
-# Global associative arrays for configuration
-declare -A PROVIDER_BASE_URLS
-declare -A PROVIDER_API_KEY_VARS
-declare -A PROVIDER_DEFAULT_MODELS
-declare -A PROVIDER_DESCRIPTIONS
-declare -A PROVIDER_ENABLED
+# Global arrays for configuration (conditional based on bash version)
+if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
+    # Use native associative arrays for bash 4.0+
+    declare -A PROVIDER_BASE_URLS
+    declare -A PROVIDER_API_KEY_VARS
+    declare -A PROVIDER_DEFAULT_MODELS
+    declare -A PROVIDER_DESCRIPTIONS
+    declare -A PROVIDER_ENABLED
+else
+    # Initialize compatibility arrays for bash <4.0
+    # These are managed by the compatibility functions
+    PROVIDER_BASE_URLS_KEYS=()
+    PROVIDER_BASE_URLS_VALUES=()
+    PROVIDER_API_KEY_VARS_KEYS=()
+    PROVIDER_API_KEY_VARS_VALUES=()
+    PROVIDER_DEFAULT_MODELS_KEYS=()
+    PROVIDER_DEFAULT_MODELS_VALUES=()
+    PROVIDER_DESCRIPTIONS_KEYS=()
+    PROVIDER_DESCRIPTIONS_VALUES=()
+    PROVIDER_ENABLED_KEYS=()
+    PROVIDER_ENABLED_VALUES=()
+fi
 declare -a AVAILABLE_PROVIDERS
+
+# ---------- Array Access Wrappers ----------
+
+# Wrapper functions to provide consistent API for both native and compatibility arrays
+
+# Set a value in a provider array
+set_provider_value() {
+    local array_name="$1"
+    local key="$2"
+    local value="$3"
+    
+    if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
+        eval "${array_name}[\"$key\"]=\"$value\""
+    else
+        compat_assoc_set "$array_name" "$key" "$value"
+    fi
+}
+
+# Get a value from a provider array
+get_provider_value() {
+    local array_name="$1"
+    local key="$2"
+    
+    if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
+        eval "echo \"\${${array_name}[\"$key\"]}\""
+    else
+        compat_assoc_get "$array_name" "$key"
+    fi
+}
+
+# Get all keys from a provider array
+get_provider_keys() {
+    local array_name="$1"
+    
+    if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
+        eval "local -a keys=(\"\${!${array_name}[@]}\")"
+        printf '%s\n' "${keys[@]}"
+    else
+        compat_assoc_keys "$array_name"
+    fi
+}
+
+# Check if a key exists in a provider array
+has_provider_key() {
+    local array_name="$1"
+    local key="$2"
+    
+    if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
+        eval "[[ -n \"\${${array_name}[\"$key\"]+set}\" ]]"
+    else
+        compat_assoc_has_key "$array_name" "$key"
+    fi
+}
 
 # Load configuration from file
 load_config() {
@@ -71,20 +185,20 @@ load_config() {
             
             case "$key" in
                 base_url)
-                    PROVIDER_BASE_URLS["$current_provider"]="$value"
-                    debug "PROVIDER_BASE_URLS[$current_provider] = ${PROVIDER_BASE_URLS[$current_provider]}"
+                    set_provider_value "PROVIDER_BASE_URLS" "$current_provider" "$value"
+                    debug "PROVIDER_BASE_URLS[$current_provider] = $(get_provider_value "PROVIDER_BASE_URLS" "$current_provider")"
                     ;;
                 api_key_var)
-                    PROVIDER_API_KEY_VARS["$current_provider"]="$value"
+                    set_provider_value "PROVIDER_API_KEY_VARS" "$current_provider" "$value"
                     ;;
                 default_model)
-                    PROVIDER_DEFAULT_MODELS["$current_provider"]="$value"
+                    set_provider_value "PROVIDER_DEFAULT_MODELS" "$current_provider" "$value"
                     ;;
                 description)
-                    PROVIDER_DESCRIPTIONS["$current_provider"]="$value"
+                    set_provider_value "PROVIDER_DESCRIPTIONS" "$current_provider" "$value"
                     ;;
                 enabled)
-                    PROVIDER_ENABLED["$current_provider"]="$value"
+                    set_provider_value "PROVIDER_ENABLED" "$current_provider" "$value"
                     ;;
             esac
         fi
@@ -116,15 +230,22 @@ init_config() {
     
     # Build list of available providers
     debug "Building available providers list"
-    debug "PROVIDER_BASE_URLS keys: ${!PROVIDER_BASE_URLS[*]}"
+    debug "PROVIDER_BASE_URLS keys: $(get_provider_keys "PROVIDER_BASE_URLS" | tr '\n' ' ')"
     AVAILABLE_PROVIDERS=()
-    for provider in "${!PROVIDER_BASE_URLS[@]}"; do
-        debug "Checking provider: $provider, enabled: ${PROVIDER_ENABLED[$provider]:-true}"
+    # Get all provider keys using wrapper function
+    local -a provider_keys
+    IFS=$'\n' read -d '' -r -a provider_keys < <(get_provider_keys "PROVIDER_BASE_URLS" && printf '\0')
+    
+    for provider in "${provider_keys[@]}"; do
+        local provider_enabled
+        provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+        debug "Checking provider: $provider, enabled: ${provider_enabled:-true}"
         
         # Check if provider has all required fields
-        local has_base_url="${PROVIDER_BASE_URLS[$provider]:-}"
-        local has_api_key_var="${PROVIDER_API_KEY_VARS[$provider]:-}"
-        local has_model="${PROVIDER_DEFAULT_MODELS[$provider]:-}"
+        local has_base_url has_api_key_var has_model
+        has_base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+        has_api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+        has_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
         
         if [[ -z "$has_base_url" || -z "$has_api_key_var" || -z "$has_model" ]]; then
             debug "Skipping incomplete provider $provider: base_url='$has_base_url', api_key_var='$has_api_key_var', model='$has_model'"
@@ -132,7 +253,7 @@ init_config() {
         fi
         
         # Only include enabled providers that have all required fields
-        if [[ "${PROVIDER_ENABLED[$provider]:-true}" == "true" ]]; then
+        if [[ "${provider_enabled:-true}" == "true" ]]; then
             AVAILABLE_PROVIDERS+=("$provider")
             debug "Added $provider to AVAILABLE_PROVIDERS"
         fi
@@ -147,39 +268,32 @@ init_config() {
 # Fallback built-in configuration
 load_builtin_config() {
     # Core providers
-    PROVIDER_BASE_URLS["cerebras"]="https://api.cerebras.ai/v1"
-    PROVIDER_API_KEY_VARS["cerebras"]="LLM_CEREBRAS_API_KEY"
-    PROVIDER_DEFAULT_MODELS["cerebras"]="qwen-3-coder-480b"
-    PROVIDER_DESCRIPTIONS["cerebras"]="Fast inference, great for coding"
-    PROVIDER_ENABLED["cerebras"]="true"
+    set_provider_value "PROVIDER_BASE_URLS" "cerebras" "https://api.cerebras.ai/v1"
+    set_provider_value "PROVIDER_API_KEY_VARS" "cerebras" "LLM_CEREBRAS_API_KEY"
+    set_provider_value "PROVIDER_DEFAULT_MODELS" "cerebras" "qwen-3-coder-480b"
+    set_provider_value "PROVIDER_DESCRIPTIONS" "cerebras" "Fast inference, great for coding"
+    set_provider_value "PROVIDER_ENABLED" "cerebras" "true"
     
-    PROVIDER_BASE_URLS["openai"]="https://api.openai.com/v1"
-    PROVIDER_API_KEY_VARS["openai"]="LLM_OPENAI_API_KEY"
-    PROVIDER_DEFAULT_MODELS["openai"]="gpt-5-2025-08-07"
-    PROVIDER_DESCRIPTIONS["openai"]="Industry standard, highest quality"
-    PROVIDER_ENABLED["openai"]="true"
+    set_provider_value "PROVIDER_BASE_URLS" "openai" "https://api.openai.com/v1"
+    set_provider_value "PROVIDER_API_KEY_VARS" "openai" "LLM_OPENAI_API_KEY"
+    set_provider_value "PROVIDER_DEFAULT_MODELS" "openai" "gpt-5-2025-08-07"
+    set_provider_value "PROVIDER_DESCRIPTIONS" "openai" "Industry standard, highest quality"
+    set_provider_value "PROVIDER_ENABLED" "openai" "true"
     
-    PROVIDER_BASE_URLS["groq"]="https://api.groq.com/openai/v1"
-    PROVIDER_API_KEY_VARS["groq"]="LLM_GROQ_API_KEY"
-    PROVIDER_DEFAULT_MODELS["groq"]="openai/gpt-oss-120b"
-    PROVIDER_DESCRIPTIONS["groq"]="Lightning-fast inference"
-    PROVIDER_ENABLED["groq"]="true"
+    set_provider_value "PROVIDER_BASE_URLS" "groq" "https://api.groq.com/openai/v1"
+    set_provider_value "PROVIDER_API_KEY_VARS" "groq" "LLM_GROQ_API_KEY"
+    set_provider_value "PROVIDER_DEFAULT_MODELS" "groq" "openai/gpt-oss-120b"
+    set_provider_value "PROVIDER_DESCRIPTIONS" "groq" "Lightning-fast inference"
+    set_provider_value "PROVIDER_ENABLED" "groq" "true"
     
-    PROVIDER_BASE_URLS["openrouter"]="https://openrouter.ai/api/v1"
-    PROVIDER_API_KEY_VARS["openrouter"]="LLM_OPENROUTER_API_KEY"
-    PROVIDER_DEFAULT_MODELS["openrouter"]="deepseek/deepseek-chat-v3.1:free"
-    PROVIDER_DESCRIPTIONS["openrouter"]="Free tier option"
-    PROVIDER_ENABLED["openrouter"]="true"
+    set_provider_value "PROVIDER_BASE_URLS" "openrouter" "https://openrouter.ai/api/v1"
+    set_provider_value "PROVIDER_API_KEY_VARS" "openrouter" "LLM_OPENROUTER_API_KEY"
+    set_provider_value "PROVIDER_DEFAULT_MODELS" "openrouter" "deepseek/deepseek-chat-v3.1:free"
+    set_provider_value "PROVIDER_DESCRIPTIONS" "openrouter" "Free tier option"
+    set_provider_value "PROVIDER_ENABLED" "openrouter" "true"
 }
 
 # ---------- Helper Functions ----------
-
-# Debug logging function
-debug() {
-    if [[ "${LLM_ENV_DEBUG:-0}" == "1" ]]; then
-        echo "[DEBUG] $*" >&2
-    fi
-}
 
 mask() {
     # mask everything but last 4 chars
@@ -223,13 +337,15 @@ validate_provider() {
     debug "Validating provider: $provider"
     
     # Check if provider exists
-    if [[ -z "${PROVIDER_BASE_URLS[$provider]:-}" ]]; then
+    if ! has_provider_key "PROVIDER_BASE_URLS" "$provider"; then
         debug "Provider not found: $provider"
         return 1
     fi
     
     # Check if provider is enabled
-    if [[ "${PROVIDER_ENABLED[$provider]:-true}" != "true" ]]; then
+    local provider_enabled
+    provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+    if [[ "${provider_enabled:-true}" != "true" ]]; then
         debug "Provider disabled: $provider"
         return 2
     fi
