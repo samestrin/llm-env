@@ -6,22 +6,44 @@
 # Global array management helpers for BATS
 declare_global_arrays() {
     local array_support="${1:-$BASH_ASSOC_ARRAY_SUPPORT}"
+    local declare_global_support="${BASH_DECLARE_GLOBAL_SUPPORT:-false}"
     
     if [[ "$array_support" == "true" ]]; then
-        # Declare native associative arrays globally
-        declare -gA PROVIDER_BASE_URLS
-        declare -gA PROVIDER_API_KEY_VARS  
-        declare -gA PROVIDER_DEFAULT_MODELS
-        declare -gA PROVIDER_DESCRIPTIONS
-        declare -gA PROVIDER_ENABLED
+        # Declare native associative arrays
+        if [[ "$declare_global_support" == "true" ]]; then
+            # Bash 4.2+ with declare -g support
+            declare -gA PROVIDER_BASE_URLS
+            declare -gA PROVIDER_API_KEY_VARS  
+            declare -gA PROVIDER_DEFAULT_MODELS
+            declare -gA PROVIDER_DESCRIPTIONS
+            declare -gA PROVIDER_ENABLED
+        else
+            # Bash 4.0-4.1 with associative arrays but no declare -g
+            declare -A PROVIDER_BASE_URLS
+            declare -A PROVIDER_API_KEY_VARS  
+            declare -A PROVIDER_DEFAULT_MODELS
+            declare -A PROVIDER_DESCRIPTIONS
+            declare -A PROVIDER_ENABLED
+        fi
     else
-        # Declare compatibility arrays globally
-        declare -ga AVAILABLE_PROVIDERS
-        declare -ga PROVIDER_BASE_URLS_KEYS PROVIDER_BASE_URLS_VALUES
-        declare -ga PROVIDER_API_KEY_VARS_KEYS PROVIDER_API_KEY_VARS_VALUES
-        declare -ga PROVIDER_DEFAULT_MODELS_KEYS PROVIDER_DEFAULT_MODELS_VALUES
-        declare -ga PROVIDER_DESCRIPTIONS_KEYS PROVIDER_DESCRIPTIONS_VALUES
-        declare -ga PROVIDER_ENABLED_KEYS PROVIDER_ENABLED_VALUES
+        # Compatibility mode for Bash < 4.0
+        if [[ "$declare_global_support" == "true" ]]; then
+            # Bash 4.2+ with declare -g support
+            declare -ga AVAILABLE_PROVIDERS
+            declare -ga PROVIDER_BASE_URLS_KEYS PROVIDER_BASE_URLS_VALUES
+            declare -ga PROVIDER_API_KEY_VARS_KEYS PROVIDER_API_KEY_VARS_VALUES
+            declare -ga PROVIDER_DEFAULT_MODELS_KEYS PROVIDER_DEFAULT_MODELS_VALUES
+            declare -ga PROVIDER_DESCRIPTIONS_KEYS PROVIDER_DESCRIPTIONS_VALUES
+            declare -ga PROVIDER_ENABLED_KEYS PROVIDER_ENABLED_VALUES
+        else
+            # Older Bash versions without declare -g
+            declare -a AVAILABLE_PROVIDERS
+            declare -a PROVIDER_BASE_URLS_KEYS PROVIDER_BASE_URLS_VALUES
+            declare -a PROVIDER_API_KEY_VARS_KEYS PROVIDER_API_KEY_VARS_VALUES
+            declare -a PROVIDER_DEFAULT_MODELS_KEYS PROVIDER_DEFAULT_MODELS_VALUES
+            declare -a PROVIDER_DESCRIPTIONS_KEYS PROVIDER_DESCRIPTIONS_VALUES
+            declare -a PROVIDER_ENABLED_KEYS PROVIDER_ENABLED_VALUES
+        fi
     fi
 }
 
