@@ -34,8 +34,8 @@ parse_bash_version() {
         BASH_ASSOC_ARRAY_SUPPORT=false
     fi
     
-    BASH_MAJOR_VERSION=$major
-    BASH_MINOR_VERSION=$minor
+    export BASH_MAJOR_VERSION=$major
+    export BASH_MINOR_VERSION=$minor
     
     debug "Bash version: $major.$minor, associative array support: $BASH_ASSOC_ARRAY_SUPPORT"
 }
