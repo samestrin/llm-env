@@ -116,6 +116,7 @@ teardown() {
 @test "provider operations: set provider works in both modes" {
     # Test with native arrays (bash 4.0+)
     run bash -c "
+        export LLM_OPENAI_API_KEY='test-key-12345'
         export BASH_ASSOC_ARRAY_SUPPORT='true'
         source $BATS_TEST_DIRNAME/../../llm-env set openai
     "
@@ -124,6 +125,7 @@ teardown() {
     
     # Test with compatibility arrays (bash 3.2)
     run bash -c "
+        export LLM_OPENAI_API_KEY='test-key-12345'
         export BASH_ASSOC_ARRAY_SUPPORT='false'
         source $BATS_TEST_DIRNAME/../../llm-env set openai
     "
