@@ -50,6 +50,10 @@ debug() {
 # Initialize bash version detection
 parse_bash_version
 
+# Configuration state variables
+CONFIG_SOURCE=""  # none, user, system, builtin
+CONFIG_LOADED=false
+
 # Load bash compatibility library for older bash versions
 if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "false" ]]; then
     source "$(dirname "${BASH_SOURCE[0]}")/lib/bash_compat.sh"
@@ -217,16 +221,35 @@ init_config() {
         if load_config "$config_file"; then
             debug "Successfully loaded config from: $config_file"
             config_loaded=true
+            # Set configuration source based on file location
+            if [[ "$config_file" == "$HOME/.config/llm-env/config.conf" ]]; then
+                CONFIG_SOURCE="user"
+            elif [[ "$config_file" == "/usr/local/etc/llm-env/config.conf" ]]; then
+                CONFIG_SOURCE="system"
+            else
+                CONFIG_SOURCE="builtin"
+            fi
             break
         fi
     done
     
     if ! $config_loaded; then
-        debug "No configuration file found, loading built-in defaults"
-        echo "⚠️  No configuration file found. Using built-in defaults."
-        echo "   Create ~/.config/llm-env/config.conf for custom configuration."
-        load_builtin_config
+        debug "No configuration file found, checking built-in fallback"
+        # Check if built-in config file exists
+        local builtin_config="$(dirname "${BASH_SOURCE[0]}")/config/llm-env.conf"
+        if [[ -f "$builtin_config" ]]; then
+            echo "⚠️  No configuration file found. Using built-in defaults."
+            echo "   Create ~/.config/llm-env/config.conf for custom configuration."
+            load_builtin_config
+            CONFIG_SOURCE="builtin"
+            config_loaded=true
+        else
+            CONFIG_SOURCE="none"
+            config_loaded=false
+        fi
     fi
+    
+    CONFIG_LOADED=$config_loaded
     
     # Build list of available providers
     debug "Building available providers list"
@@ -429,8 +452,8 @@ cmd_list() {
     
     local providers_to_show=()
     if $show_all; then
-        # Show all providers (enabled and disabled)
-        providers_to_show=("${!PROVIDER_BASE_URLS[@]}")
+        # Show all providers (enabled and disabled)  
+        IFS=$'\n' read -d '' -r -a providers_to_show < <(get_provider_keys "PROVIDER_BASE_URLS" && printf '\0')
     else
         # Show only enabled providers
         providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
@@ -441,10 +464,10 @@ cmd_list() {
         [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
         
         local base model key_var have_key description enabled_status
-        base="${PROVIDER_BASE_URLS[$provider]}"
-        model="${PROVIDER_DEFAULT_MODELS[$provider]}"
-        key_var="${PROVIDER_API_KEY_VARS[$provider]}"
-        description="${PROVIDER_DESCRIPTIONS[$provider]:-}"
+        base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+        model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
+        key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+        description="$(get_provider_value "PROVIDER_DESCRIPTIONS" "$provider")"
         if [[ -n "$key_var" && -n "${!key_var:-}" ]]; then
             have_key="yes"
         else
@@ -453,7 +476,9 @@ cmd_list() {
         
         # Show disabled status if showing all providers
         enabled_status=""
-        if $show_all && [[ "${PROVIDER_ENABLED[$provider]:-true}" != "true" ]]; then
+        local provider_enabled
+        provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+        if $show_all && [[ "${provider_enabled:-true}" != "true" ]]; then
             enabled_status=" (disabled)"
         fi
         
