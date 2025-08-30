@@ -119,7 +119,7 @@ download_script() {
     
     # Install the script
     if mv "$temp_file" "$INSTALL_DIR/$SCRIPT_NAME"; then
-        chmod +x "$INSTALL_DIR/$SCRIPT_NAME"
+        chmod 755 "$INSTALL_DIR/$SCRIPT_NAME"
         print_success "Installed to $INSTALL_DIR/$SCRIPT_NAME"
     else
         print_error "Failed to install script to $INSTALL_DIR"
