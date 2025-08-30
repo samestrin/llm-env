@@ -161,7 +161,7 @@ key=value'
     
     run mask "verylongpasswordthatshouldbehidden"
     [ "$status" -eq 0 ]
-    [[ "$output" == "•erylongpasswordthatshouldbehidden" ]]
+    [[ "$output" == "••••••••••••••••••••••••••••••dden" ]]
 }
 
 @test "mask function: handles edge cases" {

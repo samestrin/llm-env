@@ -78,22 +78,12 @@ get_config_locations() {
 
 # Global arrays for configuration (conditional based on bash version)
 if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
-    # Use native associative arrays for bash 4.0+ (only declare if not already declared)
-    if ! declare -p PROVIDER_BASE_URLS >/dev/null 2>&1; then
-        declare -A PROVIDER_BASE_URLS
-    fi
-    if ! declare -p PROVIDER_API_KEY_VARS >/dev/null 2>&1; then
-        declare -A PROVIDER_API_KEY_VARS
-    fi
-    if ! declare -p PROVIDER_DEFAULT_MODELS >/dev/null 2>&1; then
-        declare -A PROVIDER_DEFAULT_MODELS
-    fi
-    if ! declare -p PROVIDER_DESCRIPTIONS >/dev/null 2>&1; then
-        declare -A PROVIDER_DESCRIPTIONS
-    fi
-    if ! declare -p PROVIDER_ENABLED >/dev/null 2>&1; then
-        declare -A PROVIDER_ENABLED
-    fi
+    # Use native associative arrays for bash 4.0+
+    declare -A PROVIDER_BASE_URLS
+    declare -A PROVIDER_API_KEY_VARS
+    declare -A PROVIDER_DEFAULT_MODELS
+    declare -A PROVIDER_DESCRIPTIONS
+    declare -A PROVIDER_ENABLED
 else
     # Initialize compatibility arrays for bash <4.0
     # These are managed by the compatibility functions
@@ -120,10 +110,14 @@ set_provider_value() {
     local key="$2"
     local value="$3"
     
+    debug "set_provider_value: $array_name[$key] = $value"
+    
     if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
         eval "${array_name}[\"$key\"]=\"$value\""
+        debug "  Native array set complete"
     else
         compat_assoc_set "$array_name" "$key" "$value"
+        debug "  Compatibility array set complete"
     fi
 }
 
@@ -131,12 +125,19 @@ set_provider_value() {
 get_provider_value() {
     local array_name="$1"
     local key="$2"
+    local result
+    
+    debug "get_provider_value: looking for $array_name[$key]"
     
     if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
-        eval "echo \"\${${array_name}[\"$key\"]}\""
+        result=$(eval "echo \"\${${array_name}[\"$key\"]}\""") 
+        debug "  Native array result: '$result'"
     else
-        compat_assoc_get "$array_name" "$key"
+        result=$(compat_assoc_get "$array_name" "$key")
+        debug "  Compatibility array result: '$result'"
     fi
+    
+    echo "$result"
 }
 
 # Get all keys from a provider array
@@ -460,10 +461,7 @@ cmd_set() {
     debug "  model=$model"
     debug "  key_set=$([ -n "$key" ] && echo "yes" || echo "no")"
     
-    if [[ -z "$key_var" ]]; then
-        echo "❌ Invalid provider configuration: missing API key variable for $provider"
-        return 1
-    elif [[ -z "$key" ]]; then
+    if [[ -z "$key" ]]; then
         echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
         return 1
     fi
