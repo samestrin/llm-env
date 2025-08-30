@@ -61,7 +61,10 @@ teardown() {
     [[ "$output" =~ "openai" ]]
     
     # Test provider setting
-    run bash -c "source $BATS_TEST_DIRNAME/../../llm-env set openai && echo \$LLM_PROVIDER"
+    run bash -c "
+        export LLM_OPENAI_API_KEY='test-key-12345'
+        source $BATS_TEST_DIRNAME/../../llm-env set openai && echo \$LLM_PROVIDER
+    "
     [ "$status" -eq 0 ]
     [[ "$output" =~ "openai" ]]
 }
@@ -81,7 +84,10 @@ teardown() {
     [[ "$output" =~ "openai" ]]
     
     # Test provider setting with compatibility layer
-    run bash -c "source $BATS_TEST_DIRNAME/../../llm-env set openai && echo \$LLM_PROVIDER"
+    run bash -c "
+        export LLM_OPENAI_API_KEY='test-key-12345'
+        source $BATS_TEST_DIRNAME/../../llm-env set openai && echo \$LLM_PROVIDER
+    "
     [ "$status" -eq 0 ]
     [[ "$output" =~ "openai" ]]
 }
