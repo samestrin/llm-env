@@ -25,7 +25,7 @@ This tool provides quick provider switching between OpenAI, Cerebras, Groq, Open
 ### Quick Install
 
 ```bash
-# Download and install (recommended)
+# Download and install (recommended) - _may need sudo_
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | bash
 ```
 
