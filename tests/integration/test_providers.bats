@@ -28,6 +28,9 @@ enabled=false'
     
     # Source the main script to load configuration
     source "$BATS_TEST_DIRNAME/../../llm-env"
+    
+    # Reload configuration to pick up test providers
+    init_config
 }
 
 teardown() {
