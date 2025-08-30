@@ -21,8 +21,8 @@ OFFLINE_FILE=""  # For offline installation
 print_header() {
     echo -e "${BLUE}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    LLM Environment Manager                  ║"
-    echo "║                         Installer                           ║"
+    echo "║                    LLM Environment Manager                   ║"
+    echo "║                         Installer                            ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
@@ -313,7 +313,7 @@ uninstall_llm_env() {
 show_next_steps() {
     echo
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗"
-    echo -e "║                     Installation Complete!                  ║"
+    echo -e "║                     Installation Complete!                   ║"
     echo -e "╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
     echo -e "${YELLOW}Next steps:${NC}"
