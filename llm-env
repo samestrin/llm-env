@@ -994,7 +994,7 @@ cmd_config_backup() {
         # List recent backups
         echo ""
         echo "Recent backups:"
-        ls -lt "$backup_dir"/*.conf 2>/dev/null | head -5 | while read -r line; do
+        find "$backup_dir" -name "*.conf" -type f -exec ls -lt {} + 2>/dev/null | head -5 | while read -r line; do
             echo "  $line"
         done
     else
@@ -1013,7 +1013,7 @@ cmd_config_restore() {
         echo "Available backups:"
         local backup_dir="$HOME/.config/llm-env/backups"
         if [[ -d "$backup_dir" ]]; then
-            ls -lt "$backup_dir"/*.conf 2>/dev/null | head -10 | while read -r line; do
+            find "$backup_dir" -name "*.conf" -type f -exec ls -lt {} + 2>/dev/null | head -10 | while read -r line; do
                 echo "  $line"
             done
         else
@@ -1152,9 +1152,9 @@ cmd_config_bulk() {
                     print "enabled=" enabled
                 }
             }
-        ' "$user_config" > "$user_config.tmp" && mv "$user_config.tmp" "$user_config"
+        ' "$user_config" > "$user_config.tmp"
         
-        if [[ $? -eq 0 ]]; then
+        if mv "$user_config.tmp" "$user_config"; then
             echo "  ✅ $provider: $action"
             ((success_count++))
         else
