@@ -19,8 +19,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 print_header() {
     echo -e "${BLUE}"
     echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                 LLM Environment Manager                     ║"
-    echo "║                     Test Suite Runner                       ║"
+    echo "║                 LLM Environment Manager                      ║"
+    echo "║                     Test Suite Runner                        ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
