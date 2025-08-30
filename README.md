@@ -10,7 +10,7 @@ A powerful bash script for seamlessly switching between different LLM providers 
 
 ## Overview
 
-A powerful bash script for seamlessly switching between different LLM providers and models including OpenAI, OpenRouter, Cerebras, Groq, and more — using the common OPENAI_* environment variable convention. It enables cost management by easily switching from free tiers to paid models when quotas are exhausted. The universal compatibility works with any tool that uses OpenAI-compatible environment variables. API keys are stored securely in your shell profile, never in code. As a pure bash script, it works everywhere with zero dependencies.
+Easily manage LLM credentials for any OpenAI compatible provider including OpenAI, OpenRouter, Cerebras, Groq, and more — designed to work with applications that use the emerging OPENAI_* environment variable standard. It enables cost management by easily switching from free tiers to paid models when quotas are exhausted. The universal compatibility works with any tool that uses OpenAI-compatible environment variables. API keys are stored securely in your shell profile, never in code. As a pure bash script, it works everywhere with **zero dependencies**.
 
 ### Supported Providers
 
