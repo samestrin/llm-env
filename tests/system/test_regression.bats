@@ -293,6 +293,7 @@ EOF
     
     # Run in subshell
     (
+        export LLM_OPENAI_API_KEY='test-key-12345'
         source "$BATS_TEST_DIRNAME/../../llm-env" set openai > /dev/null
         # Changes should be contained to subshell
     )
