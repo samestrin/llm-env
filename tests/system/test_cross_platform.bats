@@ -37,7 +37,8 @@ teardown() {
     
     run cmd_list
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "No configuration found" ]]
+    # Should show available providers from built-in defaults
+    [[ "$output" =~ "Available providers:" ]]
 }
 
 @test "system: creates config directory when needed" {
