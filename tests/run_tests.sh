@@ -77,7 +77,7 @@ run_test_suite() {
                 print_success "$(basename "$test_file") passed"
             else
                 print_error "$(basename "$test_file") failed"
-                ((failed++))
+                failed=$((failed + 1))
             fi
         fi
     done
@@ -159,25 +159,25 @@ main() {
     
     # Run unit tests
     if [[ "$run_unit" == "true" ]]; then
-        ((total_suites++))
+        total_suites=$((total_suites + 1))
         if ! run_test_suite "Unit" "$SCRIPT_DIR/unit"; then
-            ((failed_suites++))
+            failed_suites=$((failed_suites + 1))
         fi
     fi
     
     # Run integration tests
     if [[ "$run_integration" == "true" ]]; then
-        ((total_suites++))
+        total_suites=$((total_suites + 1))
         if ! run_test_suite "Integration" "$SCRIPT_DIR/integration"; then
-            ((failed_suites++))
+            failed_suites=$((failed_suites + 1))
         fi
     fi
     
     # Run system tests
     if [[ "$run_system" == "true" ]]; then
-        ((total_suites++))
+        total_suites=$((total_suites + 1))
         if ! run_test_suite "System" "$SCRIPT_DIR/system"; then
-            ((failed_suites++))
+            failed_suites=$((failed_suites + 1))
         fi
     fi
     
@@ -199,5 +199,7 @@ main() {
 # Handle script interruption
 trap 'echo -e "\n${YELLOW}Test execution interrupted${NC}"; exit 130' INT TERM
 
-# Run main function
-main "$@"
+# Run main function only if script is executed directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
