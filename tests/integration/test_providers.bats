@@ -29,8 +29,7 @@ enabled=false'
     # Source the main script to load configuration
     source "$BATS_TEST_DIRNAME/../../llm-env"
     
-    # Reload configuration to pick up test providers
-    init_config
+    # Configuration is automatically loaded when sourcing llm-env
 }
 
 teardown() {
@@ -166,8 +165,6 @@ teardown() {
     local backup_file="${backup_files[0]}"
     
     run cmd_config restore "$backup_file"
-    echo "DEBUG: restore status=$status" >&3
-    echo "DEBUG: restore output='$output'" >&3
     [ "$status" -eq 0 ]
     
     # Check that config was restored (new_provider should be gone)

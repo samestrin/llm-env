@@ -106,15 +106,25 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
 else
     # Initialize compatibility arrays for bash <4.0
     # These are managed by the compatibility functions
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_BASE_URLS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_BASE_URLS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_API_KEY_VARS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_API_KEY_VARS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_DEFAULT_MODELS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_DEFAULT_MODELS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_DESCRIPTIONS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_DESCRIPTIONS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_ENABLED_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_ENABLED_VALUES=()
 fi
 declare -a AVAILABLE_PROVIDERS
@@ -130,9 +140,9 @@ set_provider_value() {
     local value="$3"
     
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        eval "${array_name}[\"$key\"]=\"$value\""
+        eval "${array_name}[\"${key}\"]='${value}'"
     else
-        compat_assoc_set "$array_name" "$key" "$value"
+        compat_assoc_set "${array_name}" "${key}" "${value}"
     fi
 }
 
@@ -142,9 +152,9 @@ get_provider_value() {
     local key="$2"
     
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        eval "echo \"\${${array_name}[\"$key\"]}\""
+        eval "echo \"\${${array_name}[\"${key}\"]}\""
     else
-        compat_assoc_get "$array_name" "$key"
+        compat_assoc_get "${array_name}" "${key}"
     fi
 }
 
@@ -156,7 +166,7 @@ get_provider_keys() {
         eval "local -a keys=(\"\${!${array_name}[@]}\")"
         printf '%s\n' "${keys[@]}"
     else
-        compat_assoc_keys "$array_name"
+        compat_assoc_keys "${array_name}"
     fi
 }
 
@@ -166,9 +176,9 @@ has_provider_key() {
     local key="$2"
     
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        eval "[[ -n \"\${${array_name}[\"$key\"]+set}\" ]]"
+        eval "[[ -n \"\${${array_name}[\"${key}\"]+set}\" ]]"
     else
-        compat_assoc_has_key "$array_name" "$key"
+        compat_assoc_has_key "${array_name}" "${key}"
     fi
 }
 
@@ -244,8 +254,8 @@ init_config() {
     
     # Clear existing configuration
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEYS PROVIDER_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
-        declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEYS PROVIDER_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+        declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
     else
         unset AVAILABLE_PROVIDERS
         AVAILABLE_PROVIDERS=()
@@ -273,7 +283,8 @@ init_config() {
     if ! $config_loaded; then
         debug "No configuration file found, checking built-in fallback"
         # Check if built-in config file exists
-        local builtin_config="$(dirname "${BASH_SOURCE[0]}")/config/llm-env.conf"
+        local builtin_config
+        builtin_config="$(dirname "${BASH_SOURCE[0]}")/config/llm-env.conf"
         if [[ -f "$builtin_config" ]]; then
             echo "⚠️  No configuration file found. Using built-in defaults."
             echo "   Create $(get_user_config_path) for custom configuration."
@@ -323,8 +334,7 @@ init_config() {
     debug "Final AVAILABLE_PROVIDERS: ${AVAILABLE_PROVIDERS[*]}"
     
     # Sort providers alphabetically
-    IFS=$'\n' AVAILABLE_PROVIDERS=($(sort <<<"${AVAILABLE_PROVIDERS[*]}"))
-    unset IFS
+    mapfile -t AVAILABLE_PROVIDERS < <(printf '%s\n' "${AVAILABLE_PROVIDERS[@]}" | sort)
 }
 
 # Fallback built-in configuration
@@ -612,7 +622,8 @@ cmd_config() {
 }
 
 cmd_config_init() {
-    local user_config="$(get_user_config_path)"
+    local user_config
+    user_config="$(get_user_config_path)"
     
     if [[ -f "$user_config" ]]; then
         echo "⚠️  Configuration file already exists: $user_config"
@@ -644,9 +655,10 @@ cmd_config_init() {
 }
 
 cmd_config_edit() {
-    local user_config="$(get_user_config_path)"
+    local user_config
+    user_config="$(get_user_config_path)"
     
-    if [[ ! -f "$user_config" ]]; then
+    if [[ ! -f "${user_config}" ]]; then
         echo "⚠️  User configuration not found. Creating it first..."
         cmd_config_init || return 1
     fi
@@ -675,10 +687,10 @@ cmd_config_add() {
     
     # Set timeout for read operations
     local TMOUT=30
-    read -t $TMOUT -p "Base URL: " base_url || { echo "Timeout reached"; return 1; }
-    read -t $TMOUT -p "API Key Environment Variable: " api_key_var || { echo "Timeout reached"; return 1; }
-    read -t $TMOUT -p "Default Model: " default_model || { echo "Timeout reached"; return 1; }
-    read -t $TMOUT -p "Description (optional): " description || { echo "Timeout reached"; return 1; }
+    read -r -t $TMOUT -p "Base URL: " base_url || { echo "Timeout reached"; return 1; }
+    read -r -t $TMOUT -p "API Key Environment Variable: " api_key_var || { echo "Timeout reached"; return 1; }
+    read -r -t $TMOUT -p "Default Model: " default_model || { echo "Timeout reached"; return 1; }
+    read -r -t $TMOUT -p "Description (optional): " description || { echo "Timeout reached"; return 1; }
     
     # Sanitize input values
     base_url=$(sanitize_config_value "$base_url")
@@ -686,7 +698,8 @@ cmd_config_add() {
     default_model=$(sanitize_config_value "$default_model")
     description=$(sanitize_config_value "$description")
     
-    local user_config="$(get_user_config_path)"
+    local user_config
+    user_config="$(get_user_config_path)"
     
     # Create user config if it doesn't exist
     if [[ ! -f "$user_config" ]]; then
@@ -720,7 +733,8 @@ cmd_config_remove() {
         return 1
     fi
     
-    local user_config="$(get_user_config_path)"
+    local user_config
+    user_config="$(get_user_config_path)"
     
     if [[ ! -f "$user_config" ]]; then
         echo "❌ User configuration not found: $user_config"
@@ -978,10 +992,11 @@ cmd_config_validate() {
 }
 
 cmd_config_backup() {
-    local user_config="$(get_user_config_path)"
+    local user_config
+    user_config="$(get_user_config_path)"
     
     if [[ ! -f "$user_config" ]]; then
-        echo "❌ Configuration file not found: $user_config"
+        echo "❌ Configuration file not found: ${user_config}"
         echo "💡 Run 'source llm-env config init' to create one"
         return 1
     fi
@@ -1014,7 +1029,8 @@ cmd_config_backup() {
 
 cmd_config_restore() {
     local backup_file="$1"
-    local user_config="$(get_user_config_path)"
+    local user_config
+    user_config="$(get_user_config_path)"
     
     if [[ -z "$backup_file" ]]; then
         echo "Usage: source llm-env config restore <backup_file>"
@@ -1049,7 +1065,8 @@ cmd_config_restore() {
     
     # Create backup of current config before restoring
     if [[ -f "$user_config" ]]; then
-        local current_backup="${user_config}.pre-restore.$(date +%Y%m%d_%H%M%S)"
+        local current_backup
+        current_backup="${user_config}.pre-restore.$(date +%Y%m%d_%H%M%S)"
         cp "$user_config" "$current_backup"
         echo "💾 Current config backed up to: $current_backup"
     fi
@@ -1068,9 +1085,10 @@ cmd_config_bulk() {
     local action="$1"
     shift
     local providers=("$@")
-    local user_config="$(get_user_config_path)"
+    local user_config
+    user_config="$(get_user_config_path)"
     
-    if [[ -z "$action" ]]; then
+    if [[ -z "${action}" ]]; then
         echo "Usage: source llm-env config bulk <action> <provider1> [provider2] ..."
         echo ""
         echo "Actions:"
@@ -1089,11 +1107,11 @@ cmd_config_bulk() {
         return 1
     fi
     
-    case "$action" in
+    case "${action}" in
         enable|disable)
             ;;
         *)
-            echo "❌ Invalid action: $action"
+            echo "❌ Invalid action: ${action}"
             echo "Valid actions: enable, disable"
             return 1
             ;;
@@ -1106,37 +1124,38 @@ cmd_config_bulk() {
     fi
     
     # Create backup before making changes
-    local backup_file="${user_config}.bulk-backup.$(date +%Y%m%d_%H%M%S)"
-    cp "$user_config" "$backup_file"
-    echo "💾 Configuration backed up to: $backup_file"
+    local backup_file
+    backup_file="${user_config}.bulk-backup.$(date +%Y%m%d_%H%M%S)"
+    cp "${user_config}" "${backup_file}"
+    echo "💾 Configuration backed up to: ${backup_file}"
     
-    echo "🔄 Performing bulk $action operation..."
+    echo "🔄 Performing bulk ${action} operation..."
     local success_count=0
     local failed_providers=()
     
     for provider in "${providers[@]}"; do
         # Validate provider name format
-        if ! validate_provider_name "$provider"; then
-            failed_providers+=("$provider (invalid name)")
+        if ! validate_provider_name "${provider}"; then
+            failed_providers+=("${provider} (invalid name)")
             continue
         fi
         
         # Check if provider exists in config
-        if [[ -z "${PROVIDER_BASE_URLS[$provider]:-}" ]]; then
-            failed_providers+=("$provider (not found)")
+        if [[ -z "${PROVIDER_BASE_URLS[${provider}]:-}" ]]; then
+            failed_providers+=("${provider} (not found)")
             continue
         fi
         
         # Set enabled value based on action
         local enabled_value
-        case "$action" in
+        case "${action}" in
             enable) enabled_value="true" ;;
             disable) enabled_value="false" ;;
         esac
         
         # Update configuration file
         # Use awk to update the enabled value for the provider
-        awk -v provider="$provider" -v enabled="$enabled_value" '
+        awk -v provider="${provider}" -v enabled="${enabled_value}" '
             BEGIN { in_section = 0; found = 0; found_enabled = 0 }
             /^\[/ { 
                 if ($0 == "[" provider "]") {
@@ -1161,24 +1180,24 @@ cmd_config_bulk() {
                     print "enabled=" enabled
                 }
             }
-        ' "$user_config" > "$user_config.tmp"
+        ' "${user_config}" > "${user_config}.tmp"
         
-        if mv "$user_config.tmp" "$user_config"; then
-            echo "  ✅ $provider: $action"
+        if mv "${user_config}.tmp" "${user_config}"; then
+            echo "  ✅ ${provider}: ${action}"
             ((success_count++))
         else
-            failed_providers+=("$provider (update failed)")
+            failed_providers+=("${provider} (update failed)")
         fi
     done
     
     echo ""
     echo "📊 Bulk operation results:"
-    echo "  Successful: $success_count/${#providers[@]}"
+    echo "  Successful: ${success_count}/${#providers[@]}"
     
     if [[ ${#failed_providers[@]} -gt 0 ]]; then
         echo "  Failed:"
         for failure in "${failed_providers[@]}"; do
-            echo "    ❌ $failure"
+            echo "    ❌ ${failure}"
         done
     fi
     
@@ -1200,7 +1219,7 @@ init_config
 if [[ $# -gt 0 ]] && [[ "$1" != test_* ]]; then
 case "$1" in
     --version)
-        echo "llm-env - LLM Environment Manager v$VERSION"
+        echo "llm-env - LLM Environment Manager v${VERSION}"
         ;;
     --help|help)
         cmd_help
@@ -1213,7 +1232,7 @@ case "$1" in
         cmd_unset
         ;;
     list)
-        cmd_list
+        cmd_list "$@"
         ;;
     show)
         cmd_show
