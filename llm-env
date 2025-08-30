@@ -56,6 +56,18 @@ debug() {
     fi
 }
 
+# Get script directory with bash 3.2 compatibility
+get_script_dir() {
+    local script_dir
+    if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+        script_dir="$(dirname "${BASH_SOURCE[0]}")"
+    else
+        # Fallback: assume script is in current directory or PATH
+        script_dir="$(dirname "$(command -v llm-env 2>/dev/null || echo ".")")"
+    fi
+    echo "$script_dir"
+}
+
 # Initialize bash version detection
 parse_bash_version
 
@@ -65,7 +77,16 @@ CONFIG_LOADED=false
 
 # Load bash compatibility library for older bash versions
 if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
-    source "$(dirname "${BASH_SOURCE[0]}")/lib/bash_compat.sh"
+    local script_dir
+    script_dir="$(get_script_dir)"
+    
+    if [[ -f "${script_dir}/lib/bash_compat.sh" ]]; then
+        source "${script_dir}/lib/bash_compat.sh"
+    elif [[ -f "./lib/bash_compat.sh" ]]; then
+        source "./lib/bash_compat.sh"
+    else
+        debug "Warning: bash_compat.sh not found, continuing without compatibility layer"
+    fi
 fi
 
 # ---------- Configuration Loading ----------
@@ -80,7 +101,7 @@ get_config_locations() {
     local locations=(
         "$(get_user_config_path)"
         "/usr/local/etc/llm-env/config.conf"
-        "$(dirname "${BASH_SOURCE[0]}")/config/llm-env.conf"
+        "$(get_script_dir)/config/llm-env.conf"
     )
     printf '%s\n' "${locations[@]}"
 }
@@ -288,7 +309,7 @@ init_config() {
         debug "No configuration file found, checking built-in fallback"
         # Check if built-in config file exists
         local builtin_config
-        builtin_config="$(dirname "${BASH_SOURCE[0]}")/config/llm-env.conf"
+        builtin_config="$(get_script_dir)/config/llm-env.conf"
         if [[ -f "$builtin_config" ]]; then
             echo "⚠️  No configuration file found. Using built-in defaults."
             echo "   Create $(get_user_config_path) for custom configuration."
