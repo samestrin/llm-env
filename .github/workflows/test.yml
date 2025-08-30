@@ -32,6 +32,30 @@ jobs:
             brew install zsh || true
           fi
         fi
+        
+    - name: Debug environment information
+      run: |
+        echo "=== Environment Debug Information ==="
+        echo "Runner OS: $RUNNER_OS"
+        echo "Shell: ${{ matrix.shell }}"
+        echo "Bash version: $BASH_VERSION"
+        echo "Bash location: $(which bash)"
+        
+        # Test our compatibility detection
+        source ./llm-env 2>/dev/null || true
+        echo "BASH_ASSOC_ARRAY_SUPPORT: $BASH_ASSOC_ARRAY_SUPPORT"
+        echo "BASH_DECLARE_GLOBAL_SUPPORT: $BASH_DECLARE_GLOBAL_SUPPORT"
+        echo "BASH_MAJOR_VERSION: $BASH_MAJOR_VERSION" 
+        echo "BASH_MINOR_VERSION: $BASH_MINOR_VERSION"
+        
+        # Test declare -g directly
+        echo "Testing declare -g support..."
+        if declare -gA TEST_ARRAY 2>/dev/null; then
+          echo "declare -g support: YES"
+          unset TEST_ARRAY
+        else
+          echo "declare -g support: NO"
+        fi
 
     - name: Install dependencies
       run: |
@@ -52,17 +76,20 @@ jobs:
     - name: Run unit tests
       run: |
         cd tests
-        SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --unit-only
+        echo "=== Running Unit Tests ==="
+        SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --unit-only
 
     - name: Run integration tests  
       run: |
         cd tests
-        SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --integration-only
+        echo "=== Running Integration Tests ==="
+        SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --integration-only
 
     - name: Run system tests
       run: |
         cd tests
-        SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --system-only
+        echo "=== Running System Tests ==="
+        SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --system-only
 
     - name: Test installation script
       run: |
