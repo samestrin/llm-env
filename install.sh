@@ -147,7 +147,7 @@ install_config_files() {
     fi
     
     # Create default configuration file
-    cat > "$config_file" << 'EOF'
+    if cat > "$config_file" << 'EOF'
 # LLM Environment Manager Configuration
 # This file defines available LLM providers and their settings
 
@@ -179,8 +179,7 @@ default_model=deepseek/deepseek-chat-v3.1:free
 description=Free tier option
 enabled=true
 EOF
-    
-    if [[ $? -eq 0 ]]; then
+    then
         print_success "Created default configuration: $config_file"
     else
         print_error "Failed to create configuration file"
@@ -294,7 +293,8 @@ uninstall_llm_env() {
         local config_dir="$HOME/.config/llm-env"
         if [[ -d "$config_dir" ]]; then
             print_step "Creating backup of configuration..."
-            local backup_dir="$HOME/.config/llm-env-backup-$(date +%Y%m%d_%H%M%S)"
+            local backup_dir
+            backup_dir="$HOME/.config/llm-env-backup-$(date +%Y%m%d_%H%M%S)"
             if mv "$config_dir" "$backup_dir"; then
                 print_success "Configuration backed up to: $backup_dir"
             else
