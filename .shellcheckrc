@@ -1,6 +1,8 @@
 # ShellCheck configuration for llm-env project
 # Disable SC1091 (not following sourced files) for compatibility library
-disable=SC1091
+# Disable SC2034 for compatibility arrays accessed dynamically via eval
+# Disable SC2250 for style preference on variable braces (too many instances)
+disable=SC1091,SC2034,SC2250
 
 # Enable additional checks for better code quality
 enable=require-variable-braces
