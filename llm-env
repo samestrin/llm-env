@@ -34,10 +34,19 @@ parse_bash_version() {
         BASH_ASSOC_ARRAY_SUPPORT=false
     fi
     
+    # Check for declare -g support (Bash 4.2+)
+    if [[ ${major} -gt 4 || (${major} -eq 4 && ${minor} -ge 2) ]]; then
+        BASH_DECLARE_GLOBAL_SUPPORT=true
+    else
+        BASH_DECLARE_GLOBAL_SUPPORT=false
+    fi
+    
     export BASH_MAJOR_VERSION=${major}
     export BASH_MINOR_VERSION=${minor}
+    export BASH_ASSOC_ARRAY_SUPPORT
+    export BASH_DECLARE_GLOBAL_SUPPORT
     
-    debug "Bash version: ${major}.${minor}, associative array support: ${BASH_ASSOC_ARRAY_SUPPORT}"
+    debug "Bash version: ${major}.${minor}, associative array support: ${BASH_ASSOC_ARRAY_SUPPORT}, declare -g support: ${BASH_DECLARE_GLOBAL_SUPPORT}"
 }
 
 # Debug function (needed early for version detection)
