@@ -77,7 +77,6 @@ CONFIG_LOADED=false
 
 # Load bash compatibility library for older bash versions
 if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
-    local script_dir
     script_dir="$(get_script_dir)"
     
     if [[ -f "${script_dir}/lib/bash_compat.sh" ]]; then
