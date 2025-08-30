@@ -10,14 +10,17 @@ A powerful bash script for seamlessly switching between different LLM providers 
 
 ## Overview
 
-This tool provides quick provider switching between OpenAI, Cerebras, Groq, OpenRouter, and more with a single command. It enables cost management by easily switching from free tiers to paid models when quotas are exhausted. The universal compatibility works with any tool that uses OpenAI-compatible environment variables. API keys are stored securely in your shell profile, never in code. As a pure bash script, it works everywhere with zero dependencies.
+A powerful bash script for seamlessly switching between different LLM providers and models including OpenAI, OpenRouter, Cerebras, Groq, and more — using the common OPENAI_* environment variable convention. It enables cost management by easily switching from free tiers to paid models when quotas are exhausted. The universal compatibility works with any tool that uses OpenAI-compatible environment variables. API keys are stored securely in your shell profile, never in code. As a pure bash script, it works everywhere with zero dependencies.
 
 ### Supported Providers
 
-- **Cerebras**: Fast inference with competitive pricing
+This tool supports any OpenAI API compatible provider, including:
+
 - **OpenAI**: Industry standard GPT models
+- **Cerebras**: Fast inference with competitive pricing
 - **Groq**: Lightning-fast inference
 - **OpenRouter**: Access to multiple models through one API
+- **And many more!**
 
 
 ## Installation
