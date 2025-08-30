@@ -782,7 +782,8 @@ cmd_test() {
     local models_endpoint="${base_url}/models"
     echo "🌐 Testing connectivity to: $models_endpoint"
     
-    local start_time=$(date +%s.%N)
+    local start_time
+    start_time=$(date +%s.%N)
     local response
     
     # Use curl to test API endpoint
@@ -793,8 +794,10 @@ cmd_test() {
             -H "Content-Type: application/json" \
             "$models_endpoint" 2>/dev/null)
         
-        local end_time=$(date +%s.%N)
-        local duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
+        local end_time
+        end_time=$(date +%s.%N)
+        local duration
+        duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
         
         case "$response" in
             200)
@@ -979,7 +982,8 @@ cmd_config_backup() {
     mkdir -p "$backup_dir"
     
     # Generate timestamp for backup filename
-    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
     local backup_file="$backup_dir/config_${timestamp}.conf"
     
     # Create backup
