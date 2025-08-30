@@ -10,16 +10,16 @@ declare_global_arrays() {
     if [[ "$array_support" == "true" ]]; then
         # Declare native associative arrays globally
         declare -gA PROVIDER_BASE_URLS
-        declare -gA PROVIDER_API_KEYS  
-        declare -gA PROVIDER_MODELS
+        declare -gA PROVIDER_API_KEY_VARS  
+        declare -gA PROVIDER_DEFAULT_MODELS
         declare -gA PROVIDER_DESCRIPTIONS
         declare -gA PROVIDER_ENABLED
     else
         # Declare compatibility arrays globally
         declare -ga AVAILABLE_PROVIDERS
         declare -ga PROVIDER_BASE_URLS_KEYS PROVIDER_BASE_URLS_VALUES
-        declare -ga PROVIDER_API_KEYS_KEYS PROVIDER_API_KEYS_VALUES
-        declare -ga PROVIDER_MODELS_KEYS PROVIDER_MODELS_VALUES
+        declare -ga PROVIDER_API_KEY_VARS_KEYS PROVIDER_API_KEY_VARS_VALUES
+        declare -ga PROVIDER_DEFAULT_MODELS_KEYS PROVIDER_DEFAULT_MODELS_VALUES
         declare -ga PROVIDER_DESCRIPTIONS_KEYS PROVIDER_DESCRIPTIONS_VALUES
         declare -ga PROVIDER_ENABLED_KEYS PROVIDER_ENABLED_VALUES
     fi
@@ -31,13 +31,13 @@ clear_provider_arrays() {
     
     if [[ "$array_support" == "true" ]]; then
         # Clear native associative arrays
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEYS PROVIDER_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
     else  
         # Clear compatibility arrays
         unset AVAILABLE_PROVIDERS
         unset PROVIDER_BASE_URLS_KEYS PROVIDER_BASE_URLS_VALUES
-        unset PROVIDER_API_KEYS_KEYS PROVIDER_API_KEYS_VALUES
-        unset PROVIDER_MODELS_KEYS PROVIDER_MODELS_VALUES
+        unset PROVIDER_API_KEY_VARS_KEYS PROVIDER_API_KEY_VARS_VALUES
+        unset PROVIDER_DEFAULT_MODELS_KEYS PROVIDER_DEFAULT_MODELS_VALUES
         unset PROVIDER_DESCRIPTIONS_KEYS PROVIDER_DESCRIPTIONS_VALUES
         unset PROVIDER_ENABLED_KEYS PROVIDER_ENABLED_VALUES
     fi
@@ -66,13 +66,13 @@ validate_array_state() {
     if [[ "$array_support" == "true" ]]; then
         echo "Native Arrays Status:" >&2
         echo "  PROVIDER_BASE_URLS: ${#PROVIDER_BASE_URLS[@]} entries" >&2
-        echo "  PROVIDER_API_KEYS: ${#PROVIDER_API_KEYS[@]} entries" >&2
-        echo "  PROVIDER_MODELS: ${#PROVIDER_MODELS[@]} entries" >&2
+        echo "  PROVIDER_API_KEY_VARS: ${#PROVIDER_API_KEY_VARS[@]} entries" >&2
+        echo "  PROVIDER_DEFAULT_MODELS: ${#PROVIDER_DEFAULT_MODELS[@]} entries" >&2
     else
         echo "Compatibility Arrays Status:" >&2
         echo "  AVAILABLE_PROVIDERS: ${#AVAILABLE_PROVIDERS[@]} entries" >&2  
         echo "  BASE_URLS: ${#PROVIDER_BASE_URLS_KEYS[@]} keys, ${#PROVIDER_BASE_URLS_VALUES[@]} values" >&2
-        echo "  API_KEYS: ${#PROVIDER_API_KEYS_KEYS[@]} keys, ${#PROVIDER_API_KEYS_VALUES[@]} values" >&2
+        echo "  API_KEY_VARS: ${#PROVIDER_API_KEY_VARS_KEYS[@]} keys, ${#PROVIDER_API_KEY_VARS_VALUES[@]} values" >&2
     fi
 }
 
@@ -89,8 +89,8 @@ set_test_provider() {
     if [[ "$array_support" == "true" ]]; then
         # Use native associative arrays
         PROVIDER_BASE_URLS["$provider_name"]="$base_url"
-        PROVIDER_API_KEYS["$provider_name"]="$api_key_var"
-        PROVIDER_MODELS["$provider_name"]="$model"  
+        PROVIDER_API_KEY_VARS["$provider_name"]="$api_key_var"
+        PROVIDER_DEFAULT_MODELS["$provider_name"]="$model"  
         PROVIDER_DESCRIPTIONS["$provider_name"]="$description"
         PROVIDER_ENABLED["$provider_name"]="$enabled"
     else
@@ -100,11 +100,11 @@ set_test_provider() {
         PROVIDER_BASE_URLS_KEYS+=("$provider_name")
         PROVIDER_BASE_URLS_VALUES+=("$base_url")
         
-        PROVIDER_API_KEYS_KEYS+=("$provider_name")
-        PROVIDER_API_KEYS_VALUES+=("$api_key_var")
+        PROVIDER_API_KEY_VARS_KEYS+=("$provider_name")
+        PROVIDER_API_KEY_VARS_VALUES+=("$api_key_var")
         
-        PROVIDER_MODELS_KEYS+=("$provider_name")
-        PROVIDER_MODELS_VALUES+=("$model")
+        PROVIDER_DEFAULT_MODELS_KEYS+=("$provider_name")
+        PROVIDER_DEFAULT_MODELS_VALUES+=("$model")
         
         PROVIDER_DESCRIPTIONS_KEYS+=("$provider_name")
         PROVIDER_DESCRIPTIONS_VALUES+=("$description")
@@ -124,8 +124,8 @@ get_test_provider() {
         # Use native array access
         case "$array_name" in
             "PROVIDER_BASE_URLS") echo "${PROVIDER_BASE_URLS[$provider_name]:-}" ;;
-            "PROVIDER_API_KEYS") echo "${PROVIDER_API_KEYS[$provider_name]:-}" ;;
-            "PROVIDER_MODELS") echo "${PROVIDER_MODELS[$provider_name]:-}" ;;
+            "PROVIDER_API_KEY_VARS") echo "${PROVIDER_API_KEY_VARS[$provider_name]:-}" ;;
+            "PROVIDER_DEFAULT_MODELS") echo "${PROVIDER_DEFAULT_MODELS[$provider_name]:-}" ;;
             "PROVIDER_DESCRIPTIONS") echo "${PROVIDER_DESCRIPTIONS[$provider_name]:-}" ;;
             "PROVIDER_ENABLED") echo "${PROVIDER_ENABLED[$provider_name]:-}" ;;
             *) return 1 ;;
@@ -135,10 +135,10 @@ get_test_provider() {
         case "$array_name" in
             "PROVIDER_BASE_URLS") 
                 get_compat_value PROVIDER_BASE_URLS_KEYS PROVIDER_BASE_URLS_VALUES "$provider_name" ;;
-            "PROVIDER_API_KEYS")
-                get_compat_value PROVIDER_API_KEYS_KEYS PROVIDER_API_KEYS_VALUES "$provider_name" ;;
-            "PROVIDER_MODELS")
-                get_compat_value PROVIDER_MODELS_KEYS PROVIDER_MODELS_VALUES "$provider_name" ;;
+            "PROVIDER_API_KEY_VARS")
+                get_compat_value PROVIDER_API_KEY_VARS_KEYS PROVIDER_API_KEY_VARS_VALUES "$provider_name" ;;
+            "PROVIDER_DEFAULT_MODELS")
+                get_compat_value PROVIDER_DEFAULT_MODELS_KEYS PROVIDER_DEFAULT_MODELS_VALUES "$provider_name" ;;
             "PROVIDER_DESCRIPTIONS")
                 get_compat_value PROVIDER_DESCRIPTIONS_KEYS PROVIDER_DESCRIPTIONS_VALUES "$provider_name" ;;
             "PROVIDER_ENABLED")

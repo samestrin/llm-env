@@ -78,12 +78,22 @@ get_config_locations() {
 
 # Global arrays for configuration (conditional based on bash version)
 if [[ "$BASH_ASSOC_ARRAY_SUPPORT" == "true" ]]; then
-    # Use native associative arrays for bash 4.0+
-    declare -A PROVIDER_BASE_URLS
-    declare -A PROVIDER_API_KEY_VARS
-    declare -A PROVIDER_DEFAULT_MODELS
-    declare -A PROVIDER_DESCRIPTIONS
-    declare -A PROVIDER_ENABLED
+    # Use native associative arrays for bash 4.0+ (only declare if not already declared)
+    if ! declare -p PROVIDER_BASE_URLS >/dev/null 2>&1; then
+        declare -A PROVIDER_BASE_URLS
+    fi
+    if ! declare -p PROVIDER_API_KEY_VARS >/dev/null 2>&1; then
+        declare -A PROVIDER_API_KEY_VARS
+    fi
+    if ! declare -p PROVIDER_DEFAULT_MODELS >/dev/null 2>&1; then
+        declare -A PROVIDER_DEFAULT_MODELS
+    fi
+    if ! declare -p PROVIDER_DESCRIPTIONS >/dev/null 2>&1; then
+        declare -A PROVIDER_DESCRIPTIONS
+    fi
+    if ! declare -p PROVIDER_ENABLED >/dev/null 2>&1; then
+        declare -A PROVIDER_ENABLED
+    fi
 else
     # Initialize compatibility arrays for bash <4.0
     # These are managed by the compatibility functions
@@ -275,7 +285,9 @@ init_config() {
     AVAILABLE_PROVIDERS=()
     # Get all provider keys using wrapper function
     local -a provider_keys
-    IFS=$'\n' read -d '' -r -a provider_keys < <(get_provider_keys "PROVIDER_BASE_URLS" && printf '\0')
+    while IFS= read -r key; do
+        [[ -n "$key" ]] && provider_keys+=("$key")
+    done < <(get_provider_keys "PROVIDER_BASE_URLS")
     
     for provider in "${provider_keys[@]}"; do
         local provider_enabled
@@ -337,12 +349,24 @@ load_builtin_config() {
 # ---------- Helper Functions ----------
 
 mask() {
-    # mask everything but last 4 chars
-    local s="$1"
-    [[ -z "$s" ]] && { echo "∅"; return; }
-    local n=${#s}
-    (( n<=4 )) && { printf "%s\n" "$s"; return; }
-    printf "%*s%s\n" $((n-4)) "" "${s: -4}" | tr ' ' '•'
+    local input="$1"
+    [[ -z "$input" ]] && { echo "∅"; return; }
+    [[ ${#input} -le 2 ]] && { echo "$input"; return; }
+    
+    # For strings of 3-4 characters, mask first character only
+    if [[ ${#input} -le 4 ]]; then
+        echo "•${input:1}"
+        return
+    fi
+    
+    # For strings > 4 characters, mask all but last 4 characters
+    local masked=""
+    local i
+    for ((i=0; i<${#input}-4; i++)); do
+        masked+="•"
+    done
+    masked+="${input: -4}"
+    echo "$masked"
 }
 
 host_from_url() {
@@ -421,10 +445,14 @@ cmd_set() {
     fi
     
     local key_var model base key
-    key_var="${PROVIDER_API_KEY_VARS[$provider]}"
-    base="${PROVIDER_BASE_URLS[$provider]}"
-    model="${OPENAI_MODEL_OVERRIDE:-${PROVIDER_DEFAULT_MODELS[$provider]}}"
-    key="${!key_var}"
+    key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+    base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+    model="${OPENAI_MODEL_OVERRIDE:-$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")}"
+    if [[ -n "$key_var" ]]; then
+        key="${!key_var}"
+    else
+        key=""
+    fi
     
     debug "Resolving environment for provider $provider:"
     debug "  key_var=$key_var"
@@ -432,7 +460,10 @@ cmd_set() {
     debug "  model=$model"
     debug "  key_set=$([ -n "$key" ] && echo "yes" || echo "no")"
     
-    if [[ -z "$key" ]]; then
+    if [[ -z "$key_var" ]]; then
+        echo "❌ Invalid provider configuration: missing API key variable for $provider"
+        return 1
+    elif [[ -z "$key" ]]; then
         echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
         return 1
     fi
@@ -473,8 +504,10 @@ cmd_list() {
     
     local providers_to_show=()
     if $show_all; then
-        # Show all providers (enabled and disabled)  
-        IFS=$'\n' read -d '' -r -a providers_to_show < <(get_provider_keys "PROVIDER_BASE_URLS" && printf '\0')
+        # Show all providers (enabled and disabled)
+        while IFS= read -r provider; do
+            [[ -n "$provider" ]] && providers_to_show+=("$provider")
+        done < <(get_provider_keys "PROVIDER_BASE_URLS")
     else
         # Show only enabled providers
         providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
