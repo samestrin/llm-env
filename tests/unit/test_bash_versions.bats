@@ -137,6 +137,7 @@ teardown() {
     # Test performance through script interface
     local start_time=$(date +%s%N)
     bash -c "
+        unset LLM_ENV_DEBUG
         export BASH_ASSOC_ARRAY_SUPPORT='false'
         source $BATS_TEST_DIRNAME/../../llm-env list
     " > /dev/null
