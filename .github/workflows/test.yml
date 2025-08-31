@@ -26,9 +26,14 @@ jobs:
 
     - name: Set up shell environment
       run: |
-        if [[ "${{ matrix.shell }}" == "zsh" ]]; then
-          # Install zsh on macOS if needed
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
+        if [[ "$RUNNER_OS" == "macOS" ]]; then
+          # Install newer bash on macOS (default is 3.2.57)
+          brew install bash || true
+          # Add to PATH so newer bash is used
+          echo "/opt/homebrew/bin" >> $GITHUB_PATH
+          
+          if [[ "${{ matrix.shell }}" == "zsh" ]]; then
+            # Install zsh on macOS if needed
             brew install zsh || true
           fi
         fi
@@ -38,23 +43,41 @@ jobs:
         echo "=== Environment Debug Information ==="
         echo "Runner OS: $RUNNER_OS"
         echo "Shell: ${{ matrix.shell }}"
-        echo "Bash version: $BASH_VERSION"
-        echo "Bash location: $(which bash)"
+        echo "Default bash version: $BASH_VERSION"
+        echo "Default bash location: $(which bash)"
         
-        # Test our compatibility detection
-        source ./llm-env 2>/dev/null || true
-        echo "BASH_ASSOC_ARRAY_SUPPORT: $BASH_ASSOC_ARRAY_SUPPORT"
-        echo "BASH_DECLARE_GLOBAL_SUPPORT: $BASH_DECLARE_GLOBAL_SUPPORT"
-        echo "BASH_MAJOR_VERSION: $BASH_MAJOR_VERSION" 
-        echo "BASH_MINOR_VERSION: $BASH_MINOR_VERSION"
+        # Check if newer bash is available
+        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]]; then
+          echo "Homebrew bash version: $(/opt/homebrew/bin/bash --version | head -1)"
+          echo "Homebrew bash location: /opt/homebrew/bin/bash"
+        fi
         
-        # Test declare -g directly
-        echo "Testing declare -g support..."
-        if declare -gA TEST_ARRAY 2>/dev/null; then
-          echo "declare -g support: YES"
-          unset TEST_ARRAY
+        # Test our compatibility detection with appropriate bash
+        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]]; then
+          echo "Testing with Homebrew bash..."
+          /opt/homebrew/bin/bash -c 'source ./llm-env 2>/dev/null || true; echo "BASH_ASSOC_ARRAY_SUPPORT: $BASH_ASSOC_ARRAY_SUPPORT"; echo "BASH_DECLARE_GLOBAL_SUPPORT: $BASH_DECLARE_GLOBAL_SUPPORT"; echo "BASH_MAJOR_VERSION: $BASH_MAJOR_VERSION"; echo "BASH_MINOR_VERSION: $BASH_MINOR_VERSION"'
+          
+          echo "Testing declare -g support with Homebrew bash..."
+          if /opt/homebrew/bin/bash -c 'declare -gA TEST_ARRAY 2>/dev/null'; then
+            echo "declare -g support: YES"
+          else
+            echo "declare -g support: NO"
+          fi
         else
-          echo "declare -g support: NO"
+          echo "Testing with system bash..."
+          source ./llm-env 2>/dev/null || true
+          echo "BASH_ASSOC_ARRAY_SUPPORT: $BASH_ASSOC_ARRAY_SUPPORT"
+          echo "BASH_DECLARE_GLOBAL_SUPPORT: $BASH_DECLARE_GLOBAL_SUPPORT"
+          echo "BASH_MAJOR_VERSION: $BASH_MAJOR_VERSION" 
+          echo "BASH_MINOR_VERSION: $BASH_MINOR_VERSION"
+          
+          echo "Testing declare -g support..."
+          if declare -gA TEST_ARRAY 2>/dev/null; then
+            echo "declare -g support: YES"
+            unset TEST_ARRAY
+          else
+            echo "declare -g support: NO"
+          fi
         fi
 
     - name: Install dependencies
@@ -77,19 +100,37 @@ jobs:
       run: |
         cd tests
         echo "=== Running Unit Tests ==="
-        SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --unit-only
+        
+        # Use newer bash on macOS if available
+        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
+          SHELL=/opt/homebrew/bin/bash LLM_ENV_DEBUG=1 ./run_tests.sh --unit-only
+        else
+          SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --unit-only
+        fi
 
     - name: Run integration tests  
       run: |
         cd tests
         echo "=== Running Integration Tests ==="
-        SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --integration-only
+        
+        # Use newer bash on macOS if available
+        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
+          SHELL=/opt/homebrew/bin/bash LLM_ENV_DEBUG=1 ./run_tests.sh --integration-only
+        else
+          SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --integration-only
+        fi
 
     - name: Run system tests
       run: |
         cd tests
         echo "=== Running System Tests ==="
-        SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --system-only
+        
+        # Use newer bash on macOS if available
+        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
+          SHELL=/opt/homebrew/bin/bash LLM_ENV_DEBUG=1 ./run_tests.sh --system-only
+        else
+          SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --system-only
+        fi
 
     - name: Test installation script
       run: |
