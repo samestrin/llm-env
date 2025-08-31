@@ -1,4 +1,4 @@
-## Applications, Scripts, and Frameworks compatible with LLM-env
+## Applications, Scripts, and Frameworks compatible with llm-env
 
 Many tools, libraries, and frameworks have adopted the `OPENAI_API_KEY` and `OPENAI_API_BASE` environment variables as a standard for interoperability, making them ideal for use with the `llm-env` manager.
 
