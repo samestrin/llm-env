@@ -103,9 +103,9 @@ jobs:
         
         # Use newer bash on macOS if available
         if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash LLM_ENV_DEBUG=1 ./run_tests.sh --unit-only
+          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --unit-only
         else
-          SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --unit-only
+          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --unit-only
         fi
 
     - name: Run integration tests  
@@ -115,9 +115,9 @@ jobs:
         
         # Use newer bash on macOS if available
         if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash LLM_ENV_DEBUG=1 ./run_tests.sh --integration-only
+          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --integration-only
         else
-          SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --integration-only
+          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --integration-only
         fi
 
     - name: Run system tests
@@ -127,9 +127,9 @@ jobs:
         
         # Use newer bash on macOS if available
         if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash LLM_ENV_DEBUG=1 ./run_tests.sh --system-only
+          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --system-only
         else
-          SHELL=/bin/${{ matrix.shell }} LLM_ENV_DEBUG=1 ./run_tests.sh --system-only
+          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --system-only
         fi
 
     - name: Test installation script
