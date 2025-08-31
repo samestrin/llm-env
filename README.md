@@ -118,15 +118,16 @@ curl -H "Authorization: Bearer $OPENAI_API_KEY" \
      -H "Content-Type: application/json" \
      -d '{"model":"'$OPENAI_MODEL'","messages":[{"role":"user","content":"Hello!"}]}' \
      $OPENAI_BASE_URL/chat/completions
+```
 
-# With Python OpenAI client
 ```python
+# With Python OpenAI client
 python -c "import openai; print(openai.chat.completions.create(model=os.environ['OPENAI_MODEL'], messages=[{'role':'user','content':'Hello!'}]))"
 ```
 
-# With any LLM CLI tool
+# With **any** LLM CLI tool that supports the OpenAI API Environment Variables
 ```bash
-llm "What is the capital of France?"  # Uses current provider automatically
+qwen -p "What is the capital of France?"  # Uses current provider automatically
 ```
 
 ### Common Use Cases
@@ -210,11 +211,11 @@ LLM_ENV_DEBUG=1 llm-env list
 curl -H "Authorization: Bearer $OPENAI_API_KEY" $OPENAI_BASE_URL/models
 ```
 
-🔧 **For detailed troubleshooting, common issues, and solutions, see the [Troubleshooting Guide](docs/troubleshooting.md)**
+**For detailed troubleshooting, common issues, and solutions, see the [Troubleshooting Guide](docs/troubleshooting.md)**
 
 ## Documentation
 
-📚 **Complete documentation is available in the [docs](docs/) directory:**
+**Complete documentation is available in the [docs](docs/) directory:**
 
 - [Configuration Guide](docs/configuration.md) - Detailed setup and customization
 - [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
@@ -223,7 +224,7 @@ curl -H "Authorization: Bearer $OPENAI_API_KEY" $OPENAI_BASE_URL/models
 
 ## Testing
 
-🧪 **Comprehensive test suite ensures reliability across platforms and Bash versions:**
+**Comprehensive test suite ensures reliability across platforms and Bash versions:**
 
 ### Running Tests
 
