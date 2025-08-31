@@ -278,7 +278,7 @@ Contributions are welcome! See the [Development Guide](docs/development.md) for 
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Related Tools
 
@@ -289,14 +289,9 @@ This tool works great with:
 - [LiteLLM](https://github.com/BerriAI/litellm) - A library to simplify calling all LLM APIs
 - [LangChain](https://github.com/langchain-ai/langchain) - A framework for building LLM applications
 
-It's also great with CLI coding tools:
+It's also great with CLI coding tools, I use i with [qwen-code](https://github.com/QwenLM/qwen-code) + [qwen-prompts](https://github.com/samestrin/qwen-prompts), a collection of "hybrid prompt chaining" slash prompts, but it will work with **any tool that uses OpenAI-compatible APIs using Environmental Variables**.
 
-- [gemini-cli](https://github.com/google-gemini/gemini-cli) - Google's open-source AI agent for terminal-based coding
-- [qwen-code](https://github.com/QwenLM/qwen-code) - Interactive CLI coding tool optimized for Qwen3-Coder models
-   - [qwen-prompts](https://github.com/samestrin/qwen-prompts) - A collection of "hybrid prompt chaining" slash prompts for qwen-code CLI tool
-- **Any tool using OpenAI-compatible APIs using Environmental Variables**
-
-Additional [Applications, Scripts, and Frameworks compatible with LLM-env](docs/comprehensive.md)
+Additional: [Applications, Scripts, and Frameworks compatible with llm-env](docs/comprehensive.md)
 
 ## Share
 
