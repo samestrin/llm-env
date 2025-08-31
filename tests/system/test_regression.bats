@@ -329,7 +329,8 @@ EOF
     # when interrupted (though SIGINT testing in BATS is limited)
     
     # Run a command that should complete quickly
-    run timeout 5 bash -c "source $BATS_TEST_DIRNAME/../../llm-env list"
+    # Note: Removed timeout command for macOS compatibility
+    run bash -c "source $BATS_TEST_DIRNAME/../../llm-env list"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "Available providers:" ]]
 }
