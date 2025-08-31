@@ -190,7 +190,7 @@ malformed line without section
 EOF
 
     # Re-initialize after changing config file
-    # Array initialization handled by helpers
+    init_config
     
     run cmd_list
     [ "$status" -eq 0 ]
