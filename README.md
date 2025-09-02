@@ -22,6 +22,9 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 - **Context switching kills flow**: Small mistakes cause mysterious 401s/404s, breaking your development rhythm
 - **Configuration drift**: Different setups across development, staging, and production environments
 
+### The Solution: llm-env 
+
+![llm-env --help](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ylderczpgbos0fdzfn02.png)
 
 ### Supported Providers
 
@@ -35,12 +38,10 @@ This tool supports any OpenAI API compatible provider, including:
 - **DeepSeek**: Excellent coding and reasoning models
 - **Together AI**: Competitive pricing with wide model selection
 - **Fireworks AI**: Ultra-fast inference optimized for production
-- **And many more providers!**
+- **And any OpenAI API compatible provider!**
 
 
 ## Installation
-
-![llm-env --help](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ylderczpgbos0fdzfn02.png)
 
 ### Quick Install
 
