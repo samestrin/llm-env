@@ -308,12 +308,12 @@ assert_provider_count() {
 # Load assessment and dynamic timeout helpers
 # Assess system load to determine if timeouts should be extended
 get_system_load_factor() {
-    local load_factor=1.0
+    local load_factor=100  # Base factor as integer (1.0 * 100)
     
     # Check if we're in CI environment
     if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" || -n "${TRAVIS:-}" || -n "${JENKINS_URL:-}" ]]; then
         # Base CI multiplier
-        load_factor=1.5
+        load_factor=150  # 1.5 * 100
         
         # Check system load average (1-minute)
         if command -v uptime >/dev/null 2>&1; then
@@ -326,11 +326,11 @@ get_system_load_factor() {
             
             # Adjust factor based on load
             if [[ $load_int -gt 300 ]]; then  # > 3.0
-                load_factor=3.0
+                load_factor=300  # 3.0 * 100
             elif [[ $load_int -gt 200 ]]; then  # > 2.0
-                load_factor=2.5
+                load_factor=250  # 2.5 * 100
             elif [[ $load_int -gt 150 ]]; then  # > 1.5
-                load_factor=2.0
+                load_factor=200  # 2.0 * 100
             fi
         fi
         
@@ -339,9 +339,9 @@ get_system_load_factor() {
             local mem_usage
             mem_usage=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
             
-            # If memory usage > 80%, increase factor
+            # If memory usage > 80%, increase factor by 30%
             if [[ $mem_usage -gt 80 ]]; then
-                load_factor=$(echo "$load_factor * 1.3" | bc 2>/dev/null || echo "$load_factor")
+                load_factor=$((load_factor * 130 / 100))
             fi
         fi
     fi
@@ -355,12 +355,9 @@ calculate_dynamic_timeout() {
     local load_factor
     load_factor=$(get_system_load_factor)
     
-    # Calculate new timeout (ensure it's an integer)
+    # Calculate new timeout using integer arithmetic (load_factor is * 100)
     local dynamic_timeout
-    dynamic_timeout=$(echo "$base_timeout * $load_factor" | bc 2>/dev/null || echo "$base_timeout")
-    
-    # Round to nearest integer
-    dynamic_timeout=$(printf "%.0f" "$dynamic_timeout")
+    dynamic_timeout=$((base_timeout * load_factor / 100))
     
     # Ensure minimum timeout
     if [[ $dynamic_timeout -lt $base_timeout ]]; then
