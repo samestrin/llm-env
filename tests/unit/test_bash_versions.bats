@@ -6,6 +6,9 @@ setup() {
     # Source the main script
     source "$BATS_TEST_DIRNAME/../../llm-env"
     
+    # Source test helpers for load-aware timeout functions
+    source "$BATS_TEST_DIRNAME/../lib/bats_helpers.sh"
+    
     # Save original BASH_VERSION for restoration
     export ORIG_BASH_VERSION="$BASH_VERSION"
 }
@@ -149,10 +152,16 @@ teardown() {
     # Debug output for CI troubleshooting
     echo "# Performance test duration: ${duration}ms" >&3
     
-    # Should complete within reasonable time (< 7500ms for compatibility mode)
-    # Increased threshold to account for CI environment variability (was 2000ms, then 5000ms, now 7500ms)
-    # CI environments can be significantly slower than local execution
-    [ "$duration" -lt 7500 ]
+    # Calculate dynamic timeout based on system load
+    local base_timeout=5000  # Base timeout in milliseconds
+    local dynamic_timeout
+    dynamic_timeout=$(calculate_dynamic_timeout $base_timeout)
+    
+    echo "# Dynamic timeout calculated: ${dynamic_timeout}ms (base: ${base_timeout}ms)" >&3
+    
+    # Should complete within reasonable time (dynamic timeout for compatibility mode)
+    # Timeout automatically adjusts based on CI environment load and system resources
+    [ "$duration" -lt "$dynamic_timeout" ]
 }
 
 @test "array bounds checking: handles large provider sets" {

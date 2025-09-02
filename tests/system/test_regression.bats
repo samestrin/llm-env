@@ -7,6 +7,9 @@ setup() {
     export TEST_DIR="$BATS_TMPDIR/llm-env-regression-test-$$"
     mkdir -p "$TEST_DIR"
     
+    # Source test helpers for load-aware timeout functions
+    source "$BATS_TEST_DIRNAME/../lib/bats_helpers.sh"
+    
     # Save original environment
     export ORIG_HOME="$HOME"
     export ORIG_XDG_CONFIG_HOME="$XDG_CONFIG_HOME"
@@ -229,9 +232,17 @@ EOF
     [[ "$output" =~ "large_provider_1" ]]
     [[ "$output" =~ "large_provider_100" ]]
     
-    # Should complete within 12.5 seconds even with large config
+    # Calculate dynamic timeout based on system load
+    local base_timeout=10  # Base timeout in seconds
+    local dynamic_timeout
+    dynamic_timeout=$(calculate_dynamic_timeout $base_timeout)
+    
+    echo "# Dynamic timeout calculated: ${dynamic_timeout}s (base: ${base_timeout}s)" >&3
+    
+    # Should complete within dynamic timeout even with large config
+    # Timeout automatically adjusts based on CI environment load and system resources
     local duration=$((end_time - start_time))
-    [ "$duration" -lt 13 ]
+    [ "$duration" -lt "$dynamic_timeout" ]
 }
 
 @test "regression: handles config with duplicate section names" {
