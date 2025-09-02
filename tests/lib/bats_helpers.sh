@@ -320,9 +320,9 @@ get_system_load_factor() {
             local load_avg
             load_avg=$(uptime | awk '{print $(NF-2)}' | sed 's/,//')
             
-            # Convert to integer comparison (multiply by 100)
+            # Convert to integer comparison (multiply by 100, remove decimals)
             local load_int
-            load_int=$(echo "$load_avg * 100" | bc 2>/dev/null || echo "100")
+            load_int=$(printf "%.0f" "$(echo "$load_avg * 100" | bc 2>/dev/null || echo "100")")
             
             # Adjust factor based on load
             if [[ $load_int -gt 300 ]]; then  # > 3.0
