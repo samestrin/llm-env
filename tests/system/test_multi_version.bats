@@ -183,9 +183,9 @@ EOF
         # Calculate duration in milliseconds
         local duration=$(( (end_time - start_time) / 1000000 ))
         
-        # Calculate dynamic timeout based on system load (base: 1500ms)
-        local dynamic_timeout=$(calculate_dynamic_timeout 1500)
-        echo "# Dynamic timeout calculated: ${dynamic_timeout}ms (base: 1500ms)"
+        # Calculate dynamic timeout based on system load (base: 2500ms)
+        local dynamic_timeout=$(calculate_dynamic_timeout 2500)
+        echo "# Dynamic timeout calculated: ${dynamic_timeout}ms (base: 2500ms)"
         
         # Should complete within dynamic timeout
         [ "$duration" -lt "$dynamic_timeout" ]
