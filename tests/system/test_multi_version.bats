@@ -3,6 +3,9 @@
 # System tests for bash version matrix compatibility
 
 setup() {
+    # Source helper functions for dynamic timeout calculation
+    source "$BATS_TEST_DIRNAME/../lib/bats_helpers.sh"
+    
     # Create temporary directory for testing
     export TEST_DIR="$BATS_TMPDIR/llm-env-multiversion-test-$$"
     mkdir -p "$TEST_DIR"
@@ -180,8 +183,12 @@ EOF
         # Calculate duration in milliseconds
         local duration=$(( (end_time - start_time) / 1000000 ))
         
-        # Should complete within reasonable time (< 2000ms even for compatibility mode)
-        [ "$duration" -lt 2000 ]
+        # Calculate dynamic timeout based on system load (base: 1500ms)
+        local dynamic_timeout=$(calculate_dynamic_timeout 1500)
+        echo "# Dynamic timeout calculated: ${dynamic_timeout}ms (base: 1500ms)"
+        
+        # Should complete within dynamic timeout
+        [ "$duration" -lt "$dynamic_timeout" ]
     done
 }
 
@@ -216,8 +223,12 @@ EOF
         
         local duration=$(( (end_time - start_time) / 1000000 ))
         
-        # Even with 20 providers, should complete within 3 seconds
-        [ "$duration" -lt 3000 ]
+        # Calculate dynamic timeout based on system load (base: 2500ms)
+        local dynamic_timeout=$(calculate_dynamic_timeout 2500)
+        echo "# Dynamic timeout calculated: ${dynamic_timeout}ms (base: 2500ms)"
+        
+        # Even with 20 providers, should complete within dynamic timeout
+        [ "$duration" -lt "$dynamic_timeout" ]
     done
 }
 
