@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2025-01-29
+## [1.1.0] - 2025-09-02
 
 ### Added
 - **Complete Integration Test Suite**: Comprehensive test coverage with 13 passing integration tests in `test_providers.bats`
@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Setup Order**: Config file creation now happens before sourcing `llm-env` script
 - **Test Configuration**: Enhanced temporary config directory structure for better test isolation
 
-## [1.0.0] - 2025-01-29
+## [1.0.0] - 2025-08-29
 
 ### Added
 - **Core LLM Environment Management**: Complete shell script for managing multiple LLM provider configurations
