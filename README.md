@@ -294,7 +294,7 @@ This tool works great with:
 - [LiteLLM](https://github.com/BerriAI/litellm) - A library to simplify calling all LLM APIs
 - [LangChain](https://github.com/langchain-ai/langchain) - A framework for building LLM applications
 
-It's also great with CLI coding tools, I use i with [qwen-code](https://github.com/QwenLM/qwen-code) + [qwen-prompts](https://github.com/samestrin/qwen-prompts), a collection of "hybrid prompt chaining" slash prompts, but it will work with **any tool that uses OpenAI-compatible APIs using Environmental Variables**.
+It's also great with CLI coding tools, I use it with [qwen-code](https://github.com/QwenLM/qwen-code) + [qwen-prompts](https://github.com/samestrin/qwen-prompts), a collection of "hybrid prompt chaining" slash prompts, but it will work with **any tool that uses OpenAI-compatible APIs using Environmental Variables**.
 
 Additional: [Applications, Scripts, and Frameworks compatible with llm-env](docs/comprehensive.md)
 
