@@ -304,3 +304,68 @@ assert_provider_count() {
     
     [[ "$actual_count" -eq "$expected_count" ]]
 }
+
+# Load assessment and dynamic timeout helpers
+# Assess system load to determine if timeouts should be extended
+get_system_load_factor() {
+    local load_factor=1.0
+    
+    # Check if we're in CI environment
+    if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" || -n "${TRAVIS:-}" || -n "${JENKINS_URL:-}" ]]; then
+        # Base CI multiplier
+        load_factor=1.5
+        
+        # Check system load average (1-minute)
+        if command -v uptime >/dev/null 2>&1; then
+            local load_avg
+            load_avg=$(uptime | awk '{print $(NF-2)}' | sed 's/,//')
+            
+            # Convert to integer comparison (multiply by 100)
+            local load_int
+            load_int=$(echo "$load_avg * 100" | bc 2>/dev/null || echo "100")
+            
+            # Adjust factor based on load
+            if [[ $load_int -gt 300 ]]; then  # > 3.0
+                load_factor=3.0
+            elif [[ $load_int -gt 200 ]]; then  # > 2.0
+                load_factor=2.5
+            elif [[ $load_int -gt 150 ]]; then  # > 1.5
+                load_factor=2.0
+            fi
+        fi
+        
+        # Check available memory if possible
+        if command -v free >/dev/null 2>&1; then
+            local mem_usage
+            mem_usage=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
+            
+            # If memory usage > 80%, increase factor
+            if [[ $mem_usage -gt 80 ]]; then
+                load_factor=$(echo "$load_factor * 1.3" | bc 2>/dev/null || echo "$load_factor")
+            fi
+        fi
+    fi
+    
+    echo "$load_factor"
+}
+
+# Calculate dynamic timeout based on base timeout and system load
+calculate_dynamic_timeout() {
+    local base_timeout="$1"
+    local load_factor
+    load_factor=$(get_system_load_factor)
+    
+    # Calculate new timeout (ensure it's an integer)
+    local dynamic_timeout
+    dynamic_timeout=$(echo "$base_timeout * $load_factor" | bc 2>/dev/null || echo "$base_timeout")
+    
+    # Round to nearest integer
+    dynamic_timeout=$(printf "%.0f" "$dynamic_timeout")
+    
+    # Ensure minimum timeout
+    if [[ $dynamic_timeout -lt $base_timeout ]]; then
+        dynamic_timeout=$base_timeout
+    fi
+    
+    echo "$dynamic_timeout"
+}
