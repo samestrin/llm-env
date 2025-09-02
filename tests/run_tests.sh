@@ -18,10 +18,25 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 print_header() {
     echo -e "${BLUE}"
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                 LLM Environment Manager                      ║"
-    echo "║                     Test Suite Runner                        ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
+    # Try to source the logo from the project
+    local logo_script="$PROJECT_ROOT/planning/scripts/logo.sh"
+    if [[ -f "$logo_script" ]]; then
+        # Source the logo script and call the function
+        source "$logo_script"
+        display_logo
+    else
+        # Fallback ASCII logo
+        cat << 'EOF'
+.__  .__                                        
+|  | |  |   _____             ____   _______  __
+|  | |  |  /     \   ______ _/ __ \ /    \  \/ /
+|  |_|  |_|  Y Y  \ /_____/ \  ___/|   |  \   / 
+|____/____/__|_|  /          \___  >___|  /\_/  
+                \/               \/     \/      
+EOF
+    fi
+    echo
+    echo "Test Suite Runner"
     echo -e "${NC}"
 }
 

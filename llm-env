@@ -311,7 +311,8 @@ init_config() {
         builtin_config="$(get_script_dir)/config/llm-env.conf"
         if [[ -f "$builtin_config" ]]; then
             echo "⚠️  No configuration file found. Using built-in defaults."
-            echo "   Create $(get_user_config_path) for custom configuration."
+        echo "   Create $(get_user_config_path) for custom configuration."
+        echo
             load_builtin_config
             CONFIG_SOURCE="builtin"
             config_loaded=true
@@ -469,6 +470,7 @@ cmd_set() {
     if [[ -z "$provider" ]]; then
         echo "Usage: source llm-env set <provider>"
         echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        echo
         return 1
     fi
     
@@ -484,6 +486,7 @@ cmd_set() {
             2) echo "❌ Provider disabled: $provider" ;;
         esac
         echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        echo
         return 1
     fi
     
@@ -505,14 +508,17 @@ cmd_set() {
     
     if [[ -z "$key_var" ]]; then
         echo "❌ Invalid provider configuration: missing API key variable for $provider"
+        echo
         return 1
     elif [[ -z "$key" ]]; then
         echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
+        echo
         return 1
     fi
     
     if [[ -z "$base" || -z "$model" ]]; then
         echo "❌ Missing base URL or model for $provider"
+        echo
         return 1
     fi
     
@@ -524,6 +530,7 @@ cmd_set() {
     local host
     host=$(host_from_url "$OPENAI_BASE_URL")
     echo "✅ Set: provider=$LLM_PROVIDER host=$host model=$OPENAI_MODEL key=$(mask "$OPENAI_API_KEY")"
+    echo
 }
 
 cmd_unset() {
@@ -534,6 +541,7 @@ cmd_unset() {
     
     unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL LLM_PROVIDER
     echo "🗑️ Unset OpenAI-compatible envs (was: provider=${prev_p:-∅} host=${prev_host:-∅} model=${prev_model:-∅})"
+    echo
 }
 
 cmd_list() {
@@ -544,6 +552,7 @@ cmd_list() {
     init_config
     
     echo "Available providers:"
+    echo
     
     local providers_to_show=()
     if $show_all; then
@@ -582,7 +591,8 @@ cmd_list() {
         printf " %s %-12s  %-30s  %-24s  key:%-3s  %s%s\n" \
             "$mark" "$provider" "$base" "$model" "$have_key" "$description" "$enabled_status"
     done
-    [[ -n "$LLM_PROVIDER" ]] && echo "* current provider"
+    [[ -n "$LLM_PROVIDER" ]] && echo; echo "* current provider"
+    echo
     return 0  # Explicit success return
 }
 
@@ -600,6 +610,7 @@ cmd_show() {
             break
         fi
     done < <(get_config_locations)
+    echo
 }
 
 cmd_config() {
@@ -653,6 +664,7 @@ cmd_config_init() {
         echo "⚠️  Configuration file already exists: $user_config"
         read -p "Overwrite? (y/N): " -n 1 -r
         echo
+        echo
         [[ ! $REPLY =~ ^[Yy]$ ]] && return 1
     fi
     
@@ -672,8 +684,10 @@ cmd_config_init() {
         cp "$default_config" "$user_config"
         echo "✅ Created user configuration: $user_config"
         echo "💡 Edit this file to customize your providers and models"
+        echo
     else
         echo "❌ No default configuration found to copy"
+        echo
         return 1
     fi
 }
@@ -684,6 +698,7 @@ cmd_config_edit() {
     
     if [[ ! -f "${user_config}" ]]; then
         echo "⚠️  User configuration not found. Creating it first..."
+        echo
         cmd_config_init || return 1
     fi
     
@@ -692,6 +707,7 @@ cmd_config_edit() {
     "$editor" "$user_config"
     
     echo "💡 Run 'source llm-env config validate' to check your configuration"
+    echo
 }
 
 cmd_config_add() {
@@ -819,10 +835,12 @@ cmd_test() {
     # Check if API key is available
     if [[ -z "$api_key" ]]; then
         echo "❌ API key not found. Set $key_var in your environment."
+        echo
         return 1
     fi
     
     echo "✅ API key found: $(mask "$api_key")"
+    echo
     echo "🔗 Base URL: $base_url"
     
     # Test API connectivity
@@ -849,36 +867,44 @@ cmd_test() {
         case "$response" in
             200)
                 echo "✅ API connectivity test passed (HTTP $response)"
-                echo "⏱️  Response time: ${duration}s"
+                echo
+                echo "⏱️ Response time: ${duration}s"
                 ;;
             401)
                 echo "❌ Authentication failed (HTTP $response)"
                 echo "💡 Check your API key: $key_var"
+                echo
                 return 1
                 ;;
             403)
                 echo "❌ Access forbidden (HTTP $response)"
                 echo "💡 Check API key permissions"
+                echo
                 return 1
                 ;;
             404)
                 echo "⚠️  Models endpoint not found (HTTP $response)"
                 echo "💡 Provider may not support /models endpoint"
+                echo
                 ;;
             "")
                 echo "❌ Connection timeout or network error"
+            echo
                 echo "💡 Check internet connection and base URL"
                 return 1
                 ;;
             *)
                 echo "⚠️  Unexpected response (HTTP $response)"
+            echo
                 echo "💡 Provider may have different API format"
                 ;;
         esac
         
         echo "🏁 Test completed for provider: $provider"
+        echo
     else
         echo "❌ curl command not found. Install curl to test API connectivity."
+        echo
         return 1
     fi
 }
@@ -936,6 +962,7 @@ cmd_help() {
     echo "    OPENAI_MODEL_OVERRIDE Override default model"
     echo
     echo "For more information, visit: https://github.com/samestrin/llm-env"
+    echo
 }
 
 cmd_config_validate() {
@@ -1005,12 +1032,15 @@ cmd_config_validate() {
     
     if (( errors > 0 )); then
         echo "❌ Configuration has errors that need to be fixed"
+    echo
         return 1
     elif (( warnings > 0 )); then
         echo "⚠️  Configuration has warnings but should work"
+    echo
         return 0
     else
         echo "✅ Configuration is valid"
+    echo
         return 0
     fi
 }
@@ -1037,6 +1067,7 @@ cmd_config_backup() {
     # Create backup
     if cp "$user_config" "$backup_file"; then
         echo "✅ Configuration backed up to: $backup_file"
+        echo
         echo "💡 To restore: source llm-env config restore $backup_file"
         
         # List recent backups
@@ -1047,6 +1078,7 @@ cmd_config_backup() {
         done
     else
         echo "❌ Failed to create backup"
+        echo
         return 1
     fi
 }
@@ -1098,9 +1130,11 @@ cmd_config_restore() {
     # Restore from backup
     if cp "$backup_file" "$user_config"; then
         echo "✅ Configuration restored from: $backup_file"
+        echo
         echo "💡 Run 'source llm-env config validate' to verify"
     else
         echo "❌ Failed to restore configuration"
+        echo
         return 1
     fi
 }

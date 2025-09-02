@@ -4,23 +4,27 @@
 
 ![Version 1.1.0](https://img.shields.io/badge/Version-1.1.0-blue) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Built with Bash](https://img.shields.io/badge/Built%20with-Bash-darkblue)](https://www.gnu.org/software/bash/)
 
-A powerful bash script for seamlessly switching between different LLM providers and models. Perfect for developers who work with multiple AI services and need to quickly switch between free tiers, paid models, or different providers based on availability and cost.
+A powerful bash script for seamlessly switching between different LLM providers and models. Perfect for developers who work with multiple AI services and need to quickly switch between free tiers, paid models, or other providers based on availability and cost.
 
-**New in v1.1.0:** Enhanced with comprehensive help system, API connectivity testing, configuration backup/restore, bulk operations, and debug mode for easier troubleshooting.
+**New in v1.1.0:** Enhanced with a comprehensive help system, API connectivity testing, configuration backup/restore, bulk operations, and debug mode for easier troubleshooting.
 
 ## Overview
 
-Easily manage LLM credentials for any OpenAI compatible provider including OpenAI, OpenRouter, Cerebras, Groq, and more — designed to work with applications that use the emerging `OPENAI_*` environment variable standard. It enables cost management by easily switching from free tiers to paid models when quotas are exhausted. The universal compatibility works with any tool that uses OpenAI-compatible environment variables. API keys are stored securely in your shell profile, never in code. As a pure bash script, it **just works everywhere** with **zero dependencies**.
+Easily manage LLM credentials for any OpenAI compatible provider including OpenAI, OpenRouter, Cerebras, Groq, and 15+ other providers — designed to work with applications that use the emerging `OPENAI_*` environment variable standard. It enables cost management by easily switching from free tiers to paid models when quotas are exhausted. The universal compatibility works with any tool that uses OpenAI-compatible environment variables. API keys are stored securely in your shell profile, never in code. As a pure bash script, it **just works everywhere** with **zero dependencies**.
 
 ### Supported Providers
 
 This tool supports any OpenAI API compatible provider, including:
 
 - **OpenAI**: Industry standard GPT models
-- **Cerebras**: Fast inference with competitive pricing
+- **Cerebras**: Fast inference with competitive pricing  
 - **Groq**: Lightning-fast inference
 - **OpenRouter**: Access to multiple models through one API
-- **And many more!**
+- **xAI Grok**: Advanced reasoning and coding capabilities
+- **DeepSeek**: Excellent coding and reasoning models
+- **Together AI**: Competitive pricing with wide model selection
+- **Fireworks AI**: Ultra-fast inference optimized for production
+- **And many more providers!**
 
 
 ## Installation
