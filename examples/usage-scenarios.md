@@ -11,7 +11,7 @@ This document provides real-world examples of how to use the LLM Environment Man
 # Check what providers you have configured
 llm-env list
 
-# Start with free tier for light tasks
+# Start with an OpenRouter free tier for light tasks
 llm-env set openrouter2  # DeepSeek free model
 
 # Verify setup
@@ -115,7 +115,7 @@ jobs:
       
       - name: Setup LLM Environment
         run: |
-          curl -o llm-env https://raw.githubusercontent.com/yourusername/llm-env/main/llm-env
+          curl -o llm-env https://raw.githubusercontent.com/samestrin/llm-env/main/llm-env
           chmod +x llm-env
           echo 'llm-env() { source ./llm-env "$@"; }' >> ~/.bashrc
           source ~/.bashrc
@@ -134,7 +134,7 @@ jobs:
 FROM ubuntu:22.04
 
 # Install LLM Environment Manager
-RUN curl -o /usr/local/bin/llm-env https://raw.githubusercontent.com/yourusername/llm-env/main/llm-env && \
+RUN curl -o /usr/local/bin/llm-env https://raw.githubusercontent.com/samestrin/llm-env/main/llm-env && \
     chmod +x /usr/local/bin/llm-env
 
 # Add to shell profile
@@ -235,7 +235,8 @@ llm-env unset
 
 ### With Simon Willison's LLM CLI
 ```bash
-# Install llm if you haven't
+# Install llm if you haven't already
+# See: https://llm.datasette.io/en/stable/setup.html
 pip install llm
 
 # Use with different providers
