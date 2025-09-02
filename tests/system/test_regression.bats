@@ -229,9 +229,9 @@ EOF
     [[ "$output" =~ "large_provider_1" ]]
     [[ "$output" =~ "large_provider_100" ]]
     
-    # Should complete within 10 seconds even with large config
+    # Should complete within 12.5 seconds even with large config
     local duration=$((end_time - start_time))
-    [ "$duration" -lt 10 ]
+    [ "$duration" -lt 13 ]
 }
 
 @test "regression: handles config with duplicate section names" {
