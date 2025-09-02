@@ -925,7 +925,7 @@ cmd_help() {
     echo "    --version             Show version information"
     echo "    --help                Show this help message"
     echo
-    echo "CONFIG SUBCOMMANDS:"
+    echo "Configuration Sub-Commands:"
     echo "    init                  Create user configuration file"
     echo "    edit                  Edit user configuration file"
     echo "    add <provider>        Add a new provider interactively"
@@ -946,7 +946,7 @@ cmd_help() {
     echo "    source llm-env show"
     echo
     echo "    # Test provider connectivity"
-    echo "    source llm-env test cerebras"
+    echo "    source llm-env test openai"
     echo
     echo "    # Create configuration file"
     echo "    source llm-env config init"
@@ -957,7 +957,7 @@ cmd_help() {
     echo "    # Enable debug mode"
     echo "    LLM_ENV_DEBUG=1 source llm-env list"
     echo
-    echo "ENVIRONMENT VARIABLES:"
+    echo "Environment Variables:"
     echo "    LLM_ENV_DEBUG=1       Enable debug output"
     echo "    OPENAI_MODEL_OVERRIDE Override default model"
     echo
