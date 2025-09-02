@@ -12,6 +12,17 @@ A powerful bash script for seamlessly switching between different LLM providers 
 
 Easily manage LLM credentials for any OpenAI compatible provider including OpenAI, OpenRouter, Cerebras, Groq, and 15+ other providers — designed to work with applications that use the emerging `OPENAI_*` environment variable standard. It enables cost management by easily switching from free tiers to paid models when quotas are exhausted. The universal compatibility works with any tool that uses OpenAI-compatible environment variables. API keys are stored securely in your shell profile, never in code. As a pure bash script, it **just works everywhere** with **zero dependencies**.
 
+### The Problem
+
+If you work with multiple AI providers, you've likely experienced these pain points:
+
+- **Multiple providers, different endpoints**: Each provider has unique API endpoints and authentication methods
+- **OPENAI_* is the standard**: Most AI tools expect OPENAI_* environment variables, but not every provider uses those names
+- **Constant configuration editing**: You end up editing ~/.bashrc or ~/.zshrc repeatedly
+- **Context switching kills flow**: Small mistakes cause mysterious 401s/404s, breaking your development rhythm
+- **Configuration drift**: Different setups across development, staging, and production environments
+
+
 ### Supported Providers
 
 This tool supports any OpenAI API compatible provider, including:
@@ -28,6 +39,8 @@ This tool supports any OpenAI API compatible provider, including:
 
 
 ## Installation
+
+![llm-env --help](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ylderczpgbos0fdzfn02.png)
 
 ### Quick Install
 
@@ -47,7 +60,7 @@ curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh |
 2. Copy the script to your PATH:
    ```bash
    sudo cp llm-env /usr/local/bin/
-   sudo chmod +x /usr/local/bin/llm-env
+   sudo chmod 755 /usr/local/bin/llm-env
    ```
 
 3. Add the helper function to your shell profile (`~/.bashrc` or `~/.zshrc`):
@@ -136,31 +149,42 @@ qwen -p "What is the capital of France?"  # Uses current provider automatically
 
 ### Common Use Cases
 
-#### 1. Development Workflow
+#### Development Workflow
 ```bash
-# Use free tier for testing
-llm-env set openrouter3  # qwen free model
+# Set up for development
+llm-env set cerebras     # Fast and cost-effective for testing
 
-# Switch to paid when deploying
-llm-env set cerebras     # Fast and reliable
+# Test your application
+./your-app.py
+
+# Switch to production model when ready
+llm-env set openai       # Higher quality for production
 ```
 
-#### 2. Cost Optimization
+#### Multiple Provider Setup
 ```bash
-# Start with cheapest option
-llm-env set openrouter2  # Free deepseek
+# Configure different providers for different tasks
+llm-env set deepseek     # Excellent for code generation
+llm-env set groq         # Fast inference for real-time apps
+llm-env set openai       # Complex reasoning tasks
 
-# Escalate based on needs
-llm-env set groq         # When speed matters
-llm-env set openai       # When quality is critical
+# Switch between providers as needed
+llm-env list             # See all available providers
+llm-env show             # Check current configuration
 ```
 
-#### 3. Provider Redundancy
+#### Integration with Tools
 ```bash
-# Primary provider down? Switch instantly
-llm-env set cerebras
-# If cerebras is down:
-llm-env set groq
+# Use with curl
+curl -H "Authorization: Bearer $OPENAI_API_KEY" \
+     -H "Content-Type: application/json" \
+     $OPENAI_BASE_URL/models
+
+# Use with Python scripts
+python your_script.py    # Uses current provider automatically
+
+# Test connectivity
+llm-env test cerebras    # Verify provider is working
 ```
 
 ## Configuration
@@ -195,7 +219,7 @@ source llm-env config bulk enable cerebras openai
 source llm-env config bulk disable groq openrouter
 ```
 
-📖 **For detailed configuration options, examples, and advanced setup, see the [Configuration Guide](docs/configuration.md)**
+**For detailed configuration options, examples, and advanced setup, see the [Configuration Guide](docs/configuration.md)**
 
 ## Troubleshooting
 
@@ -216,6 +240,22 @@ curl -H "Authorization: Bearer $OPENAI_API_KEY" $OPENAI_BASE_URL/models
 ```
 
 **For detailed troubleshooting, common issues, and solutions, see the [Troubleshooting Guide](docs/troubleshooting.md)**
+
+## Why Bash?
+
+`llm-env` is written in Bash so it runs anywhere Bash runs—macOS, Linux, containers, CI—without asking you to install Python or Node first. It's intentionally compatible with older shells and includes compatibility shims for legacy behavior.
+
+**Universal Compatibility:**
+- Works out-of-the-box on macOS's default Bash 3.2 and modern Bash 5.x installations
+- Linux distros with Bash 4.0+ are fully supported
+- Backwards-compatible layer ensures features like associative arrays "just work," even on Bash 3.2
+- Verified by automated test matrix across Bash 3.2, 4.0+, and 5.x on macOS and Linux
+
+**Security Benefits:**
+- Keys live in environment variables—never written to config files
+- Outputs are masked (e.g., ••••abcd) to keep secrets safe on screen and in screenshots
+- Switching is local; nothing is sent over the network except your own API calls during tests
+- No external dependencies means fewer attack vectors
 
 ## Documentation
 
