@@ -22,6 +22,7 @@ print_header() {
     local logo_script="$PROJECT_ROOT/planning/scripts/logo.sh"
     if [[ -f "$logo_script" ]]; then
         # Source the logo script and call the function
+        # shellcheck source=../planning/scripts/logo.sh
         source "$logo_script"
         display_logo
     else
