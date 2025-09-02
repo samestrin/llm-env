@@ -14,16 +14,28 @@ NC='\033[0m' # No Color
 INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="llm-env"
 GITHUB_REPO="samestrin/llm-env"  # Update this with your actual repo
-VERSION="main"  # Default to main branch, can be overridden
+VERSION="1.1.0"  # Default to current version, can be overridden
 RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/${SCRIPT_NAME}"
 OFFLINE_FILE=""  # For offline installation
 
 print_header() {
     echo -e "${BLUE}"
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    LLM Environment Manager                   ║"
-    echo "║                         Installer                            ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
+    # Source and display the ASCII logo
+    if curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/planning/scripts/logo.sh" 2>/dev/null | grep -A 20 "display_logo()" | sed -n '/cat << .EOF./,/^EOF$/p' | sed '1d;$d' 2>/dev/null; then
+        : # Logo displayed successfully
+    else
+        # Fallback ASCII logo if download fails
+        cat << 'EOF'
+.__  .__                                        
+|  | |  |   _____             ____   _______  __
+|  | |  |  /     \   ______ _/ __ \ /    \  \/ /
+|  |_|  |_|  Y Y  \ /_____/ \  ___/|   |  \   / 
+|____/____/__|_|  /          \___  >___|  /\_/  
+                \/               \/     \/      
+EOF
+    fi
+    echo
+    echo "Installer"
     echo -e "${NC}"
 }
 
@@ -151,18 +163,18 @@ install_config_files() {
 # LLM Environment Manager Configuration
 # This file defines available LLM providers and their settings
 
+[openai]
+base_url=https://api.openai.com/v1
+api_key_var=LLM_OPENAI_API_KEY
+default_model=gpt-5
+description=Industry standard, highest quality
+enabled=true
+
 [cerebras]
 base_url=https://api.cerebras.ai/v1
 api_key_var=LLM_CEREBRAS_API_KEY
 default_model=qwen-3-coder-480b
 description=Fast inference, great for coding
-enabled=true
-
-[openai]
-base_url=https://api.openai.com/v1
-api_key_var=LLM_OPENAI_API_KEY
-default_model=gpt-5-2025-08-07
-description=Industry standard, highest quality
 enabled=true
 
 [groq]
@@ -178,6 +190,20 @@ api_key_var=LLM_OPENROUTER_API_KEY
 default_model=deepseek/deepseek-chat-v3.1:free
 description=Free tier option
 enabled=true
+
+[xai]
+base_url=https://api.x.ai/v1
+api_key_var=LLM_XAI_API_KEY
+default_model=grok-code-fast-1
+description=xAI Grok, excellent reasoning and coding capabilities
+enabled=false
+
+[deepseek]
+base_url=https://api.deepseek.com/v1
+api_key_var=LLM_DEEPSEEK_API_KEY
+default_model=deepseek-chat
+description=DeepSeek, excellent coding and reasoning models
+enabled=false
 EOF
     then
         print_success "Created default configuration: $config_file"
@@ -326,7 +352,9 @@ show_next_steps() {
     echo -e "   export LLM_CEREBRAS_API_KEY=\"your_key_here\""
     echo -e "   export LLM_OPENAI_API_KEY=\"your_key_here\""
     echo -e "   export LLM_GROQ_API_KEY=\"your_key_here\""
-    echo -e "   export LLM_OPENROUTER_API_KEY=\"your_key_here\"${NC}"
+    echo -e "   export LLM_OPENROUTER_API_KEY=\"your_key_here\""
+    echo -e "   export LLM_XAI_API_KEY=\"your_key_here\""
+    echo -e "   export LLM_DEEPSEEK_API_KEY=\"your_key_here\"${NC}"
     echo
     echo "3. Test the installation:"
     echo -e "   ${BLUE}llm-env list${NC}"
@@ -373,7 +401,7 @@ main() {
                 echo ""
                 echo "Examples:"
                 echo "  $0                           # Install latest from main branch"
-                echo "  $0 --version v1.0.0          # Install specific version"
+                echo "  $0 --version v1.1.0          # Install specific version"
                 echo "  $0 --offline ./llm-env       # Install from local file"
                 echo "  $0 --install-dir ~/.local/bin # Install to custom directory"
                 exit 0
