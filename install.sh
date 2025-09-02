@@ -360,7 +360,7 @@ show_next_steps() {
     echo -e "   ${BLUE}llm-env list${NC}"
     echo
     echo "4. Set your first provider:"
-    echo -e "   ${BLUE}llm-env set cerebras${NC}"
+    echo -e "   ${BLUE}llm-env set openai${NC}"
     echo
     echo -e "${GREEN}Happy LLM switching! 🚀${NC}"
     echo
