@@ -322,6 +322,18 @@ Contributions are welcome! See the [Development Guide](docs/development.md) for 
 - Testing and validation
 - Code style guidelines
 
+## Version
+
+**Current Version: 1.1.0**
+
+For detailed version history, feature updates, and breaking changes, see [CHANGELOG.md](CHANGELOG.md).
+
+## Find This Useful?
+
+If you find `llm-env` useful, please consider starring the repository and supporting the project:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%F0%9F%98%83-yellow.svg)](https://buymeacoffee.com/samestrin)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
