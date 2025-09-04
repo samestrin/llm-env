@@ -15,7 +15,7 @@ BeforeAll {
     Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
     
     # Also import the data models directly
-    . (Join-Path $ModuleRoot 'lib/DataModels.ps1')
+    Import-Module (Join-Path $ModuleRoot 'lib/Config.psm1') -Force
 }
 
 Describe "LLMProvider Class Tests" -Tag "Unit", "DataModels" {

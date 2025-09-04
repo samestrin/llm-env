@@ -20,12 +20,11 @@ $script:ModuleRoot = $PSScriptRoot
 # Import required modules and functions
 $libPath = Join-Path $script:ModuleRoot 'lib'
 
-# Load core modules in dependency order
+# Load core modules in dependency order (classes now in Config.psm1)
 $moduleLoadOrder = @(
-    'DataModels.ps1',
     'WindowsIntegration.psm1', 
     'IniParser.psm1',
-    'Config.psm1',
+    'Config.psm1',           # Contains PowerShell classes  
     'Providers.psm1',
     'PowerShellEnhancements.psm1',
     'WindowsUI.psm1'
@@ -35,13 +34,8 @@ foreach ($module in $moduleLoadOrder) {
     $modulePath = Join-Path $libPath $module
     if (Test-Path $modulePath) {
         try {
-            if ($module.EndsWith('.psm1')) {
-                # Import modules without -Global to avoid scope pollution
-                Import-Module $modulePath -Force -DisableNameChecking
-            } else {
-                # Dot-source .ps1 files  
-                . $modulePath
-            }
+            # Import all modules using the module approach
+            Import-Module $modulePath -Force -DisableNameChecking
             Write-Verbose "Loaded module: $module"
         }
         catch {
@@ -135,7 +129,9 @@ Export-ModuleMember -Function @(
     'Get-LLMProvider',
     'Get-LLMEnvironmentVariable',
     'Set-LLMEnvironmentVariable',
-    'Clear-LLMConfigurationCache'
+    'Clear-LLMConfigurationCache',
+    'New-LLMConfiguration',
+    'Get-LLMConfigSearchPaths'
 ) -Alias @(
     'llm-set',
     'llm-unset', 
