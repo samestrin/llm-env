@@ -15,7 +15,7 @@ BeforeAll {
     Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
     
     # Import individual modules for testing
-    . (Join-Path $ModuleRoot 'lib/DataModels.ps1')
+    Import-Module (Join-Path $ModuleRoot 'lib/Config.psm1') -Force
     Import-Module (Join-Path $ModuleRoot 'lib/IniParser.psm1') -Force
     Import-Module (Join-Path $ModuleRoot 'lib/Config.psm1') -Force
     

@@ -11,7 +11,7 @@
 Describe "PowerShell DataModels Integration" {
     BeforeAll {
         # Load DataModels directly
-        . "$PSScriptRoot/../../lib/DataModels.ps1"
+        Import-Module "$PSScriptRoot/../../lib/Config.psm1" -Force
     }
 
     Context "LLMProvider Class" {
@@ -86,7 +86,7 @@ Describe "PowerShell DataModels Integration" {
 Describe "PowerShell Module Dependencies" {
     Context "Individual Module Loading" {
         It "Should load DataModels without errors" {
-            { . "$PSScriptRoot/../../lib/DataModels.ps1" } | Should -Not -Throw
+            { Import-Module "$PSScriptRoot/../../lib/Config.psm1" -Force } | Should -Not -Throw
         }
 
         It "Should load WindowsIntegration module" {
@@ -101,7 +101,7 @@ Describe "PowerShell Module Dependencies" {
     Context "Dependency Chain Loading" {
         BeforeAll {
             # Load in dependency order
-            . "$PSScriptRoot/../../lib/DataModels.ps1"
+            Import-Module "$PSScriptRoot/../../lib/Config.psm1" -Force
             Import-Module "$PSScriptRoot/../../lib/WindowsIntegration.psm1" -Force
             Import-Module "$PSScriptRoot/../../lib/IniParser.psm1" -Force
             Import-Module "$PSScriptRoot/../../lib/Config.psm1" -Force
@@ -126,7 +126,7 @@ Describe "PowerShell Module Dependencies" {
 Describe "PowerShell Configuration System" {
     BeforeAll {
         # Load dependencies
-        . "$PSScriptRoot/../../lib/DataModels.ps1"
+        Import-Module "$PSScriptRoot/../../lib/Config.psm1" -Force
         Import-Module "$PSScriptRoot/../../lib/WindowsIntegration.psm1" -Force
         Import-Module "$PSScriptRoot/../../lib/IniParser.psm1" -Force
         Import-Module "$PSScriptRoot/../../lib/Config.psm1" -Force
