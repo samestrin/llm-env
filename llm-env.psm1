@@ -15,9 +15,7 @@ Set-StrictMode -Version Latest
 
 # Module-level variables
 $script:ModuleRoot = $PSScriptRoot
-$script:ConfigCache = $null
-$script:ConfigCacheTime = $null
-$script:ConfigCacheTimeout = 300 # 5 minutes
+# Note: Configuration caching is handled by Config.psm1
 
 # Import required modules and functions
 $libPath = Join-Path $script:ModuleRoot 'lib'
@@ -38,8 +36,10 @@ foreach ($module in $moduleLoadOrder) {
     if (Test-Path $modulePath) {
         try {
             if ($module.EndsWith('.psm1')) {
-                Import-Module $modulePath -Force -Global
+                # Import modules without -Global to avoid scope pollution
+                Import-Module $modulePath -Force -DisableNameChecking
             } else {
+                # Dot-source .ps1 files  
                 . $modulePath
             }
             Write-Verbose "Loaded module: $module"
@@ -90,11 +90,10 @@ function Initialize-LLMEnvironmentModule {
         Write-Warning "Could not create configuration directory: $_"
     }
     
-    # Load initial configuration
+    # Load initial configuration to cache
     try {
         if (Get-Command Get-LLMConfiguration -ErrorAction SilentlyContinue) {
-            $script:ConfigCache = Get-LLMConfiguration
-            $script:ConfigCacheTime = Get-Date
+            $null = Get-LLMConfiguration  # Load to cache in Config.psm1
             Write-Verbose "Configuration loaded successfully"
         }
     }
@@ -112,8 +111,9 @@ New-Alias -Name 'llm-unset' -Value 'Clear-LLMProvider' -Force
 New-Alias -Name 'llm-list' -Value 'Get-LLMProviders' -Force
 New-Alias -Name 'llm-show' -Value 'Show-LLMProvider' -Force
 
-# Export module members
+# Export module members - cmdlets and essential library functions
 Export-ModuleMember -Function @(
+    # Main cmdlets
     'Set-LLMProvider',
     'Clear-LLMProvider',
     'Get-LLMProviders', 
@@ -126,7 +126,16 @@ Export-ModuleMember -Function @(
     'Backup-LLMConfig',
     'Restore-LLMConfig',
     'Enable-LLMProvider',
-    'Disable-LLMProvider'
+    'Disable-LLMProvider',
+    
+    # Essential library functions needed by cmdlets
+    'Get-LLMConfiguration',
+    'Get-LLMConfigDirectory',
+    'Get-LLMConfigFilePath',
+    'Get-LLMProvider',
+    'Get-LLMEnvironmentVariable',
+    'Set-LLMEnvironmentVariable',
+    'Clear-LLMConfigurationCache'
 ) -Alias @(
     'llm-set',
     'llm-unset', 
