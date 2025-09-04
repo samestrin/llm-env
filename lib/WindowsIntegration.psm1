@@ -106,8 +106,9 @@ function Get-LLMConfigSearchPaths {
     }
     
     # Module bundled config (lowest priority)
-    if ($script:ModuleRoot) {
-        $searchPaths += Join-Path $script:ModuleRoot 'config/llm-env.conf'
+    $moduleRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent  # Go up from lib/ to module root
+    if ($moduleRoot -and (Test-Path $moduleRoot)) {
+        $searchPaths += Join-Path $moduleRoot 'config/llm-env.conf'
     }
     
     return $searchPaths
