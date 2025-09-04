@@ -336,7 +336,7 @@ uninstall_llm_env() {
     
     # Remove lib directory and dependencies
     if [[ -d "$INSTALL_DIR/lib" ]]; then
-        if rm -rf "$INSTALL_DIR/lib"; then
+        if rm -rf "${INSTALL_DIR:?}/lib"; then
             print_success "Removed $INSTALL_DIR/lib directory"
         else
             print_error "Failed to remove $INSTALL_DIR/lib directory"
