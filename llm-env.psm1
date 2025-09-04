@@ -1,0 +1,126 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    LLM Environment Manager PowerShell Module
+.DESCRIPTION
+    PowerShell module for managing LLM environment variables and provider configurations.
+    Provides full feature parity with the bash version while integrating seamlessly with Windows environments.
+.NOTES
+    Version: 1.1.0
+    Author: Sam Estrin
+#>
+
+# Set strict mode for better error handling
+Set-StrictMode -Version Latest
+
+# Module-level variables
+$script:ModuleRoot = $PSScriptRoot
+$script:ConfigCache = $null
+$script:ConfigCacheTime = $null
+$script:ConfigCacheTimeout = 300 # 5 minutes
+
+# Import required modules and functions
+$libPath = Join-Path $script:ModuleRoot 'lib'
+
+# Load core modules in dependency order
+$moduleLoadOrder = @(
+    'DataModels.ps1',
+    'WindowsIntegration.psm1', 
+    'Config.psm1',
+    'Providers.psm1'
+)
+
+foreach ($module in $moduleLoadOrder) {
+    $modulePath = Join-Path $libPath $module
+    if (Test-Path $modulePath) {
+        try {
+            . $modulePath
+            Write-Verbose "Loaded module: $module"
+        }
+        catch {
+            Write-Error "Failed to load module $module`: $_"
+            throw
+        }
+    }
+    else {
+        Write-Warning "Module file not found: $modulePath"
+    }
+}
+
+# Load cmdlet functions
+$cmdletPath = Join-Path $script:ModuleRoot 'cmdlets'
+if (Test-Path $cmdletPath) {
+    Get-ChildItem -Path $cmdletPath -Filter '*.ps1' | ForEach-Object {
+        try {
+            . $_.FullName
+            Write-Verbose "Loaded cmdlet: $($_.Name)"
+        }
+        catch {
+            Write-Error "Failed to load cmdlet $($_.Name): $_"
+            throw
+        }
+    }
+}
+
+# Module initialization
+function Initialize-LLMEnvironmentModule {
+    [CmdletBinding()]
+    param()
+    
+    Write-Verbose "Initializing LLM Environment Manager PowerShell Module v1.1.0"
+    
+    # Ensure required directories exist
+    $configDir = Get-LLMConfigDirectory
+    if (-not (Test-Path $configDir)) {
+        try {
+            New-Item -Path $configDir -ItemType Directory -Force | Out-Null
+            Write-Verbose "Created configuration directory: $configDir"
+        }
+        catch {
+            Write-Warning "Could not create configuration directory: $_"
+        }
+    }
+    
+    # Load initial configuration
+    try {
+        $script:ConfigCache = Get-LLMConfiguration
+        $script:ConfigCacheTime = Get-Date
+        Write-Verbose "Configuration loaded successfully"
+    }
+    catch {
+        Write-Warning "Could not load initial configuration: $_"
+    }
+}
+
+# Initialize module on import
+Initialize-LLMEnvironmentModule
+
+# Create aliases for bash compatibility
+New-Alias -Name 'llm-set' -Value 'Set-LLMProvider' -Force
+New-Alias -Name 'llm-unset' -Value 'Clear-LLMProvider' -Force  
+New-Alias -Name 'llm-list' -Value 'Get-LLMProviders' -Force
+New-Alias -Name 'llm-show' -Value 'Show-LLMProvider' -Force
+
+# Export module members
+Export-ModuleMember -Function @(
+    'Set-LLMProvider',
+    'Clear-LLMProvider',
+    'Get-LLMProviders', 
+    'Show-LLMProvider',
+    'Initialize-LLMConfig',
+    'Edit-LLMConfig',
+    'Add-LLMProvider',
+    'Remove-LLMProvider',
+    'Test-LLMProvider',
+    'Backup-LLMConfig',
+    'Restore-LLMConfig',
+    'Enable-LLMProvider',
+    'Disable-LLMProvider'
+) -Alias @(
+    'llm-set',
+    'llm-unset', 
+    'llm-list',
+    'llm-show'
+)
+
+Write-Verbose "LLM Environment Manager PowerShell Module loaded successfully"
