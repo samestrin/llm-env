@@ -26,15 +26,22 @@ $libPath = Join-Path $script:ModuleRoot 'lib'
 $moduleLoadOrder = @(
     'DataModels.ps1',
     'WindowsIntegration.psm1', 
+    'IniParser.psm1',
     'Config.psm1',
-    'Providers.psm1'
+    'Providers.psm1',
+    'PowerShellEnhancements.psm1',
+    'WindowsUI.psm1'
 )
 
 foreach ($module in $moduleLoadOrder) {
     $modulePath = Join-Path $libPath $module
     if (Test-Path $modulePath) {
         try {
-            . $modulePath
+            if ($module.EndsWith('.psm1')) {
+                Import-Module $modulePath -Force -Global
+            } else {
+                . $modulePath
+            }
             Write-Verbose "Loaded module: $module"
         }
         catch {
@@ -70,30 +77,34 @@ function Initialize-LLMEnvironmentModule {
     Write-Verbose "Initializing LLM Environment Manager PowerShell Module v1.1.0"
     
     # Ensure required directories exist
-    $configDir = Get-LLMConfigDirectory
-    if (-not (Test-Path $configDir)) {
-        try {
-            New-Item -Path $configDir -ItemType Directory -Force | Out-Null
-            Write-Verbose "Created configuration directory: $configDir"
+    try {
+        if (Get-Command Get-LLMConfigDirectory -ErrorAction SilentlyContinue) {
+            $configDir = Get-LLMConfigDirectory
+            if (-not (Test-Path $configDir)) {
+                New-Item -Path $configDir -ItemType Directory -Force | Out-Null
+                Write-Verbose "Created configuration directory: $configDir"
+            }
         }
-        catch {
-            Write-Warning "Could not create configuration directory: $_"
-        }
+    }
+    catch {
+        Write-Warning "Could not create configuration directory: $_"
     }
     
     # Load initial configuration
     try {
-        $script:ConfigCache = Get-LLMConfiguration
-        $script:ConfigCacheTime = Get-Date
-        Write-Verbose "Configuration loaded successfully"
+        if (Get-Command Get-LLMConfiguration -ErrorAction SilentlyContinue) {
+            $script:ConfigCache = Get-LLMConfiguration
+            $script:ConfigCacheTime = Get-Date
+            Write-Verbose "Configuration loaded successfully"
+        }
     }
     catch {
         Write-Warning "Could not load initial configuration: $_"
     }
 }
 
-# Initialize module on import
-Initialize-LLMEnvironmentModule
+# Initialize module after all functions are loaded
+# This will be called at the end of the module
 
 # Create aliases for bash compatibility
 New-Alias -Name 'llm-set' -Value 'Set-LLMProvider' -Force
@@ -122,5 +133,8 @@ Export-ModuleMember -Function @(
     'llm-list',
     'llm-show'
 )
+
+# Initialize module after all components are loaded
+Initialize-LLMEnvironmentModule
 
 Write-Verbose "LLM Environment Manager PowerShell Module loaded successfully"

@@ -51,8 +51,23 @@ function Get-LLMProviders {
     try {
         Write-Verbose "Retrieving LLM providers with filters - EnabledOnly: $EnabledOnly, ValidOnly: $ValidOnly"
         
-        # Get providers with filters
-        $providers = Get-LLMProviders -EnabledOnly:$EnabledOnly -ValidOnly:$ValidOnly -NamePattern:$NamePattern
+        # Get providers from registry
+        $configuration = Get-LLMConfiguration
+        $allProviders = $configuration.GetAllProviders()
+        
+        # Apply filters
+        $providers = $allProviders
+        if ($EnabledOnly) {
+            $providers = $providers | Where-Object { $_.Enabled }
+        }
+        
+        if ($ValidOnly) {
+            $providers = $providers | Where-Object { $_.IsValid() }
+        }
+        
+        if ($NamePattern) {
+            $providers = $providers | Where-Object { $_.Name -like $NamePattern }
+        }
         
         if ($providers.Count -eq 0) {
             Write-Warning "No providers found matching the specified criteria"
