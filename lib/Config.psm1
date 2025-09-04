@@ -131,7 +131,8 @@ function Get-LLMBuiltinConfiguration {
     
     try {
         # Try to load bundled configuration file first
-        $builtinConfigPath = Join-Path $script:ModuleRoot 'config/llm-env.conf'
+        $moduleRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent  # Go up from lib/ to module root
+        $builtinConfigPath = Join-Path $moduleRoot 'config/llm-env.conf'
         if (Test-Path $builtinConfigPath) {
             Write-Verbose "Loading built-in configuration from: $builtinConfigPath"
             $configData = ConvertFrom-IniFile -Path $builtinConfigPath
