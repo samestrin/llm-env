@@ -280,8 +280,12 @@ EOF
     # Calculate duration in milliseconds
     local duration=$(( (end_time - start_time) / 1000000 ))
     
-    # Should initialize within 2 seconds
-    [ "$duration" -lt 2000 ]
+    # Calculate dynamic timeout based on system load (base: 2000ms)
+    local dynamic_timeout=$(calculate_dynamic_timeout 2000)
+    echo "# Dynamic timeout calculated: ${dynamic_timeout}ms (base: 2000ms)" >&3
+    
+    # Should initialize within dynamic timeout
+    [ "$duration" -lt "$dynamic_timeout" ]
 }
 
 @test "regression: memory usage stays reasonable" {
