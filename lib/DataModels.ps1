@@ -260,9 +260,4 @@ function New-LLMConfiguration {
     }
 }
 
-# Export functions and classes
-Export-ModuleMember -Function @(
-    'Test-LLMProviderData',
-    'ConvertTo-LLMProvider', 
-    'New-LLMConfiguration'
-)
+# Functions and classes are available via dot-sourcing
