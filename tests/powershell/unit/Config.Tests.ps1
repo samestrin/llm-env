@@ -11,13 +11,14 @@
 
 # Import the module being tested
 BeforeAll {
-    $ModuleRoot = Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent
-    Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+    # Go up from unit/ -> powershell/ -> tests/ -> project root
+    $ModuleRoot = Split-Path -Path (Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent) -Parent
+    $ManifestPath = Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1'
+    Import-Module $ManifestPath -Force
     
     # Import individual modules for testing
     Import-Module (Join-Path $ModuleRoot 'lib/Config.psm1') -Force
     Import-Module (Join-Path $ModuleRoot 'lib/IniParser.psm1') -Force
-    Import-Module (Join-Path $ModuleRoot 'lib/Config.psm1') -Force
     
     # Create temporary directory for test files
     $script:TestDir = Join-Path ([System.IO.Path]::GetTempPath()) "LLMEnvTests-$([System.Guid]::NewGuid())"

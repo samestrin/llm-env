@@ -11,10 +11,12 @@
 
 # Import the module being tested
 BeforeAll {
-    $ModuleRoot = Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent
-    Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+    # Go up from unit/ -> powershell/ -> tests/ -> project root
+    $ModuleRoot = Split-Path -Path (Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent) -Parent
+    $ManifestPath = Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1'
+    Import-Module $ManifestPath -Force
     
-    # Also import the data models directly
+    # Also import the data models directly  
     Import-Module (Join-Path $ModuleRoot 'lib/Config.psm1') -Force
 }
 

@@ -12,7 +12,7 @@
 # Import the module being tested
 BeforeAll {
     $ModuleRoot = Split-Path -Path (Split-Path -Path $PSScriptRoot -Parent) -Parent
-    Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+    Import-Module (Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1') -Force
     
     # Create temporary directory for integration tests
     $script:TestDir = Join-Path ([System.IO.Path]::GetTempPath()) "LLMEnvIntegrationTests-$([System.Guid]::NewGuid())"

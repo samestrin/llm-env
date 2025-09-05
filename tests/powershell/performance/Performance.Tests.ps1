@@ -146,7 +146,7 @@ Describe "Module Loading Performance" -Tag "Performance", "Loading" {
             Remove-Module llm-env -ErrorAction SilentlyContinue
             
             $result = Measure-ExecutionTime -Name "Module Import" -ScriptBlock {
-                Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+                Import-Module (Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1') -Force
             } -Iterations 5
             
             $result.AverageTime | Should -BeLessThan 2000  # Less than 2 seconds average
@@ -155,10 +155,10 @@ Describe "Module Loading Performance" -Tag "Performance", "Loading" {
         
         It "Should reload module efficiently" {
             # Ensure module is loaded
-            Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+            Import-Module (Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1') -Force
             
             $result = Measure-ExecutionTime -Name "Module Reload" -ScriptBlock {
-                Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+                Import-Module (Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1') -Force
             } -Iterations 10
             
             $result.AverageTime | Should -BeLessThan 1000  # Reloads should be faster
@@ -170,7 +170,7 @@ Describe "Configuration Loading Performance" -Tag "Performance", "Configuration"
     
     BeforeAll {
         # Ensure module is loaded
-        Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+        Import-Module (Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1') -Force
     }
     
     Context "Small Configuration Files" {
@@ -424,7 +424,7 @@ Describe "Caching and Optimization" -Tag "Performance", "Caching" {
     
     BeforeAll {
         # Ensure module is loaded
-        Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+        Import-Module (Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1') -Force
     }
     
     Context "Configuration Caching" {
@@ -489,7 +489,7 @@ Describe "Performance Regression Tests" -Tag "Performance", "Regression" {
             # Module import should complete within 3 seconds
             Remove-Module llm-env -ErrorAction SilentlyContinue
             $importTime = Measure-ExecutionTime -Name "Module Import Baseline" -ScriptBlock {
-                Import-Module (Join-Path $ModuleRoot 'llm-env.psd1') -Force
+                Import-Module (Join-Path $ModuleRoot 'tests/powershell/llm-env.psd1') -Force
             } -Iterations 1
             $importTime.AverageTime | Should -BeLessThan 3000
             
