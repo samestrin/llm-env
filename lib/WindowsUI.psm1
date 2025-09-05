@@ -175,7 +175,7 @@ function Show-LLMNotification {
         }
         
         # Fallback to system tray balloon notification
-        if ([System.Management.Automation.PSTypeName]'System.Windows.Forms.NotifyIcon').Type) {
+        if (([System.Management.Automation.PSTypeName]'System.Windows.Forms.NotifyIcon').Type) {
             $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
             
             try {
@@ -258,7 +258,7 @@ function Show-LLMErrorDialog {
         }
         
         # Try WPF MessageBox first (better looking)
-        if ([System.Management.Automation.PSTypeName]'System.Windows.MessageBox').Type) {
+        if (([System.Management.Automation.PSTypeName]'System.Windows.MessageBox').Type) {
             $messageBoxText = $Message
             if ($Details) {
                 $messageBoxText += "`n`nDetails: $Details"
@@ -282,7 +282,7 @@ function Show-LLMErrorDialog {
         }
         
         # Fallback to Windows Forms MessageBox
-        if ([System.Management.Automation.PSTypeName]'System.Windows.Forms.MessageBox').Type) {
+        if (([System.Management.Automation.PSTypeName]'System.Windows.Forms.MessageBox').Type) {
             $messageBoxText = $Message
             if ($Details) {
                 $messageBoxText += "`n`nDetails: $Details"
@@ -368,7 +368,7 @@ function Set-LLMClipboard {
         }
         
         # Fallback to Windows Forms clipboard
-        if ([System.Management.Automation.PSTypeName]'System.Windows.Forms.Clipboard').Type) {
+        if (([System.Management.Automation.PSTypeName]'System.Windows.Forms.Clipboard').Type) {
             [System.Windows.Forms.Clipboard]::SetText($Text)
             if ($Secure) {
                 Write-Host "✓ Secure text copied to clipboard" -ForegroundColor Green
@@ -426,7 +426,7 @@ function Get-LLMClipboard {
         }
         
         # Fallback to Windows Forms clipboard
-        if ([System.Management.Automation.PSTypeName]'System.Windows.Forms.Clipboard').Type) {
+        if (([System.Management.Automation.PSTypeName]'System.Windows.Forms.Clipboard').Type) {
             return [System.Windows.Forms.Clipboard]::GetText()
         }
         
@@ -487,7 +487,7 @@ function Show-LLMProgressDialog {
         }
         
         # Try to create a Windows progress dialog
-        if ([System.Management.Automation.PSTypeName]'System.Windows.Forms.ProgressBar').Type) {
+        if (([System.Management.Automation.PSTypeName]'System.Windows.Forms.ProgressBar').Type) {
             # This is a simplified version - in a real implementation, you'd create a proper form
             Write-Progress -Activity $Title -Status $Status -PercentComplete $PercentComplete
             
