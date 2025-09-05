@@ -148,7 +148,9 @@ function Get-LLMProviders {
     switch ($SortBy) {
         'Name' { $providers = $providers | Sort-Object Name }
         'Description' { $providers = $providers | Sort-Object Description }
-        'Enabled' { $providers = $providers | Sort-Object Enabled -Descending, Name }
+        'Enabled' { 
+            $providers = $providers | Sort-Object Enabled -Descending | Sort-Object Name
+        }
     }
     
     return $providers
