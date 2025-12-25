@@ -1,16 +1,30 @@
-# LLM Environment Manager
+# llm-env: The Universal AI Switcher
 
-[![Star on GitHub](https://img.shields.io/github/stars/samestrin/llm-env?style=social)](https://github.com/samestrin/llm-env/stargazers) [![Fork on GitHub](https://img.shields.io/github/forks/samestrin/llm-env?style=social)](https://github.com/samestrin/llm-env/network/members) [![Watch on GitHub](https://img.shields.io/github/watchers/samestrin/llm-env?style=social)](https://github.com/samestrin/llm-env/watchers)
+**Force any OpenAI-compatible tool to use Gemini, Groq, Ollama, or DeepSeek instantly.**
+
+`llm-env` creates a unified interface for your AI development. It automatically maps provider-specific keys (like `GEMINI_API_KEY`) to the standard `OPENAI_API_KEY` and `OPENAI_BASE_URL` in your current shell session. 
+
+**Stop editing `.env` files. Stop hardcoding providers. Just switch.**
 
 ![Version 1.1.0](https://img.shields.io/badge/Version-1.1.0-blue) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Built with Bash](https://img.shields.io/badge/Built%20with-Bash-darkblue)](https://www.gnu.org/software/bash/)
 
-A powerful bash script for seamlessly switching between different LLM providers and models. Perfect for developers who work with multiple AI services and need to quickly switch between free tiers, paid models, or other providers based on availability and cost.
+### Why use `llm-env`?
+
+* **⚡️ Instant Context Switching:** Changes apply immediately. No need to manually `source` files or restart your shell.
+* **🔌 Universal Adapter:** Aliases provider-specific keys (e.g., `GEMINI_API_KEY`) to `OPENAI_API_KEY`, making almost *any* tool work with *any* provider.
+* **🛠️ Tech Stack Agnostic:** Works with `curl`, Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
 
 **New in v1.1.0:** Enhanced with a comprehensive help system, API connectivity testing, configuration backup/restore, bulk operations, and debug mode for easier troubleshooting.
 
 ## Overview
 
-Easily manage LLM credentials for any OpenAI compatible provider including OpenAI, OpenRouter, Cerebras, Groq, and 15+ other providers — designed to work with applications that use the emerging `OPENAI_*` environment variable standard. It enables cost management by easily switching from free tiers to paid models when quotas are exhausted. The universal compatibility works with any tool that uses OpenAI-compatible environment variables. API keys are stored securely in your shell profile, never in code. As a pure bash script, it **just works everywhere** with **zero dependencies**.
+Manage credentials for **OpenAI, OpenRouter, Cerebras, Groq, and 15+ other providers**. 
+
+`llm-env` maps these services to the industry-standard `OPENAI_*` environment variables, ensuring compatibility with almost any tool. API keys are stored securely in your shell profile, never in code. 
+
+**Pure Bash. Zero Dependencies. Just works.**
+
+![llm-env demo](https://vhs.charm.sh/vhs-1A1uKsrR8uXOFDvYwmX4AZ.gif)
 
 ### The Problem
 
@@ -338,16 +352,37 @@ If you find `llm-env` useful, please consider starring the repository and suppor
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## Related Tools
+## 🤝 Verified Integrations & Ecosystem
 
-This tool works great with:
+`llm-env` is the missing bridge for tools that default to OpenAI. It has been verified to work instantly with:
 
-- [llm](https://github.com/simonw/llm) - Simon Willison's LLM CLI
-- [aider](https://github.com/paul-gauthier/aider) - AI pair programming
-- [LiteLLM](https://github.com/BerriAI/litellm) - A library to simplify calling all LLM APIs
-- [LangChain](https://github.com/langchain-ai/langchain) - A framework for building LLM applications
+### 1. [Aider](https://github.com/paul-gauthier/aider) (AI Pair Programmer)
+Force Aider to use cheaper/faster models via the generic OpenAI interface without complex flags.
+```bash
+llm-env set groq
+# Now Aider uses Groq's Llama 3 via the OpenAI compatibility layer
+aider --model openai/llama3-70b-8192
+```
 
-It's also great with CLI coding tools, I use it with [qwen-code](https://github.com/QwenLM/qwen-code) + [qwen-prompts](https://github.com/samestrin/qwen-prompts), a collection of "hybrid prompt chaining" slash prompts, but it will work with **any tool that uses OpenAI-compatible APIs using Environmental Variables**.
+### 2. [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter)
+Stop manually passing `--api_base` and `--api_key` arguments.
+```bash
+llm-env set cerebras
+interpreter -y  # Runs at lightning speed
+```
+
+### 3. [Fabric](https://github.com/danielmiessler/fabric)
+Use Fabric patterns with any provider without editing configuration files.
+```bash
+llm-env set gemini
+echo "Explain quantum computing" | fabric --pattern explain
+```
+
+### 📚 Also Works Great With:
+* **[Simon Willison's llm](https://github.com/simonw/llm):** The CLI tool for managing LLMs.
+* **[LangChain](https://github.com/langchain-ai/langchain):** Perfect for testing generic OpenAI chains against other providers.
+* **[LiteLLM](https://github.com/BerriAI/litellm):** Simplifies calling all LLM APIs.
+* **[Qwen-Code](https://github.com/QwenLM/qwen-code):** See my [qwen-prompts](https://github.com/samestrin/qwen-prompts) repo for hybrid prompt chaining setups.
 
 Additional: [Applications, Scripts, and Frameworks compatible with llm-env](docs/comprehensive.md)
 
