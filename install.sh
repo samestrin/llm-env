@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="llm-env"
 GITHUB_REPO="samestrin/llm-env"  # Update this with your actual repo
-VERSION="1.1.0"  # Default to current version, can be overridden
+VERSION="main"  # Default to main branch, can be overridden with --version
 RAW_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/${SCRIPT_NAME}"
 OFFLINE_FILE=""  # For offline installation
 
