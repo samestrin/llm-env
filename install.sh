@@ -187,11 +187,12 @@ install_config_files() {
     local config_dir="$HOME/.config/llm-env"
     local config_file="$config_dir/config.conf"
     
-    # Create config directory
+    # Create config directory with proper permissions
     if ! mkdir -p "$config_dir"; then
         print_error "Failed to create config directory: $config_dir"
         return 1
     fi
+    chmod 700 "$config_dir"
     
     # Check if config already exists
     if [[ -f "$config_file" ]]; then
@@ -247,6 +248,14 @@ description=DeepSeek, excellent coding and reasoning models
 enabled=false
 EOF
     then
+        # Set appropriate permissions (readable/writable by owner only for security)
+        chmod 600 "$config_file"
+
+        # Fix ownership if running with sudo
+        if [[ -n "${SUDO_USER:-}" ]] && [[ "${SUDO_USER:-}" != "root" ]]; then
+            chown "$SUDO_USER" "$config_dir" "$config_file" 2>/dev/null || true
+        fi
+
         print_success "Created default configuration: $config_file"
     else
         print_error "Failed to create configuration file"
