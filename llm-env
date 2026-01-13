@@ -358,8 +358,13 @@ init_config() {
     done
     debug "Final AVAILABLE_PROVIDERS: ${AVAILABLE_PROVIDERS[*]}"
     
-    # Sort providers alphabetically
-    mapfile -t AVAILABLE_PROVIDERS < <(printf '%s\n' "${AVAILABLE_PROVIDERS[@]}" | sort)
+    # Sort providers alphabetically (bash 3.2 compatible - no mapfile)
+    local sorted_providers
+    sorted_providers=$(printf '%s\n' "${AVAILABLE_PROVIDERS[@]}" | sort)
+    AVAILABLE_PROVIDERS=()
+    while IFS= read -r provider; do
+        [[ -n "$provider" ]] && AVAILABLE_PROVIDERS+=("$provider")
+    done <<< "$sorted_providers"
 }
 
 # Fallback built-in configuration
@@ -659,7 +664,7 @@ cmd_config() {
 cmd_config_init() {
     local user_config
     user_config="$(get_user_config_path)"
-    
+
     if [[ -f "$user_config" ]]; then
         echo "⚠️  Configuration file already exists: $user_config"
         read -p "Overwrite? (y/N): " -n 1 -r
@@ -667,28 +672,77 @@ cmd_config_init() {
         echo
         [[ ! $REPLY =~ ^[Yy]$ ]] && return 1
     fi
-    
+
     # Create directory if it doesn't exist
     mkdir -p "$(dirname "$user_config")"
-    
-    # Copy default configuration
-    local default_config
-    while IFS= read -r config_file; do
-        if [[ -f "$config_file" ]]; then
-            default_config="$config_file"
-            break
-        fi
-    done < <(get_config_locations)
-    
+
+    # Try to copy from system/repo config first (excluding user config path)
+    local default_config=""
+    local script_dir_config
+    script_dir_config="$(get_script_dir)/config/llm-env.conf"
+
+    if [[ -f "/usr/local/etc/llm-env/config.conf" ]]; then
+        default_config="/usr/local/etc/llm-env/config.conf"
+    elif [[ -f "$script_dir_config" ]]; then
+        default_config="$script_dir_config"
+    fi
+
     if [[ -n "$default_config" ]]; then
         cp "$default_config" "$user_config"
         echo "✅ Created user configuration: $user_config"
         echo "💡 Edit this file to customize your providers and models"
         echo
     else
-        echo "❌ No default configuration found to copy"
+        # Generate default config inline (matches installer behavior)
+        cat > "$user_config" << 'EOF'
+# LLM Environment Manager Configuration
+# This file defines available LLM providers and their settings
+
+[openai]
+base_url=https://api.openai.com/v1
+api_key_var=LLM_OPENAI_API_KEY
+default_model=gpt-5
+description=Industry standard, highest quality
+enabled=true
+
+[cerebras]
+base_url=https://api.cerebras.ai/v1
+api_key_var=LLM_CEREBRAS_API_KEY
+default_model=qwen-3-coder-480b
+description=Fast inference, great for coding
+enabled=true
+
+[groq]
+base_url=https://api.groq.com/openai/v1
+api_key_var=LLM_GROQ_API_KEY
+default_model=openai/gpt-oss-120b
+description=Lightning-fast inference
+enabled=true
+
+[openrouter]
+base_url=https://openrouter.ai/api/v1
+api_key_var=LLM_OPENROUTER_API_KEY
+default_model=deepseek/deepseek-chat-v3.1:free
+description=Free tier option
+enabled=true
+
+[xai]
+base_url=https://api.x.ai/v1
+api_key_var=LLM_XAI_API_KEY
+default_model=grok-code-fast-1
+description=xAI Grok, excellent reasoning and coding capabilities
+enabled=false
+
+[deepseek]
+base_url=https://api.deepseek.com/v1
+api_key_var=LLM_DEEPSEEK_API_KEY
+default_model=deepseek-chat
+description=DeepSeek, excellent coding and reasoning models
+enabled=false
+EOF
+        echo "✅ Created user configuration: $user_config"
+        echo "💡 Edit this file to customize your providers and models"
         echo
-        return 1
     fi
 }
 
