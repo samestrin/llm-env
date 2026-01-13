@@ -327,31 +327,6 @@ bats tests/integration/test_providers.bats
 - Bash 3.2+ (automatically tested across versions)
 - No external dependencies required for basic tests
 
-## Contributing
-
-Contributions are welcome! See the [Development Guide](docs/development.md) for details on:
-
-- Adding new providers
-- Improving functionality
-- Testing and validation
-- Code style guidelines
-
-## Version
-
-**Current Version: 1.1.0**
-
-For detailed version history, feature updates, and breaking changes, see [CHANGELOG.md](CHANGELOG.md).
-
-## Find This Useful?
-
-If you find `llm-env` useful, please consider starring the repository and supporting the project:
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%F0%9F%98%83-yellow.svg)](https://buymeacoffee.com/samestrin)
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
 ## 🤝 Verified Integrations & Ecosystem
 
 `llm-env` is the missing bridge for tools that default to OpenAI. It has been verified to work instantly with:
@@ -389,3 +364,28 @@ Additional: [Applications, Scripts, and Frameworks compatible with llm-env](docs
 ## Share
 
 [![Twitter](https://img.shields.io/badge/X-Tweet-blue)](https://twitter.com/intent/tweet?text=Check%20out%20this%20LLM%20Environment%20Manager!&url=https://github.com/samestrin/llm-env) [![Facebook](https://img.shields.io/badge/Facebook-Share-blue)](https://www.facebook.com/sharer/sharer.php?u=https://github.com/samestrin/llm-env) [![LinkedIn](https://img.shields.io/badge/LinkedIn-Share-blue)](https://www.linkedin.com/sharing/share-offsite/?url=https://github.com/samestrin/llm-env)
+
+## Contributing
+
+Contributions are welcome! See the [Development Guide](docs/development.md) for details on:
+
+- Adding new providers
+- Improving functionality
+- Testing and validation
+- Code style guidelines
+
+## Version
+
+**Current Version: 1.1.0**
+
+For detailed version history, feature updates, and breaking changes, see [CHANGELOG.md](CHANGELOG.md).
+
+## Find This Useful?
+
+If you find `llm-env` useful, please consider starring the repository and supporting the project:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%F0%9F%98%83-yellow.svg)](https://buymeacoffee.com/samestrin)
+
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
