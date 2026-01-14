@@ -80,9 +80,10 @@ compat_assoc_get() {
             return 0
         fi
     done
-    
-    # Key not found
-    return 1
+
+    # Key not found - return 0 (success) with empty output
+    # Caller should check for empty string if needed
+    return 0
 }
 
 # Get all keys from a compatibility associative array
