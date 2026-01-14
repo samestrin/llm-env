@@ -8,15 +8,60 @@
 #   source ./llm-env config <command>
 
 # Version information
-VERSION="1.1.0"
+VERSION="1.1.3"
 
-# ---------- Bash Version Detection ----------
+# ---------- Shell Detection and Version ----------
 
-# Parse bash version for compatibility features
+# Detect which shell we're running in
+detect_shell() {
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        CURRENT_SHELL="zsh"
+        SHELL_VERSION="${ZSH_VERSION}"
+        # Enable bash compatibility for regex matching (BASH_REMATCH array)
+        setopt BASH_REMATCH 2>/dev/null || true
+    elif [[ -n "${BASH_VERSION:-}" ]]; then
+        CURRENT_SHELL="bash"
+        SHELL_VERSION="${BASH_VERSION}"
+    else
+        CURRENT_SHELL="unknown"
+        SHELL_VERSION="0.0"
+    fi
+    export CURRENT_SHELL SHELL_VERSION
+}
+
+# Parse shell version for compatibility features
 parse_bash_version() {
-    local version="${BASH_VERSION:-4.0.0}"
-    local major minor
-    
+    local version major minor
+
+    # Detect shell first
+    detect_shell
+
+    # Zsh has native associative array support
+    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        # Zsh has full associative array support
+        BASH_ASSOC_ARRAY_SUPPORT=true
+        BASH_DECLARE_GLOBAL_SUPPORT=true
+        # Parse zsh version
+        version="${ZSH_VERSION:-5.0}"
+        if [[ "${version}" =~ ^([0-9]+)\.([0-9]+) ]]; then
+            # With BASH_REMATCH option and 1-indexed arrays: [2] is first capture, [3] is second
+            major="${BASH_REMATCH[2]}"
+            minor="${BASH_REMATCH[3]}"
+        else
+            major=5
+            minor=0
+        fi
+        export BASH_MAJOR_VERSION=${major}
+        export BASH_MINOR_VERSION=${minor}
+        export BASH_ASSOC_ARRAY_SUPPORT
+        export BASH_DECLARE_GLOBAL_SUPPORT
+        debug "Zsh version: ${major}.${minor}, associative array support: ${BASH_ASSOC_ARRAY_SUPPORT}"
+        return
+    fi
+
+    # Bash version detection
+    version="${BASH_VERSION:-4.0.0}"
+
     # Extract major and minor version numbers
     if [[ "${version}" =~ ^([0-9]+)\.([0-9]+) ]]; then
         major="${BASH_REMATCH[1]}"
@@ -26,26 +71,26 @@ parse_bash_version() {
         major=3
         minor=2
     fi
-    
+
     # Set global compatibility flags
     if [[ ${major} -gt 4 || (${major} -eq 4 && ${minor} -ge 0) ]]; then
         BASH_ASSOC_ARRAY_SUPPORT=true
     else
         BASH_ASSOC_ARRAY_SUPPORT=false
     fi
-    
+
     # Check for declare -g support (Bash 4.2+)
     if [[ ${major} -gt 4 || (${major} -eq 4 && ${minor} -ge 2) ]]; then
         BASH_DECLARE_GLOBAL_SUPPORT=true
     else
         BASH_DECLARE_GLOBAL_SUPPORT=false
     fi
-    
+
     export BASH_MAJOR_VERSION=${major}
     export BASH_MINOR_VERSION=${minor}
     export BASH_ASSOC_ARRAY_SUPPORT
     export BASH_DECLARE_GLOBAL_SUPPORT
-    
+
     debug "Bash version: ${major}.${minor}, associative array support: ${BASH_ASSOC_ARRAY_SUPPORT}, declare -g support: ${BASH_DECLARE_GLOBAL_SUPPORT}"
 }
 
@@ -56,10 +101,18 @@ debug() {
     fi
 }
 
-# Get script directory with bash 3.2 compatibility
+# Get script directory with bash 3.2 and zsh compatibility
 get_script_dir() {
     local script_dir
-    if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+
+    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        # In zsh, use funcsourcetrace or fallback to command -v
+        if [[ -n "${funcsourcetrace[1]:-}" ]]; then
+            script_dir="$(dirname "${funcsourcetrace[1]%:*}")"
+        else
+            script_dir="$(dirname "$(command -v llm-env 2>/dev/null || echo ".")")"
+        fi
+    elif [[ -n "${BASH_SOURCE[0]:-}" ]]; then
         script_dir="$(dirname "${BASH_SOURCE[0]}")"
     else
         # Fallback: assume script is in current directory or PATH
@@ -70,6 +123,31 @@ get_script_dir() {
 
 # Initialize bash version detection
 parse_bash_version
+
+# Helper function to get regex match at index (works in both bash and zsh)
+# Usage: result=$(get_match 1) to get first capture group
+# In bash: BASH_REMATCH is 0-indexed, so capture group 1 is at index 1
+# In zsh with BASH_REMATCH option: array is 1-indexed, so capture group 1 is at index 2
+get_match() {
+    local index="$1"
+    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        # Zsh arrays are 1-indexed, so add 1 to get equivalent position
+        echo "${BASH_REMATCH[$((index + 1))]}"
+    else
+        echo "${BASH_REMATCH[$index]}"
+    fi
+}
+
+# Helper function for indirect variable expansion (works in both bash and zsh)
+# Usage: result=$(get_var_value "SOME_VAR_NAME")
+get_var_value() {
+    local var_name="$1"
+    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        echo "${(P)var_name}"
+    else
+        echo "${!var_name}"
+    fi
+}
 
 # Configuration state variables
 CONFIG_SOURCE=""  # none, user, system, builtin
@@ -158,9 +236,15 @@ set_provider_value() {
     local array_name="$1"
     local key="$2"
     local value="$3"
-    
+
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        eval "${array_name}[\"${key}\"]='${value}'"
+        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+            # Zsh associative array assignment
+            eval "${array_name}[${key}]='${value}'"
+        else
+            # Bash associative array assignment
+            eval "${array_name}[\"${key}\"]='${value}'"
+        fi
     else
         compat_assoc_set "${array_name}" "${key}" "${value}"
     fi
@@ -170,9 +254,15 @@ set_provider_value() {
 get_provider_value() {
     local array_name="$1"
     local key="$2"
-    
+
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        eval "echo \"\${${array_name}[\"${key}\"]}\""
+        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+            # Zsh associative array access
+            eval "echo \"\${${array_name}[${key}]}\""
+        else
+            # Bash associative array access
+            eval "echo \"\${${array_name}[\"${key}\"]}\""
+        fi
     else
         compat_assoc_get "${array_name}" "${key}"
     fi
@@ -181,10 +271,16 @@ get_provider_value() {
 # Get all keys from a provider array
 get_provider_keys() {
     local array_name="$1"
-    
+
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        eval "local -a keys=(\"\${!${array_name}[@]}\")"
-        printf '%s\n' "${keys[@]}"
+        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+            # Zsh uses ${(k)array} for keys
+            eval "printf '%s\n' \"\${(@k)${array_name}}\""
+        else
+            # Bash uses ${!array[@]} for keys
+            eval "local -a keys=(\"\${!${array_name}[@]}\")"
+            printf '%s\n' "${keys[@]}"
+        fi
     else
         compat_assoc_keys "${array_name}"
     fi
@@ -194,9 +290,15 @@ get_provider_keys() {
 has_provider_key() {
     local array_name="$1"
     local key="$2"
-    
+
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        eval "[[ -n \"\${${array_name}[\"${key}\"]+set}\" ]]"
+        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+            # Zsh uses (k) to check keys
+            eval "[[ -n \"\${${array_name}[(I)${key}]}\" ]]"
+        else
+            # Bash uses ${var+set} to check if key exists
+            eval "[[ -n \"\${${array_name}[\"${key}\"]+set}\" ]]"
+        fi
     else
         compat_assoc_has_key "${array_name}" "${key}"
     fi
@@ -216,27 +318,33 @@ load_config() {
     local file_content
     file_content="$(cat "$config_file")"
     
+    # Regex patterns stored in variables for cross-shell compatibility
+    local comment_pattern="^[[:space:]]*#"
+    local empty_pattern="^[[:space:]]*$"
+    local section_pattern="^\[([^]]+)\]$"
+    local keyval_pattern="^([^=]+)=(.*)$"
+
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_num++))
-        
+
         # Skip comments and empty lines
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
-        
+        [[ "$line" =~ $comment_pattern ]] && continue
+        [[ "$line" =~ $empty_pattern ]] && continue
+
         # Provider section header
-        if [[ "$line" =~ ^\[([^]]+)\]$ ]]; then
-            current_provider="${BASH_REMATCH[1]}"
+        if [[ "$line" =~ $section_pattern ]]; then
+            current_provider="$(get_match 1)"
             debug "Found provider section: $current_provider"
             continue
         fi
-        
+
         # Skip if no current provider
         [[ -z "$current_provider" ]] && continue
-        
+
         # Parse key=value pairs
-        if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
-            local key="${BASH_REMATCH[1]}"
-            local value="${BASH_REMATCH[2]}"
+        if [[ "$line" =~ $keyval_pattern ]]; then
+            local key="$(get_match 1)"
+            local value="$(get_match 2)"
             
             # Trim whitespace
             key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
@@ -334,22 +442,22 @@ init_config() {
         [[ -n "$key" ]] && provider_keys+=("$key")
     done < <(get_provider_keys "PROVIDER_BASE_URLS")
     
+    # Declare loop variables outside the loop for zsh compatibility
+    local provider_enabled has_base_url has_api_key_var has_model
     for provider in "${provider_keys[@]}"; do
-        local provider_enabled
         provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
         debug "Checking provider: $provider, enabled: ${provider_enabled:-true}"
-        
+
         # Check if provider has all required fields
-        local has_base_url has_api_key_var has_model
         has_base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
         has_api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
         has_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
-        
+
         if [[ -z "$has_base_url" || -z "$has_api_key_var" || -z "$has_model" ]]; then
             debug "Skipping incomplete provider $provider: base_url='$has_base_url', api_key_var='$has_api_key_var', model='$has_model'"
             continue
         fi
-        
+
         # Only include enabled providers that have all required fields
         if [[ "${provider_enabled:-true}" == "true" ]]; then
             AVAILABLE_PROVIDERS+=("$provider")
@@ -425,7 +533,8 @@ host_from_url() {
 # Validate provider name format
 validate_provider_name() {
     local name="$1"
-    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    local valid_name_pattern="^[a-zA-Z0-9_-]+$"
+    if [[ ! "$name" =~ $valid_name_pattern ]]; then
         echo "Error: Invalid provider name '$name'. Only letters, numbers, underscores, and hyphens are allowed." >&2
         return 1
     fi
@@ -500,7 +609,7 @@ cmd_set() {
     base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
     model="${OPENAI_MODEL_OVERRIDE:-$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")}"
     if [[ -n "$key_var" ]]; then
-        key="${!key_var}"
+        key="$(get_var_value "$key_var")"
     else
         key=""
     fi
@@ -570,29 +679,29 @@ cmd_list() {
         providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
     fi
     
+    # Declare loop variables outside the loop for zsh compatibility
+    local mark base model key_var have_key description enabled_status provider_enabled
     for provider in "${providers_to_show[@]}"; do
-        local mark=" "
+        mark=" "
         [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
-        
-        local base model key_var have_key description enabled_status
+
         base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
         model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
         key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
         description="$(get_provider_value "PROVIDER_DESCRIPTIONS" "$provider")"
-        if [[ -n "$key_var" && -n "${!key_var:-}" ]]; then
+        if [[ -n "$key_var" ]] && [[ -n "$(get_var_value "$key_var")" ]]; then
             have_key="yes"
         else
             have_key="no"
         fi
-        
+
         # Show disabled status if showing all providers
         enabled_status=""
-        local provider_enabled
         provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
         if $show_all && [[ "${provider_enabled:-true}" != "true" ]]; then
             enabled_status=" (disabled)"
         fi
-        
+
         printf " %s %-12s  %-30s  %-24s  key:%-3s  %s%s\n" \
             "$mark" "$provider" "$base" "$model" "$have_key" "$description" "$enabled_status"
     done
@@ -670,7 +779,8 @@ cmd_config_init() {
         read -p "Overwrite? (y/N): " -n 1 -r
         echo
         echo
-        [[ ! $REPLY =~ ^[Yy]$ ]] && return 1
+        local yes_pattern="^[Yy]$"
+        [[ ! $REPLY =~ $yes_pattern ]] && return 1
     fi
 
     # Create directory if it doesn't exist
@@ -882,9 +992,9 @@ cmd_test() {
     echo "🧪 Testing provider: $provider"
     
     local key_var base_url api_key
-    key_var="${PROVIDER_API_KEY_VARS[$provider]}"
-    base_url="${PROVIDER_BASE_URLS[$provider]}"
-    api_key="${!key_var}"
+    key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+    base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+    api_key="$(get_var_value "$key_var")"
     
     # Check if API key is available
     if [[ -z "$api_key" ]]; then
@@ -1021,27 +1131,33 @@ cmd_help() {
 
 cmd_config_validate() {
     echo "🔍 Validating configuration..."
-    
+
     local errors=0
     local warnings=0
-    
+
     # Re-initialize to test configuration loading
     init_config
-    
+
+    # Declare loop variables outside loop for zsh compatibility
+    local base_url api_key_var default_model enabled
+    local url_pattern="^https?://"
+
     # Check each provider
-    for provider in "${!PROVIDER_BASE_URLS[@]}"; do
-        local base_url="${PROVIDER_BASE_URLS[$provider]}"
-        local api_key_var="${PROVIDER_API_KEY_VARS[$provider]}"
-        local default_model="${PROVIDER_DEFAULT_MODELS[$provider]}"
-        local enabled="${PROVIDER_ENABLED[$provider]:-true}"
-        
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+        base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+        api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+        default_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
+        enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+        enabled="${enabled:-true}"
+
         echo "Checking provider: $provider"
-        
+
         # Check required fields
         if [[ -z "$base_url" ]]; then
             echo "  ❌ Missing base_url"
             ((errors++))
-        elif [[ ! "$base_url" =~ ^https?:// ]]; then
+        elif [[ ! "$base_url" =~ $url_pattern ]]; then
             echo "  ⚠️  base_url should start with http:// or https://"
             ((warnings++))
         else
@@ -1055,7 +1171,7 @@ cmd_config_validate() {
             echo "  ✅ api_key_var: $api_key_var"
             
             # Check if API key is set
-            if [[ -z "${!api_key_var}" ]]; then
+            if [[ -z "$(get_var_value "$api_key_var")" ]]; then
                 echo "  ⚠️  API key not set: $api_key_var"
                 ((warnings++))
             else
@@ -1076,10 +1192,10 @@ cmd_config_validate() {
         fi
         
         echo
-    done
-    
+    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+
     echo "Validation complete:"
-    echo "  Providers: ${#PROVIDER_BASE_URLS[@]}"
+    echo "  Providers: $(get_provider_keys "PROVIDER_BASE_URLS" | wc -l | tr -d ' ')"
     echo "  Enabled: ${#AVAILABLE_PROVIDERS[@]}"
     echo "  Errors: $errors"
     echo "  Warnings: $warnings"
@@ -1170,7 +1286,8 @@ cmd_config_restore() {
         echo ""
         read -p "Continue? (y/N): " -n 1 -r
         echo
-        [[ ! $REPLY =~ ^[Yy]$ ]] && { echo "Restore cancelled"; return 1; }
+        local yes_pattern="^[Yy]$"
+        [[ ! $REPLY =~ $yes_pattern ]] && { echo "Restore cancelled"; return 1; }
     fi
     
     # Create backup of current config before restoring
@@ -1215,7 +1332,7 @@ cmd_config_bulk() {
     
     if [[ ${#providers[@]} -eq 0 ]]; then
         echo "❌ No providers specified"
-        echo "Available providers: ${!PROVIDER_BASE_URLS[*]}"
+        echo "Available providers: $(get_provider_keys "PROVIDER_BASE_URLS" | tr '\n' ' ')"
         return 1
     fi
     
@@ -1244,22 +1361,22 @@ cmd_config_bulk() {
     echo "🔄 Performing bulk ${action} operation..."
     local success_count=0
     local failed_providers=()
-    
+    local enabled_value
+
     for provider in "${providers[@]}"; do
         # Validate provider name format
         if ! validate_provider_name "${provider}"; then
             failed_providers+=("${provider} (invalid name)")
             continue
         fi
-        
+
         # Check if provider exists in config
-        if [[ -z "${PROVIDER_BASE_URLS[${provider}]:-}" ]]; then
+        if ! has_provider_key "PROVIDER_BASE_URLS" "$provider"; then
             failed_providers+=("${provider} (not found)")
             continue
         fi
-        
+
         # Set enabled value based on action
-        local enabled_value
         case "${action}" in
             enable) enabled_value="true" ;;
             disable) enabled_value="false" ;;
