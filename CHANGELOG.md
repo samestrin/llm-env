@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-01-13
+
+### Fixed
+- **Zsh Shell Compatibility**: Complete rewrite of shell detection and compatibility layer to properly support zsh
+  - Added `detect_shell()` function to identify bash vs zsh at runtime
+  - Enabled `BASH_REMATCH` option in zsh for regex capture group compatibility
+  - Added `get_match()` helper to handle regex capture indexing differences between shells
+  - Added `get_var_value()` helper for cross-shell indirect variable expansion (`${!var}` in bash, `${(P)var}` in zsh)
+  - Store regex patterns in variables to work around zsh quoting requirements
+  - Updated all wrapper functions (`get_provider_keys`, `get_provider_value`, `set_provider_value`, `has_provider_key`) with zsh-compatible array syntax
+  - Moved `local` variable declarations outside loops to prevent zsh `typeset` output leakage
+- **Installer Compatibility**: Script now works correctly when sourced from any directory in zsh
+
+### Changed
+- Replaced direct `BASH_REMATCH` usage with `get_match()` helper throughout codebase
+- Replaced `${!var}` indirect expansion with `get_var_value()` helper
+- Replaced inline regex patterns with variable-stored patterns for cross-shell compatibility
+
 ## [1.1.0] - 2025-09-02
 
 ### Added
@@ -40,5 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configuration Validation**: Input sanitization and validation to prevent injection attacks
 - **File Permissions**: Proper file permissions for configuration files
 
+[1.1.3]: https://github.com/samestrin/llm-env/compare/v1.1.2...v1.1.3
 [1.1.0]: https://github.com/samestrin/llm-env/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/samestrin/llm-env/releases/tag/v1.0.0
