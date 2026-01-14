@@ -8,7 +8,7 @@
 #   source ./llm-env config <command>
 
 # Version information
-VERSION="1.1.3"
+VERSION="1.1.4"
 
 # ---------- Shell Detection and Version ----------
 
@@ -473,6 +473,8 @@ init_config() {
     while IFS= read -r provider; do
         [[ -n "$provider" ]] && AVAILABLE_PROVIDERS+=("$provider")
     done <<< "$sorted_providers"
+
+    return 0
 }
 
 # Fallback built-in configuration
