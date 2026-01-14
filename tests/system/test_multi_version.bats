@@ -167,7 +167,8 @@ EOF
         # First line should be openai (from subshell)
         # Second line should be initial_value (from parent)
         [[ "${lines[0]}" =~ "openai" ]]
-        [[ "${lines[-1]}" =~ "initial_value" ]]
+        # Use ${#lines[@]}-1 instead of -1 for bash 3.2 compatibility
+        [[ "${lines[${#lines[@]}-1]}" =~ "initial_value" ]]
     done
 }
 
