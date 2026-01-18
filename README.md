@@ -6,7 +6,7 @@
 
 **Stop editing `.env` files. Stop hardcoding providers. Just switch.**
 
-![Version 1.1.0](https://img.shields.io/badge/Version-1.1.0-blue) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Built with Bash](https://img.shields.io/badge/Built%20with-Bash-darkblue)](https://www.gnu.org/software/bash/)
+[![Release](https://img.shields.io/github/v/release/samestrin/llm-env)](https://github.com/samestrin/llm-env/releases/latest) [![Build Status](https://img.shields.io/github/actions/workflow/status/samestrin/llm-env/test.yml?branch=main)](https://github.com/samestrin/llm-env/actions) [![License](https://img.shields.io/github/license/samestrin/llm-env)](LICENSE) [![Built with Bash](https://img.shields.io/badge/Built%20with-Bash-darkblue)](https://www.gnu.org/software/bash/)
 
 ### Why use `llm-env`?
 
