@@ -143,6 +143,7 @@ get_match() {
 get_var_value() {
     local var_name="$1"
     if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        # shellcheck disable=SC2296 # zsh-specific indirect expansion syntax
         echo "${(P)var_name}"
     else
         echo "${!var_name}"
@@ -343,8 +344,10 @@ load_config() {
 
         # Parse key=value pairs
         if [[ "$line" =~ $keyval_pattern ]]; then
-            local key="$(get_match 1)"
-            local value="$(get_match 2)"
+            local key
+            local value
+            key="$(get_match 1)"
+            value="$(get_match 2)"
             
             # Trim whitespace
             key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
