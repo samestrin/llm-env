@@ -4,7 +4,10 @@
 
 # Memories created during this sprint execution
 # Added when user answers a clarifying question
-created: []
+created:
+  - "mem-20260119-a1b2c3"
+  - "mem-20260119-d4e5f6"
+  - "mem-20260119-7a8b9c"
 
 # Existing memories that were relevant to this sprint
 # Added during sprint creation from memory search
