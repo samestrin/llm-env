@@ -335,6 +335,9 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
     if ! declare -p PROVIDER_PROTOCOLS >/dev/null 2>&1; then
         declare -A PROVIDER_PROTOCOLS
     fi
+    if ! declare -p PROVIDER_AUTH_TOKENS >/dev/null 2>&1; then
+        declare -A PROVIDER_AUTH_TOKENS
+    fi
 else
     # Initialize compatibility arrays for bash <4.0
     # These are managed by the compatibility functions
@@ -362,6 +365,10 @@ else
     PROVIDER_PROTOCOLS_KEYS=()
     # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_PROTOCOLS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_AUTH_TOKENS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_AUTH_TOKENS_VALUES=()
 fi
 declare -a AVAILABLE_PROVIDERS
 
@@ -500,6 +507,9 @@ load_config() {
                 api_key_var)
                     set_provider_value "PROVIDER_API_KEY_VARS" "$current_provider" "$value"
                     ;;
+                auth_token_var)
+                    set_provider_value "PROVIDER_AUTH_TOKENS" "$current_provider" "$value"
+                    ;;
                 default_model)
                     set_provider_value "PROVIDER_DEFAULT_MODELS" "$current_provider" "$value"
                     ;;
@@ -536,11 +546,11 @@ init_config() {
     
     # Clear existing configuration
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
+        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_AUTH_TOKENS
         if [[ "${BASH_DECLARE_GLOBAL_SUPPORT}" == "true" ]]; then
-            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
+            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS
         else
-            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
+            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS
         fi
     else
         unset AVAILABLE_PROVIDERS
@@ -818,12 +828,12 @@ cmd_set() {
         echo
         return 1
     fi
-    
+
     # Validate provider name format
     if ! validate_provider_name "$provider"; then
         return 1
     fi
-    
+
     # Validate provider
     if ! validate_provider "$provider"; then
         case $? in
@@ -834,8 +844,13 @@ cmd_set() {
         echo
         return 1
     fi
-    
-    local key_var model base key
+
+    # Get protocol for this provider (defaults to "openai")
+    local protocol
+    protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+    protocol="${protocol:-openai}"
+
+    local key_var model base key auth_token_var auth_token
     key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
     base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
     model="${OPENAI_MODEL_OVERRIDE:-$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")}"
@@ -844,13 +859,22 @@ cmd_set() {
     else
         key=""
     fi
-    
+
+    # Get auth token for Anthropic protocol (optional)
+    if [[ "$protocol" == "anthropic" ]]; then
+        auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
+        if [[ -n "$auth_token_var" ]]; then
+            auth_token="$(get_var_value "$auth_token_var")"
+        fi
+    fi
+
     debug "Resolving environment for provider $provider:"
+    debug "  protocol=$protocol"
     debug "  key_var=$key_var"
     debug "  base=$base"
     debug "  model=$model"
     debug "  key_set=$([ -n "$key" ] && echo "yes" || echo "no")"
-    
+
     if [[ -z "$key_var" ]]; then
         echo "❌ Invalid provider configuration: missing API key variable for $provider"
         echo
@@ -860,32 +884,71 @@ cmd_set() {
         echo
         return 1
     fi
-    
+
     if [[ -z "$base" || -z "$model" ]]; then
         echo "❌ Missing base URL or model for $provider"
         echo
         return 1
     fi
-    
-    export OPENAI_API_KEY="$key"
-    export OPENAI_BASE_URL="$base"
-    export OPENAI_MODEL="$model"
-    export LLM_PROVIDER="$provider"
-    
+
+    # Clean up variables from the other protocol to prevent leakage
+    if [[ "$protocol" == "openai" ]]; then
+        # Unset Anthropic variables when switching to OpenAI
+        unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    else
+        # Unset OpenAI variables when switching to Anthropic
+        unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
+    fi
+
+    # Export protocol-specific variables
     local host
-    host=$(host_from_url "$OPENAI_BASE_URL")
-    echo "✅ Set: provider=$LLM_PROVIDER host=$host model=$OPENAI_MODEL key=$(mask "$OPENAI_API_KEY")"
+    if [[ "$protocol" == "anthropic" ]]; then
+        # Export Anthropic-specific variables
+        export ANTHROPIC_API_KEY="$key"
+        export ANTHROPIC_BASE_URL="$base"
+        export ANTHROPIC_MODEL="$model"
+        if [[ -n "$auth_token" ]]; then
+            export ANTHROPIC_AUTH_TOKEN="$auth_token"
+        fi
+        export LLM_PROVIDER="$provider"
+        export LLM_PROTOCOL="$protocol"
+
+        host=$(host_from_url "$ANTHROPIC_BASE_URL")
+        echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL key=$(mask "$ANTHROPIC_API_KEY")"
+    else
+        # Export OpenAI-compatible variables (default)
+        export OPENAI_API_KEY="$key"
+        export OPENAI_BASE_URL="$base"
+        export OPENAI_MODEL="$model"
+        export LLM_PROVIDER="$provider"
+        export LLM_PROTOCOL="$protocol"
+
+        host=$(host_from_url "$OPENAI_BASE_URL")
+        echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$OPENAI_MODEL key=$(mask "$OPENAI_API_KEY")"
+    fi
     echo
 }
 
 cmd_unset() {
     local prev_p="$LLM_PROVIDER"
-    local prev_host
-    prev_host=$(host_from_url "${OPENAI_BASE_URL:-}")
-    local prev_model="$OPENAI_MODEL"
-    
-    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL LLM_PROVIDER
-    echo "🗑️ Unset OpenAI-compatible envs (was: provider=${prev_p:-∅} host=${prev_host:-∅} model=${prev_model:-∅})"
+    local prev_protocol="${LLM_PROTOCOL:-openai}"
+    local prev_host prev_model
+
+    # Get previous values based on active protocol
+    if [[ "$prev_protocol" == "anthropic" ]]; then
+        prev_host=$(host_from_url "${ANTHROPIC_BASE_URL:-}")
+        prev_model="${ANTHROPIC_MODEL:-}"
+    else
+        prev_host=$(host_from_url "${OPENAI_BASE_URL:-}")
+        prev_model="${OPENAI_MODEL:-}"
+    fi
+
+    # Unset all protocol variables (both OpenAI and Anthropic)
+    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    unset LLM_PROVIDER LLM_PROTOCOL
+
+    echo "🗑️ Unset envs (was: provider=${prev_p:-∅} protocol=${prev_protocol} host=${prev_host:-∅} model=${prev_model:-∅})"
     echo
 }
 
