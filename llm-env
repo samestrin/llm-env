@@ -332,6 +332,9 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
     if ! declare -p PROVIDER_ENABLED >/dev/null 2>&1; then
         declare -A PROVIDER_ENABLED
     fi
+    if ! declare -p PROVIDER_PROTOCOLS >/dev/null 2>&1; then
+        declare -A PROVIDER_PROTOCOLS
+    fi
 else
     # Initialize compatibility arrays for bash <4.0
     # These are managed by the compatibility functions
@@ -355,6 +358,10 @@ else
     PROVIDER_ENABLED_KEYS=()
     # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_ENABLED_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_PROTOCOLS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_PROTOCOLS_VALUES=()
 fi
 declare -a AVAILABLE_PROVIDERS
 
@@ -484,7 +491,7 @@ load_config() {
             value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             
             debug "Setting $current_provider.$key = $value"
-            
+
             case "$key" in
                 base_url)
                     set_provider_value "PROVIDER_BASE_URLS" "$current_provider" "$value"
@@ -502,10 +509,31 @@ load_config() {
                 enabled)
                     set_provider_value "PROVIDER_ENABLED" "$current_provider" "$value"
                     ;;
+                protocol)
+                    # Normalize protocol to lowercase and trim whitespace
+                    local normalized_protocol
+                    normalized_protocol="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+                    set_provider_value "PROVIDER_PROTOCOLS" "$current_provider" "$normalized_protocol"
+                    debug "PROVIDER_PROTOCOLS[$current_provider] = $normalized_protocol"
+                    ;;
             esac
         fi
     done <<< "$file_content"
-    
+
+    # Set default protocol for providers that don't have one explicitly set
+    local provider
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+        # Check if provider already has protocol set
+        local existing_protocol
+        existing_protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider" 2>/dev/null || echo "")"
+        if [[ -z "$existing_protocol" ]]; then
+            # Default to "openai" protocol
+            set_provider_value "PROVIDER_PROTOCOLS" "$provider" "openai"
+            debug "PROVIDER_PROTOCOLS[$provider] defaulted to 'openai'"
+        fi
+    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+
     return 0
 }
 
@@ -515,11 +543,11 @@ init_config() {
     
     # Clear existing configuration
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
         if [[ "${BASH_DECLARE_GLOBAL_SUPPORT}" == "true" ]]; then
-            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
         else
-            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
         fi
     else
         unset AVAILABLE_PROVIDERS
