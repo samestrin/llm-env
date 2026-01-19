@@ -513,8 +513,11 @@ load_config() {
                     # Normalize protocol to lowercase and trim whitespace using helper function
                     local normalized_protocol
                     normalized_protocol="$(normalize_protocol "$value")"
-                    set_provider_value "PROVIDER_PROTOCOLS" "$current_provider" "$normalized_protocol"
-                    debug "PROVIDER_PROTOCOLS[$current_provider] = $normalized_protocol"
+                    # Validate against whitelist and warn if invalid
+                    local validated_protocol
+                    validated_protocol="$(validate_protocol "$current_provider" "$normalized_protocol")"
+                    set_provider_value "PROVIDER_PROTOCOLS" "$current_provider" "$validated_protocol"
+                    debug "PROVIDER_PROTOCOLS[$current_provider] = $validated_protocol"
                     ;;
             esac
         fi
@@ -677,6 +680,31 @@ normalize_protocol() {
     # Convert to lowercase - use tr as it's bash 3.2 compatible
     # Note: This spawns a subprocess but is unavoidable in bash 3.2
     echo "$trimmed" | tr '[:upper:]' '[:lower:]'
+}
+
+# Validate protocol value against whitelist and warn if invalid
+# Returns sanitized protocol (whitelist or default)
+validate_protocol() {
+    local provider="$1"
+    local protocol="$2"
+
+    # Valid protocols whitelist
+    local valid_openai="openai"
+    local valid_anthropic="anthropic"
+
+    # If protocol is empty after normalization, it will be defaulted later
+    [[ -z "$protocol" ]] && { echo ""; return 0; }
+
+    # Check if valid
+    if [[ "$protocol" == "$valid_openai" ]] || [[ "$protocol" == "$valid_anthropic" ]]; then
+        echo "$protocol"
+        return 0
+    fi
+
+    # Invalid protocol - emit warning and return empty (will be defaulted to openai)
+    echo "⚠️  Warning: Invalid protocol '$protocol' for provider '$provider'. Valid values: openai, anthropic. Defaulting to 'openai'." >&2
+    echo ""
+    return 0
 }
 
 # Set default protocol for providers that don't have one explicitly set

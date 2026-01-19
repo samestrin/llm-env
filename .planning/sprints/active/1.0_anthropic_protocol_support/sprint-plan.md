@@ -206,7 +206,7 @@ Commit types:
 - Only applies default protocol to enabled providers (efficiency improvement)
 - Extracted defaulting logic into reusable function for maintainability
 
-### 1.3 [ ] **[🟢 GREEN + 🔵 REFACTOR - Protocol Field Parsing](plan/user-stories/01-protocol-configuration.md)**
+### 1.3 [x] **[🟢 GREEN + 🔵 REFACTOR - Protocol Field Parsing](plan/user-stories/01-protocol-configuration.md)**
 
 **Mode:** Moderate | **AC:** [01-01 Protocol Field Parsing](plan/acceptance-criteria/01-01-protocol-field-parsing.md)
 
@@ -225,7 +225,7 @@ Commit types:
 
 **Files:** `llm-env`, `tests/unit/test_protocols.bats` | **Duration:** ~45 min
 
-### 1.4 [ ] **[🟢 GREEN + 🔵 REFACTOR - PROVIDER_PROTOCOLS Storage](plan/user-stories/01-protocol-configuration.md)**
+### 1.4 [x] **[🟢 GREEN + 🔵 REFACTOR - PROVIDER_PROTOCOLS Storage](plan/user-stories/01-protocol-configuration.md)**
 
 **Mode:** Moderate | **AC:** [01-03 Protocol Storage](plan/acceptance-criteria/01-03-protocol-storage-provider-protocols.md)
 
@@ -244,7 +244,7 @@ Commit types:
 
 **Files:** `llm-env`, `tests/unit/test_protocols.bats` | **Duration:** ~60 min
 
-### 1.5 [ ] **[🟢 GREEN + 🔵 REFACTOR - Invalid Protocol Validation](plan/user-stories/01-protocol-configuration.md)**
+### 1.5 [x] **[🟢 GREEN + 🔵 REFACTOR - Invalid Protocol Validation](plan/user-stories/01-protocol-configuration.md)**
 
 **Mode:** Moderate | **AC:** [01-04 Invalid Protocol Validation](plan/acceptance-criteria/01-04-invalid-protocol-validation.md)
 
