@@ -1,0 +1,581 @@
+version: 1
+created: "2026-01-05T12:00:00Z"
+last_updated: "2026-01-14"
+entries:
+- id: clr-20260105-6aba35
+  canonical_question: "Rust Parsing Libraries - Should I use AST or dependency parsing libraries like tree-sitter or syn?"
+  current_answer: No AST or dependency parsing libraries (like tree-sitter or syn) are currently in use. You should leverage regex (v1.10.4) and unicode-segmentation (v1.11.0) which are already in Cargo.toml.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - parsing
+  - dependencies
+  - rust
+  confidence: medium
+- id: clr-20260105-0b368b
+  canonical_question: "Tokenization Infrastructure - Is there a shared tokenization API available?"
+  current_answer: There is no shared, public tokenization API. stylometry.rs uses internal, private Lazy<Regex> and naive string splitting. You should use unicode-segmentation for this sprint (as it is a dependency but unused in stylometry.rs) to ensure better sentence boundary detection for structural analysis.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - tokenization
+  - infrastructure
+  - structural-analysis
+  confidence: medium
+- id: clr-20260105-4ff222
+  canonical_question: "Performance Testing Utilities - What benchmarking framework should I use?"
+  current_answer: No dedicated benchmarking framework (like criterion) is configured. You should use standard cargo test and std::time::Instant within your tests to verify the <100ms requirement.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - testing
+  - performance
+  - benchmarking
+  confidence: medium
+- id: clr-20260105-f2fdbd
+  canonical_question: "Input Format - What format should the structural analysis function accept?"
+  current_answer: The expected input is raw plain text (&str or String).
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - api
+  - input-format
+  confidence: medium
+- id: clr-20260105-1f9dba
+  canonical_question: "Handling Complex Structures - Should I use recursive parsing or heuristics?"
+  current_answer: Use O(N) linear heuristics (counting punctuation, conjunctions, relative pronouns) rather than recursive parsing. This avoids stack overflow risks and performance penalties on complex nested structures.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - algorithms
+  - heuristics
+  - structural-analysis
+  confidence: medium
+- id: clr-20260105-50a180
+  canonical_question: "Prioritized Languages/Structures - Should I focus on English or multilingual support?"
+  current_answer: Prioritize English sentence structures (SVO). The codebase is currently hardcoded for English.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - scope
+  - i18n
+  - english
+  confidence: medium
+- id: clr-20260105-d79042
+  canonical_question: "Implementation Order - Should I implement metrics sequentially or together?"
+  current_answer: Implement sequentially (Tree Depth → Branching → Punctuation) following the TDD plan. Combine logic for performance optimization only in Phase 3.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - planning
+  - implementation
+  - tdd
+  confidence: medium
+- id: clr-20260105-78c341
+  canonical_question: Is the list of 50+ discourse markers pre-defined or should it be configurable?
+  current_answer: Hardcoding the static list of 50+ discourse markers is acceptable for this sprint.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - configuration
+  - discourse-analysis
+  confidence: medium
+- id: clr-20260105-81547e
+  canonical_question: Should "crutch word" detection apply ONLY to the discourse markers, or should it also include common filler words like "actually," "basically," or "literally"?
+  current_answer: "\"Crutch word\" detection should apply ONLY to the discourse markers defined in the static list."
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - logic
+  - discourse-analysis
+  confidence: medium
+- id: clr-20260105-db7198
+  canonical_question: How should sentiment_velocity behave for texts with only 1 sentence?
+  current_answer: For texts with only 1 sentence (or empty text), sentiment_velocity should be 0.0.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - logic
+  - sentiment-analysis
+  confidence: medium
+- id: clr-20260105-56a4bc
+  canonical_question: The 150ms performance budget applies to what text size?
+  current_answer: The 150ms budget applies to standard paragraphs (~250-500 words), not large documents.
+  occurrences: 1
+  first_seen: "2026-01-05"
+  last_seen: "2026-01-05"
+  status: pending
+  context_tags:
+  - performance
+  - requirements
+  confidence: medium
+- id: clr-20260106-9a1b8c
+  canonical_question: Should we target legacy /v1/completions or newer /v1/chat/completions for remote inference?
+  current_answer: "Target /v1/chat/completions. Modern servers and async-openai prioritize this. It supports logprobs: true."
+  occurrences: 1
+  first_seen: "2026-01-06"
+  last_seen: "2026-01-06"
+  sprints_seen:
+  - 6.0_remote_inference
+  status: pending
+  context_tags:
+  - remote-inference
+  - api-endpoint
+  confidence: medium
+- id: clr-20260106-4f2641
+  canonical_question: What specific conditions should trigger a fallback to Local inference?
+  current_answer: Fallback on Network Errors (timeout, connection refused) and Server Errors (5xx), but NOT on Client Errors (4xx).
+  occurrences: 1
+  first_seen: "2026-01-06"
+  last_seen: "2026-01-06"
+  sprints_seen:
+  - 6.0_remote_inference
+  status: pending
+  context_tags:
+  - resilience
+  - fallback-strategy
+  confidence: medium
+- id: clr-20260107-bee196
+  canonical_question: Should I use a specific source for the default blocklist?
+  current_answer: Use the open-source surge-ai/profanity list as the primary default source. Do not curate a new minimal set manually; instead, allow for custom additions to this base list.
+  occurrences: 1
+  first_seen: "2026-01-07"
+  last_seen: "2026-01-07"
+  sprints_seen:
+  - 7.0_content_safety
+  status: pending
+  context_tags:
+  - safety
+  - blocklist
+  - requirements
+  confidence: medium
+- id: clr-20260107-c36779
+  canonical_question: For the Level 3 Local BERT model (toxic-bert), is there a preferred directory for storing model weights?
+  current_answer: Use the hf-hub crate's default caching mechanism (typically ~/.cache/huggingface) for model weights. Do not create a project-specific models/safety/ directory unless specifically required for an offline-only deployment where internet access is restricted.
+  occurrences: 1
+  first_seen: "2026-01-07"
+  last_seen: "2026-01-07"
+  sprints_seen:
+  - 7.0_content_safety
+  status: pending
+  context_tags:
+  - safety
+  - ml
+  - candle
+  - storage
+  confidence: medium
+- id: clr-20260107-4b891a
+  canonical_question: Beyond the OpenAI Moderations API, are there other specific remote providers you want supported in this sprint?
+  current_answer: Yes, support "Generic Chat Completions" (e.g., Ollama/Llama Guard) as a secondary mode alongside OpenAI Moderations.
+  occurrences: 1
+  first_seen: "2026-01-07"
+  last_seen: "2026-01-07"
+  sprints_seen:
+  - 7.0_content_safety
+  status: pending
+  context_tags:
+  - safety
+  - remote
+  - openai
+  - ollama
+  confidence: medium
+- id: clr-20260107-1f57ca
+  canonical_question: Should blocklist paths be relative to the project root or configurable via environment variables?
+  current_answer: Use environment variables (e.g., SAFETY_BLOCKLIST_PATH) to define paths, defaulting to a project-relative directory (e.g., data/blocklists/).
+  occurrences: 1
+  first_seen: "2026-01-07"
+  last_seen: "2026-01-07"
+  sprints_seen:
+  - 7.0_content_safety
+  status: pending
+  context_tags:
+  - safety
+  - config
+  - environment
+  confidence: medium
+- id: clr-20260107-3efac8
+  canonical_question: Is the lazy_static crate already available in the project dependencies?
+  current_answer: Yes, lazy_static version 1.5.0 is already listed in Cargo.toml. src/analyzers/rhetorical.rs:7 already imports it (use lazy_static::lazy_static;). src/analyzers/rhetorical.rs:160 already uses it for DISCOURSE_MARKERS.
+  occurrences: 1
+  first_seen: "2026-01-07"
+  last_seen: "2026-01-07"
+  status: pending
+  confidence: medium
+- id: clr-20260107-764080
+  canonical_question: Are there any specific thread safety considerations for SentimentIntensityAnalyzer?
+  current_answer: lazy_static! ensures thread-safe initialization. Ensure SentimentIntensityAnalyzer is treated as immutable global state. lazy_static guarantees thread-safe initialization. The analyzer is used read-only (analyzer.polarity_scores(sentence)) in src/analyzers/rhetorical.rs:86. Rust's type system will enforce Sync for the static reference, preventing compilation if the underlying struct isn't thread-safe (which vader_sentimental structs typically are as they are read-only dictionaries).
+  occurrences: 1
+  first_seen: "2026-01-07"
+  last_seen: "2026-01-07"
+  status: pending
+  confidence: medium
+- id: clr-20260107-8fe5fe
+  canonical_question: "For Welford's algorithm: How much numerical precision difference is acceptable?"
+  current_answer: "Standard floating-point epsilon differences are acceptable. The goal is logical equivalence, not bitwise identity. plan/sprint-design.md:242 advises: \"Test against known values, compare with two-pass\". plan/sprint-design.md:80 lists acceptance criteria as \"Output identical to before optimization\", but in floating-point math, \"identical\" implies \"within reasonable epsilon\" (e.g., 1e-10). Welford's algorithm is numerically more stable than the two-pass algorithm for some datasets, so slight variance is a feature, not a bug."
+  occurrences: 1
+  first_seen: "2026-01-07"
+  last_seen: "2026-01-07"
+  status: pending
+  confidence: medium
+- id: clr-20260107-751ab2
+  canonical_question: Should I also optimize any other similar patterns in the codebase?
+  current_answer: "Generally No, stick to the strict scope to avoid drift. However, segment_sentences contains a trivial optimization opportunity that fits the \"boy scout rule\". Strict Scope: plan/original-requirements.md only lists 3 items. Boy Scout Opportunity: src/analyzers/rhetorical.rs:129 allocates let abbreviations = vec![...] on every call. This can be trivially converted to a const array &[&str] with zero risk, aligning with the sprint's goal of reducing allocations in this specific file. Recommendation: Implement the 3 required tasks first. If time permits, fix abbreviations as it is in the same file (rhetorical.rs), but do not search other files."
+  occurrences: 1
+  first_seen: "2026-01-07"
+  last_seen: "2026-01-07"
+  status: pending
+  confidence: medium
+- id: clr-20260108-62ac6c
+  canonical_question: Should rate limits for safety endpoint be hardcoded or environment-configurable?
+  current_answer: Environment-configurable with defaults (5 req/s, burst 10). Use SAFETY_RATE_LIMIT_PER_SEC and SAFETY_RATE_LIMIT_BURST env vars.
+  occurrences: 1
+  first_seen: "2026-01-08"
+  last_seen: "2026-01-08"
+  sprints_seen:
+  - 11.0_content_safety_hardening
+  status: pending
+  context_tags:
+  - safety
+  - rate-limiting
+  - configuration
+  confidence: medium
+- id: clr-20260108-ebf07f
+  canonical_question: Where should input size validation go for analyzer functions?
+  current_answer: Add validation in the analyzer function itself as defense-in-depth, even if handler already validates. Return metrics with error field for oversized input.
+  occurrences: 1
+  first_seen: "2026-01-08"
+  last_seen: "2026-01-08"
+  sprints_seen:
+  - 14.0_rhetorical_analysis_hardening
+  status: pending
+  context_tags:
+  - rust
+  - validation
+  - security
+  confidence: medium
+- id: clr-20260108-66db11
+  canonical_question: Where should new unit tests for internal implementation details go?
+  current_answer: "Add to inline #[cfg(test)] mod tests in the same file for consistency with existing tests."
+  occurrences: 1
+  first_seen: "2026-01-08"
+  last_seen: "2026-01-08"
+  sprints_seen:
+  - 14.0_rhetorical_analysis_hardening
+  status: pending
+  context_tags:
+  - rust
+  - testing
+  confidence: medium
+- id: clr-20260108-651247
+  canonical_question: Should creativity analyzer return error field or default values for oversized input?
+  current_answer: Return CreativityMetrics::default() (all zeros) without error field. Keep API simple.
+  occurrences: 1
+  first_seen: "2026-01-08"
+  last_seen: "2026-01-08"
+  sprints_seen:
+  - "15.0"
+  status: pending
+  context_tags:
+  - creativity
+  - input-validation
+  confidence: medium
+- id: clr-20260108-807c0b
+  canonical_question: How should creativity analyzer handle sentence segmentation?
+  current_answer: Reuse segment_sentences() from rhetorical.rs for consistency and code reuse.
+  occurrences: 1
+  first_seen: "2026-01-08"
+  last_seen: "2026-01-08"
+  sprints_seen:
+  - "15.0"
+  status: pending
+  context_tags:
+  - creativity
+  - sentence-segmentation
+  confidence: medium
+- id: clr-20260109-a9783d
+  canonical_question: Where should error classification logic be placed in retry flows?
+  current_answer: Inside the .when() retry predicate, operating on the raw error type (e.g., OpenAIError) before conversion to domain error (e.g., InferenceError)
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  sprints_seen:
+  - "16.0"
+  status: pending
+  context_tags:
+  - inference
+  - retry
+  - error-handling
+  confidence: medium
+- id: clr-20260109-6c0841
+  canonical_question: Should 4xx HTTP errors be retried in API clients?
+  current_answer: No, exclude permanent errors (4xx client errors, authentication failures) from retries. Retrying these wastes API quota and delays inevitable failures.
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  sprints_seen:
+  - "16.0"
+  status: pending
+  context_tags:
+  - api
+  - retry
+  - http
+  confidence: medium
+- id: clr-20260109-d2b07b
+  canonical_question: When to use integration tests vs unit tests for retry logic?
+  current_answer: Prefer unit tests for error classification helpers. Skip integration tests if no HTTP mocking dependency (wiremock) is available. mockall is insufficient for testing internals of concrete HTTP clients.
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  sprints_seen:
+  - "16.0"
+  status: pending
+  context_tags:
+  - testing
+  - retry
+  - mocking
+  confidence: medium
+- id: clr-20260109-8ed97d
+  canonical_question: Should SMOG index return 0.0 for texts with fewer than 30 sentences, continue calculating with documentation warning, or use Option<f64>?
+  current_answer: Keep calculating for all text lengths, add doc comment noting accuracy limitation for texts with fewer than 30 sentences. Preserves API behavior (non-breaking) and matches standard pattern for statistical metrics.
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  status: pending
+  context_tags:
+  - readability
+  - api
+  - documentation
+  confidence: medium
+- id: clr-20260109-99a57d
+  canonical_question: Should stubbed readability metrics (Coleman-Liau, ARI, Dale-Chall, Linsear) be documented only, or should they be implemented?
+  current_answer: Implement Coleman-Liau, ARI, and Linsear Write (trivial lift using existing counts/syllables). Keep Dale-Chall stubbed with TODO comment since it requires a 3,000-word lookup list not in codebase.
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  status: pending
+  context_tags:
+  - readability
+  - implementation
+  - technical-debt
+  confidence: medium
+- id: clr-20260109-fdebaf
+  canonical_question: Should startup expect() calls in main.rs be documented or is documenting them unnecessary?
+  current_answer: Add file-level doc comment explaining startup panics are intentional fail-fast behavior. Addresses recurring code review concerns by documenting the architectural decision.
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  status: pending
+  context_tags:
+  - rust
+  - main
+  - documentation
+  - architecture
+  confidence: medium
+- id: clr-20260109-d68d30
+  canonical_question: When creativity analyzer detects oversized input and sets error field, should the handler log warning and continue (Option A) or return HTTP error (Option B)?
+  current_answer: "Option A: Log warning and continue. Handler validates first (HTTP error), analyzer validates as backup (error field is informational). Matches rhetorical pattern."
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  sprints_seen:
+  - "19.0"
+  status: pending
+  context_tags:
+  - analyzers
+  - error-handling
+  - creativity
+  confidence: medium
+- id: clr-20260109-851a9a
+  canonical_question: Should I use floor_char_boundary (Rust 1.79+) for UTF-8 safe truncation?
+  current_answer: Use stable alternative (iterative is_char_boundary check) for compatibility with all Rust 2021 edition compilers
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  status: pending
+  context_tags:
+  - rust
+  - utf8
+  - compatibility
+  confidence: medium
+- id: clr-20260109-03b209
+  canonical_question: What DFA size limit should be used for regex ReDoS protection?
+  current_answer: Use 262144 (256KB) to match structural.rs constant REGEX_DFA_SIZE_LIMIT for consistency
+  occurrences: 1
+  first_seen: "2026-01-09"
+  last_seen: "2026-01-09"
+  status: pending
+  context_tags:
+  - regex
+  - security
+  - redos
+  confidence: medium
+- id: clr-20260112-539b34
+  canonical_question: Why are clippy warnings about `async move { future.await }` being reducible to just `future` acceptable in Tower middleware?
+  current_answer: "Due to type inference and the `Pin<Box<dyn Future>>` return type requirement in Tower Service implementations, we cannot simply return the inner future directly - it must be wrapped in `Box::pin(async move { ... })`. This is a known pattern for Tower middleware where the Future type must be erased to `dyn Future`. The clippy suggestion to reduce `async move { future.await }` to just `future` doesn't account for the boxing requirement. These warnings are acceptable for this implementation pattern."
+  occurrences: 1
+  first_seen: "2026-01-12"
+  last_seen: "2026-01-12"
+  sprints_seen:
+  - "22.0"
+  status: pending
+  context_tags:
+  - rust
+  - tower
+  - middleware
+  - clippy
+  - async
+  confidence: medium
+- id: clr-20260113-907879
+  canonical_question: Should Vec<Regex> iteration be replaced with AhoCorasick for transition detection?
+  current_answer: Yes, replace with AhoCorasick for O(N) performance instead of O(N*M) regex iteration
+  occurrences: 1
+  first_seen: "2026-01-13"
+  last_seen: "2026-01-13"
+  sprints_seen:
+  - "26.0"
+  status: pending
+  context_tags:
+  - performance
+  - voice_profile
+  - regex
+  confidence: medium
+- id: clr-20260113-43cae6
+  canonical_question: What is the preferred data source for blocklist content?
+  current_answer: Source from LDNOOBW repository, manually curate severity and categories
+  occurrences: 1
+  first_seen: "2026-01-13"
+  last_seen: "2026-01-13"
+  status: pending
+  context_tags:
+  - blocklist
+  - data
+  - safety
+  confidence: medium
+- id: clr-20260113-eb4016
+  canonical_question: How should existing test blocklist entries be handled when adding production data?
+  current_answer: Move to dedicated test fixture file (data/blocklists/test_fixture.txt) to decouple tests from production data
+  occurrences: 1
+  first_seen: "2026-01-13"
+  last_seen: "2026-01-13"
+  status: pending
+  context_tags:
+  - testing
+  - blocklist
+  - fixtures
+  confidence: medium
+- id: clr-20260113-ed36e2
+  canonical_question: Are breaking API changes acceptable for blocklist severity enhancements?
+  current_answer: "Yes, proceed with breaking changes - project is pre-1.0 development phase"
+  occurrences: 1
+  first_seen: "2026-01-13"
+  last_seen: "2026-01-13"
+  status: pending
+  context_tags:
+  - api
+  - versioning
+  - breaking-changes
+  confidence: medium
+- id: clr-20260113-40e3ce
+  canonical_question: Where should the Dale-Chall 3,000-word easy word list come from?
+  current_answer: Use the standard Dale-Chall 3,000-word list from academic resources or open-source implementations. No custom version needed.
+  occurrences: 1
+  first_seen: "2026-01-13"
+  last_seen: "2026-01-13"
+  sprints_seen:
+  - "28.0"
+  status: pending
+  context_tags:
+  - readability
+  - dale-chall
+  - nlp
+  confidence: medium
+- id: clr-20260113-f45d0b
+  canonical_question: Should the POS tagger support multiple languages or just English?
+  current_answer: English-only. Prioritize speed over accuracy using simple suffix rules + common word dictionary. Default unknown words to Noun.
+  occurrences: 1
+  first_seen: "2026-01-13"
+  last_seen: "2026-01-13"
+  sprints_seen:
+  - "28.0"
+  status: pending
+  context_tags:
+  - pos-tagger
+  - nlp
+  - performance
+  confidence: medium
+- id: clr-20260113-c0189b
+  canonical_question: How should semantic coherence handle model loading failures?
+  current_answer: Fail-fast on startup if model cannot load. Runtime coherence calculation failures should return None (graceful degradation).
+  occurrences: 1
+  first_seen: "2026-01-13"
+  last_seen: "2026-01-13"
+  sprints_seen:
+  - "28.0"
+  status: pending
+  context_tags:
+  - semantic-coherence
+  - ml
+  - error-handling
+  confidence: medium
+- id: clr-20260114-7aa933
+  canonical_question: How should VADER SENTIMENT_ANALYZER be accessed from creativity.rs?
+  current_answer: Make SENTIMENT_ANALYZER pub(crate) in rhetorical.rs to avoid memory duplication from loading lexicon twice
+  occurrences: 1
+  first_seen: "2026-01-14"
+  last_seen: "2026-01-14"
+  sprints_seen:
+  - "29.0"
+  status: pending
+  context_tags:
+  - creativity
+  - sentiment
+  - architecture
+  confidence: medium
+- id: clr-20260114-a05219
+  canonical_question: Should Double Metaphone rhyme matching use primary codes only or include alternate codes?
+  current_answer: "Use permissive matching - match if ANY combination of primary/alternate codes match (supports slant rhymes)"
+  occurrences: 1
+  first_seen: "2026-01-14"
+  last_seen: "2026-01-14"
+  sprints_seen:
+  - "29.0"
+  status: pending
+  context_tags:
+  - creativity
+  - phonetic
+  - rhyme
+  confidence: medium
+- id: clr-20260114-783ec6
+  canonical_question: How should performance targets (<200ms latency) be verified?
+  current_answer: "Add explicit benchmark tests - manual testing is unreliable for millisecond-level regression detection"
+  occurrences: 1
+  first_seen: "2026-01-14"
+  last_seen: "2026-01-14"
+  sprints_seen:
+  - "29.0"
+  status: pending
+  context_tags:
+  - creativity
+  - performance
+  - testing
+  confidence: medium
