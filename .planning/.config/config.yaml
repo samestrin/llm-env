@@ -1,0 +1,36 @@
+binaries:
+  llm: gemini
+  support: /usr/local/bin/llm-support
+  filesystem: /usr/local/bin/llm-filesystem
+  semantic: /usr/local/bin/llm-semantic
+mcps:
+  support: false
+  filesystem: false
+  clarification: false
+  semantic: false
+helper:
+  provider: gemini
+  max_lines: 1500
+project:
+  source_directory: lib
+  type: bash
+  framework: none
+  package_manager: none
+  test_framework: bats
+  test_directory: tests
+testing:
+  cmd: ./tests/run_tests.sh
+  coverage_cmd: ""
+  lint_cmd: shellcheck llm-env lib/*.sh
+  types_cmd: ""
+  build_cmd: ""
+semantic:
+  code_enabled: true
+  code_storage: ""
+  code_collection: code
+  docs_enabled: false
+  docs_storage: ""
+  docs_collection: docs
+  min_score: 0.7
+  max_results: 10
+  stale_days: 7

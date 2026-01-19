@@ -510,9 +510,9 @@ load_config() {
                     set_provider_value "PROVIDER_ENABLED" "$current_provider" "$value"
                     ;;
                 protocol)
-                    # Normalize protocol to lowercase and trim whitespace
+                    # Normalize protocol to lowercase and trim whitespace using helper function
                     local normalized_protocol
-                    normalized_protocol="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+                    normalized_protocol="$(normalize_protocol "$value")"
                     set_provider_value "PROVIDER_PROTOCOLS" "$current_provider" "$normalized_protocol"
                     debug "PROVIDER_PROTOCOLS[$current_provider] = $normalized_protocol"
                     ;;
@@ -521,18 +521,8 @@ load_config() {
     done <<< "$file_content"
 
     # Set default protocol for providers that don't have one explicitly set
-    local provider
-    while IFS= read -r provider; do
-        [[ -z "$provider" ]] && continue
-        # Check if provider already has protocol set
-        local existing_protocol
-        existing_protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider" 2>/dev/null || echo "")"
-        if [[ -z "$existing_protocol" ]]; then
-            # Default to "openai" protocol
-            set_provider_value "PROVIDER_PROTOCOLS" "$provider" "openai"
-            debug "PROVIDER_PROTOCOLS[$provider] defaulted to 'openai'"
-        fi
-    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+    # Only applies to enabled providers
+    apply_default_protocols
 
     return 0
 }
@@ -668,17 +658,67 @@ load_builtin_config() {
 
 # ---------- Helper Functions ----------
 
+# Normalize protocol value: trim whitespace and convert to lowercase
+# Returns empty string for empty/whitespace-only input
+normalize_protocol() {
+    local value="$1"
+
+    # Return empty for empty string
+    [[ -z "$value" && -n "${value+x}" ]] && { echo ""; return 0; }
+
+    # Trim whitespace and convert to lowercase using bash 3.2 compatible approach
+    # Using parameter expansion for trimming (available in bash 3.2)
+    local trimmed="${value##[[:space:]]*}"  # Remove leading whitespace
+    trimmed="${trimmed%%[[:space:]]*}"     # Remove trailing whitespace
+
+    # Return empty for whitespace-only input
+    [[ -z "$trimmed" ]] && { echo ""; return 0; }
+
+    # Convert to lowercase - use tr as it's bash 3.2 compatible
+    # Note: This spawns a subprocess but is unavoidable in bash 3.2
+    echo "$trimmed" | tr '[:upper:]' '[:lower:]'
+}
+
+# Set default protocol for providers that don't have one explicitly set
+# Only applies to enabled providers to avoid unnecessary work
+apply_default_protocols() {
+    local provider
+    local existing_protocol
+    local provider_enabled
+
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+
+        # Check if provider has a protocol set
+        existing_protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider" 2>/dev/null || echo "")"
+
+        # Only set default if protocol is empty and provider is enabled
+        # Check if provider is enabled (defaults to true if not set)
+        if [[ -z "$existing_protocol" ]]; then
+            provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider" 2>/dev/null || echo "true")"
+
+            # Only set default for enabled providers
+            if [[ "$provider_enabled" == "true" ]]; then
+                set_provider_value "PROVIDER_PROTOCOLS" "$provider" "openai"
+                debug "PROVIDER_PROTOCOLS[$provider] defaulted to 'openai'"
+            else
+                debug "PROVIDER_PROTOCOLS[$provider] not defaulted (provider disabled)"
+            fi
+        fi
+    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+}
+
 mask() {
     local input="$1"
     [[ -z "$input" ]] && { echo "∅"; return; }
     [[ ${#input} -le 2 ]] && { echo "$input"; return; }
-    
+
     # For strings of 3-4 characters, mask first character only
     if [[ ${#input} -le 4 ]]; then
         echo "•${input:1}"
         return
     fi
-    
+
     # For strings > 4 characters, mask all but last 4 characters
     local masked=""
     local i

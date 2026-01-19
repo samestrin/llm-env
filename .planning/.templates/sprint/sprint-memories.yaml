@@ -1,0 +1,11 @@
+# Sprint Memory Manifest
+# Tracks memories created during and referenced by this sprint
+# Used for guaranteed retrieval on sprint resume (by ID, not search)
+
+# Memories created during this sprint execution
+# Added when user answers a clarifying question
+created: []
+
+# Existing memories that were relevant to this sprint
+# Added during sprint creation from memory search
+referenced: []
