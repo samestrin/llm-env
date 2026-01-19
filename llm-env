@@ -955,13 +955,13 @@ cmd_unset() {
 cmd_list() {
     local show_all=false
     [[ "$1" == "--all" ]] && show_all=true
-    
+
     # Reload configuration to ensure we have the latest providers
     init_config
-    
+
     echo "Available providers:"
     echo
-    
+
     local providers_to_show=()
     if $show_all; then
         # Show all providers (enabled and disabled)
@@ -972,9 +972,9 @@ cmd_list() {
         # Show only enabled providers
         providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
     fi
-    
+
     # Declare loop variables outside the loop for zsh compatibility
-    local mark base model key_var have_key description enabled_status provider_enabled
+    local mark base model key_var have_key description enabled_status provider_enabled protocol
     for provider in "${providers_to_show[@]}"; do
         mark=" "
         [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
@@ -983,6 +983,9 @@ cmd_list() {
         model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
         key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
         description="$(get_provider_value "PROVIDER_DESCRIPTIONS" "$provider")"
+        protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+        protocol="${protocol:-openai}"
+
         if [[ -n "$key_var" ]] && [[ -n "$(get_var_value "$key_var")" ]]; then
             have_key="yes"
         else
@@ -996,8 +999,8 @@ cmd_list() {
             enabled_status=" (disabled)"
         fi
 
-        printf " %s %-12s  %-30s  %-24s  key:%-3s  %s%s\n" \
-            "$mark" "$provider" "$base" "$model" "$have_key" "$description" "$enabled_status"
+        printf " %s %-12s  %-9s  %-30s  %-24s  key:%-3s  %s%s\n" \
+            "$mark" "$provider" "$protocol" "$base" "$model" "$have_key" "$description" "$enabled_status"
     done
     [[ -n "$LLM_PROVIDER" ]] && echo; echo "* current provider"
     echo
@@ -1005,16 +1008,29 @@ cmd_list() {
 }
 
 cmd_show() {
+    local current_protocol="${LLM_PROTOCOL:-openai}"
+
     echo "Current environment:"
-    echo "  LLM_PROVIDER     = ${LLM_PROVIDER:-∅}"
-    echo "  OPENAI_BASE_URL  = ${OPENAI_BASE_URL:-∅}"
-    echo "  OPENAI_MODEL     = ${OPENAI_MODEL:-∅}"
-    echo "  OPENAI_API_KEY   = $(mask "${OPENAI_API_KEY:-}")"
-    
+    echo "  LLM_PROVIDER       = ${LLM_PROVIDER:-∅}"
+    echo "  LLM_PROTOCOL       = ${current_protocol}"
+
+    if [[ "$current_protocol" == "anthropic" ]]; then
+        # Show Anthropic variables
+        echo "  ANTHROPIC_BASE_URL = ${ANTHROPIC_BASE_URL:-∅}"
+        echo "  ANTHROPIC_MODEL    = ${ANTHROPIC_MODEL:-∅}"
+        echo "  ANTHROPIC_API_KEY  = $(mask "${ANTHROPIC_API_KEY:-}")"
+        echo "  ANTHROPIC_AUTH_TOKEN = $(mask "${ANTHROPIC_AUTH_TOKEN:-}")"
+    else
+        # Show OpenAI variables (default)
+        echo "  OPENAI_BASE_URL    = ${OPENAI_BASE_URL:-∅}"
+        echo "  OPENAI_MODEL       = ${OPENAI_MODEL:-∅}"
+        echo "  OPENAI_API_KEY     = $(mask "${OPENAI_API_KEY:-}")"
+    fi
+
     # Show configuration source
     while IFS= read -r config_file; do
         if [[ -f "$config_file" ]]; then
-            echo "  Config file      = $config_file"
+            echo "  Config file        = $config_file"
             break
         fi
     done < <(get_config_locations)
@@ -1274,8 +1290,10 @@ cmd_test() {
     fi
 
     # Validate provider
-    if ! validate_provider "$provider"; then
-        case $? in
+    validate_provider "$provider"
+    local validate_result=$?
+    if [[ $validate_result -ne 0 ]]; then
+        case $validate_result in
             1) echo "❌ Unknown provider: $provider" ;;
             2) echo "❌ Provider disabled: $provider" ;;
         esac
