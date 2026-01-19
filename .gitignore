@@ -8,6 +8,8 @@
 *.log
 *.tmp
 *.temp
+*.bak
+*.bak*
 *.out
 *.pid
 *.seed
