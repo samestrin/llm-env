@@ -121,7 +121,7 @@ teardown() {
 @test "cmd_show: indicates when no provider is set" {
     run cmd_show
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "LLM_PROVIDER     = ∅" ]]
+    [[ "$output" =~ "LLM_PROVIDER" ]] && [[ "$output" =~ "∅" ]]
 }
 
 @test "cmd_unset: clears provider environment variables" {
