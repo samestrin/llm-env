@@ -53,6 +53,7 @@ base_url=https://api.example.com/v1
 api_key_var=LLM_PROVIDER_API_KEY
 default_model=model-name
 description=Provider description
+protocol=openai
 enabled=true
 ```
 
@@ -63,6 +64,19 @@ enabled=true
 - **default_model**: Default model to use with this provider
 - **description**: Human-readable description
 - **enabled**: Whether this provider is available (true/false)
+- **protocol**: API protocol type - `openai` (default) or `anthropic`
+
+### Protocol Support
+
+By default, all providers use the OpenAI protocol, exporting `OPENAI_*` environment variables. For providers that use the Anthropic API natively (like Anthropic Claude), you can set `protocol=anthropic` to export native `ANTHROPIC_*` variables instead.
+
+**OpenAI Protocol (default):**
+- Exports: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`
+- Uses: `Authorization: Bearer <key>` header
+
+**Anthropic Protocol:**
+- Exports: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`
+- Uses: `x-api-key: <key>` and `anthropic-version: 2023-06-01` headers
 
 ## Configuration Examples
 
@@ -85,6 +99,28 @@ default_model=custom-model-v1
 description=My custom LLM service
 enabled=true
 ```
+
+### Configuring Anthropic (Native Protocol)
+
+For direct Anthropic API access with native `ANTHROPIC_*` environment variables:
+
+```ini
+# Anthropic Claude - Native API
+[anthropic]
+base_url=https://api.anthropic.com/v1
+api_key_var=LLM_ANTHROPIC_API_KEY
+default_model=claude-sonnet-4-20250514
+protocol=anthropic
+description=Anthropic Claude with native API
+enabled=true
+```
+
+When you run `llm-env set anthropic`, this exports:
+- `ANTHROPIC_API_KEY` - Your API key
+- `ANTHROPIC_BASE_URL` - https://api.anthropic.com/v1
+- `ANTHROPIC_MODEL` - claude-sonnet-4-20250514
+
+The `llm-env test anthropic` command uses proper Anthropic authentication headers (`x-api-key` and `anthropic-version`).
 
 ### Overriding Existing Providers
 
@@ -273,6 +309,17 @@ base_url=https://openrouter.ai/api/v1
 api_key_var=LLM_OPENROUTER_API_KEY
 default_model=x-ai/grok-code-fast-1
 description=OpenRouter - Access to multiple models through one API
+enabled=true
+```
+
+### Anthropic (Native Protocol)
+```ini
+[anthropic]
+base_url=https://api.anthropic.com/v1
+api_key_var=LLM_ANTHROPIC_API_KEY
+default_model=claude-sonnet-4-20250514
+protocol=anthropic
+description=Anthropic Claude - Native API with ANTHROPIC_* variables
 enabled=true
 ```
 
