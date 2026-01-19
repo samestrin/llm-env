@@ -154,17 +154,147 @@ get_var_value() {
 CONFIG_SOURCE=""  # none, user, system, builtin
 CONFIG_LOADED=false
 
-# Load bash compatibility library for older bash versions
+# Bash compatibility functions for older bash versions (< 4.0)
+# Provides associative array functionality using parallel indexed arrays
+# Each "associative array" is represented by:
+# - {name}_KEYS: indexed array of keys
+# - {name}_VALUES: indexed array of values (parallel to keys)
+
 if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
-    script_dir="$(get_script_dir)"
-    
-    if [[ -f "${script_dir}/lib/bash_compat.sh" ]]; then
-        source "${script_dir}/lib/bash_compat.sh"
-    elif [[ -f "./lib/bash_compat.sh" ]]; then
-        source "./lib/bash_compat.sh"
-    else
-        debug "Warning: bash_compat.sh not found, continuing without compatibility layer"
-    fi
+    # Set a key-value pair in a compatibility associative array
+    compat_assoc_set() {
+        local array_name="$1"
+        local key="$2"
+        local value="$3"
+
+        if [[ -z "$array_name" || -z "$key" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+        local values_array="${array_name}_VALUES"
+
+        # Initialize arrays if they don't exist (but don't overwrite existing ones)
+        if ! declare -p "$keys_array" >/dev/null 2>&1; then
+            eval "${keys_array}=()"
+        fi
+        if ! declare -p "$values_array" >/dev/null 2>&1; then
+            eval "${values_array}=()"
+        fi
+
+        # Get current arrays
+        local -a keys
+        local -a values
+        eval "keys=(\"\${${keys_array}[@]}\")" 2>/dev/null || keys=()
+        eval "values=(\"\${${values_array}[@]}\")" 2>/dev/null || values=()
+
+        # Look for existing key
+        local i
+        for ((i=0; i<${#keys[@]}; i++)); do
+            if [[ "${keys[i]}" == "$key" ]]; then
+                # Update existing key
+                values[i]="$value"
+                # Use printf to avoid word splitting issues
+                eval "${keys_array}=($(printf '%q ' "${keys[@]}"))"
+                eval "${values_array}=($(printf '%q ' "${values[@]}"))"
+                return 0
+            fi
+        done
+
+        # Add new key-value pair
+        keys+=("$key")
+        values+=("$value")
+        eval "${keys_array}=($(printf '%q ' "${keys[@]}"))"
+        eval "${values_array}=($(printf '%q ' "${values[@]}"))"
+    }
+
+    # Get a value from a compatibility associative array
+    compat_assoc_get() {
+        local array_name="$1"
+        local key="$2"
+
+        if [[ -z "$array_name" || -z "$key" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+        local values_array="${array_name}_VALUES"
+
+        # Get current arrays
+        local -a keys
+        local -a values
+        eval "keys=(\"\${${keys_array}[@]}\")" 2>/dev/null || keys=()
+        eval "values=(\"\${${values_array}[@]}\")" 2>/dev/null || values=()
+
+        # Look for key
+        local i
+        for ((i=0; i<${#keys[@]}; i++)); do
+            if [[ "${keys[i]}" == "$key" ]]; then
+                echo "${values[i]}"
+                return 0
+            fi
+        done
+
+        # Key not found - return 0 (success) with empty output
+        # Caller should check for empty string if needed
+        return 0
+    }
+
+    # Get all keys from a compatibility associative array
+    compat_assoc_keys() {
+        local array_name="$1"
+
+        if [[ -z "$array_name" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+
+        # Get and output keys
+        eval "local -a keys=(\"\${${keys_array}[@]}\")"
+        printf '%s\n' "${keys[@]}"
+    }
+
+    # Check if a key exists in a compatibility associative array
+    compat_assoc_has_key() {
+        local array_name="$1"
+        local key="$2"
+
+        if [[ -z "$array_name" || -z "$key" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+
+        # Get current keys
+        local -a keys
+        eval "keys=(\"\${${keys_array}[@]}\")"
+
+        # Look for key
+        local i
+        for ((i=0; i<${#keys[@]}; i++)); do
+            if [[ "${keys[i]}" == "$key" ]]; then
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
+    # Get the number of key-value pairs in a compatibility associative array
+    compat_assoc_size() {
+        local array_name="$1"
+
+        if [[ -z "$array_name" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+
+        # Get keys and count them
+        eval "local -a keys=(\"\${${keys_array}[@]}\")"
+        echo "${#keys[@]}"
+    }
 fi
 
 # ---------- Configuration Loading ----------
@@ -202,6 +332,12 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
     if ! declare -p PROVIDER_ENABLED >/dev/null 2>&1; then
         declare -A PROVIDER_ENABLED
     fi
+    if ! declare -p PROVIDER_PROTOCOLS >/dev/null 2>&1; then
+        declare -A PROVIDER_PROTOCOLS
+    fi
+    if ! declare -p PROVIDER_AUTH_TOKENS >/dev/null 2>&1; then
+        declare -A PROVIDER_AUTH_TOKENS
+    fi
 else
     # Initialize compatibility arrays for bash <4.0
     # These are managed by the compatibility functions
@@ -225,6 +361,14 @@ else
     PROVIDER_ENABLED_KEYS=()
     # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_ENABLED_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_PROTOCOLS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_PROTOCOLS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_AUTH_TOKENS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_AUTH_TOKENS_VALUES=()
 fi
 declare -a AVAILABLE_PROVIDERS
 
@@ -354,7 +498,7 @@ load_config() {
             value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             
             debug "Setting $current_provider.$key = $value"
-            
+
             case "$key" in
                 base_url)
                     set_provider_value "PROVIDER_BASE_URLS" "$current_provider" "$value"
@@ -362,6 +506,9 @@ load_config() {
                     ;;
                 api_key_var)
                     set_provider_value "PROVIDER_API_KEY_VARS" "$current_provider" "$value"
+                    ;;
+                auth_token_var)
+                    set_provider_value "PROVIDER_AUTH_TOKENS" "$current_provider" "$value"
                     ;;
                 default_model)
                     set_provider_value "PROVIDER_DEFAULT_MODELS" "$current_provider" "$value"
@@ -372,10 +519,24 @@ load_config() {
                 enabled)
                     set_provider_value "PROVIDER_ENABLED" "$current_provider" "$value"
                     ;;
+                protocol)
+                    # Normalize protocol to lowercase and trim whitespace using helper function
+                    local normalized_protocol
+                    normalized_protocol="$(normalize_protocol "$value")"
+                    # Validate against whitelist and warn if invalid
+                    local validated_protocol
+                    validated_protocol="$(validate_protocol "$current_provider" "$normalized_protocol")"
+                    set_provider_value "PROVIDER_PROTOCOLS" "$current_provider" "$validated_protocol"
+                    debug "PROVIDER_PROTOCOLS[$current_provider] = $validated_protocol"
+                    ;;
             esac
         fi
     done <<< "$file_content"
-    
+
+    # Set default protocol for providers that don't have one explicitly set
+    # Only applies to enabled providers
+    apply_default_protocols
+
     return 0
 }
 
@@ -385,11 +546,11 @@ init_config() {
     
     # Clear existing configuration
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_AUTH_TOKENS
         if [[ "${BASH_DECLARE_GLOBAL_SUPPORT}" == "true" ]]; then
-            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS
         else
-            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED
+            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS
         fi
     else
         unset AVAILABLE_PROVIDERS
@@ -510,17 +671,92 @@ load_builtin_config() {
 
 # ---------- Helper Functions ----------
 
+# Normalize protocol value: trim whitespace and convert to lowercase
+# Returns empty string for empty/whitespace-only input
+normalize_protocol() {
+    local value="$1"
+
+    # Return empty for empty string
+    [[ -z "$value" && -n "${value+x}" ]] && { echo ""; return 0; }
+
+    # Trim whitespace and convert to lowercase using bash 3.2 compatible approach
+    # Using parameter expansion for trimming (available in bash 3.2)
+    local trimmed="${value##[[:space:]]*}"  # Remove leading whitespace
+    trimmed="${trimmed%%[[:space:]]*}"     # Remove trailing whitespace
+
+    # Return empty for whitespace-only input
+    [[ -z "$trimmed" ]] && { echo ""; return 0; }
+
+    # Convert to lowercase - use tr as it's bash 3.2 compatible
+    # Note: This spawns a subprocess but is unavoidable in bash 3.2
+    echo "$trimmed" | tr '[:upper:]' '[:lower:]'
+}
+
+# Validate protocol value against whitelist and warn if invalid
+# Returns sanitized protocol (whitelist or default)
+validate_protocol() {
+    local provider="$1"
+    local protocol="$2"
+
+    # Valid protocols whitelist
+    local valid_openai="openai"
+    local valid_anthropic="anthropic"
+
+    # If protocol is empty after normalization, it will be defaulted later
+    [[ -z "$protocol" ]] && { echo ""; return 0; }
+
+    # Check if valid
+    if [[ "$protocol" == "$valid_openai" ]] || [[ "$protocol" == "$valid_anthropic" ]]; then
+        echo "$protocol"
+        return 0
+    fi
+
+    # Invalid protocol - emit warning and return empty (will be defaulted to openai)
+    echo "⚠️  Warning: Invalid protocol '$protocol' for provider '$provider'. Valid values: openai, anthropic. Defaulting to 'openai'." >&2
+    echo ""
+    return 0
+}
+
+# Set default protocol for providers that don't have one explicitly set
+# Only applies to enabled providers to avoid unnecessary work
+apply_default_protocols() {
+    local provider
+    local existing_protocol
+    local provider_enabled
+
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+
+        # Check if provider has a protocol set
+        existing_protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider" 2>/dev/null || echo "")"
+
+        # Only set default if protocol is empty and provider is enabled
+        # Check if provider is enabled (defaults to true if not set)
+        if [[ -z "$existing_protocol" ]]; then
+            provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider" 2>/dev/null || echo "true")"
+
+            # Only set default for enabled providers
+            if [[ "$provider_enabled" == "true" ]]; then
+                set_provider_value "PROVIDER_PROTOCOLS" "$provider" "openai"
+                debug "PROVIDER_PROTOCOLS[$provider] defaulted to 'openai'"
+            else
+                debug "PROVIDER_PROTOCOLS[$provider] not defaulted (provider disabled)"
+            fi
+        fi
+    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+}
+
 mask() {
     local input="$1"
     [[ -z "$input" ]] && { echo "∅"; return; }
     [[ ${#input} -le 2 ]] && { echo "$input"; return; }
-    
+
     # For strings of 3-4 characters, mask first character only
     if [[ ${#input} -le 4 ]]; then
         echo "•${input:1}"
         return
     fi
-    
+
     # For strings > 4 characters, mask all but last 4 characters
     local masked=""
     local i
@@ -592,12 +828,12 @@ cmd_set() {
         echo
         return 1
     fi
-    
+
     # Validate provider name format
     if ! validate_provider_name "$provider"; then
         return 1
     fi
-    
+
     # Validate provider
     if ! validate_provider "$provider"; then
         case $? in
@@ -608,8 +844,13 @@ cmd_set() {
         echo
         return 1
     fi
-    
-    local key_var model base key
+
+    # Get protocol for this provider (defaults to "openai")
+    local protocol
+    protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+    protocol="${protocol:-openai}"
+
+    local key_var model base key auth_token_var auth_token
     key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
     base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
     model="${OPENAI_MODEL_OVERRIDE:-$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")}"
@@ -618,13 +859,22 @@ cmd_set() {
     else
         key=""
     fi
-    
+
+    # Get auth token for Anthropic protocol (optional)
+    if [[ "$protocol" == "anthropic" ]]; then
+        auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
+        if [[ -n "$auth_token_var" ]]; then
+            auth_token="$(get_var_value "$auth_token_var")"
+        fi
+    fi
+
     debug "Resolving environment for provider $provider:"
+    debug "  protocol=$protocol"
     debug "  key_var=$key_var"
     debug "  base=$base"
     debug "  model=$model"
     debug "  key_set=$([ -n "$key" ] && echo "yes" || echo "no")"
-    
+
     if [[ -z "$key_var" ]]; then
         echo "❌ Invalid provider configuration: missing API key variable for $provider"
         echo
@@ -634,45 +884,84 @@ cmd_set() {
         echo
         return 1
     fi
-    
+
     if [[ -z "$base" || -z "$model" ]]; then
         echo "❌ Missing base URL or model for $provider"
         echo
         return 1
     fi
-    
-    export OPENAI_API_KEY="$key"
-    export OPENAI_BASE_URL="$base"
-    export OPENAI_MODEL="$model"
-    export LLM_PROVIDER="$provider"
-    
+
+    # Clean up variables from the other protocol to prevent leakage
+    if [[ "$protocol" == "openai" ]]; then
+        # Unset Anthropic variables when switching to OpenAI
+        unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    else
+        # Unset OpenAI variables when switching to Anthropic
+        unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
+    fi
+
+    # Export protocol-specific variables
     local host
-    host=$(host_from_url "$OPENAI_BASE_URL")
-    echo "✅ Set: provider=$LLM_PROVIDER host=$host model=$OPENAI_MODEL key=$(mask "$OPENAI_API_KEY")"
+    if [[ "$protocol" == "anthropic" ]]; then
+        # Export Anthropic-specific variables
+        export ANTHROPIC_API_KEY="$key"
+        export ANTHROPIC_BASE_URL="$base"
+        export ANTHROPIC_MODEL="$model"
+        if [[ -n "$auth_token" ]]; then
+            export ANTHROPIC_AUTH_TOKEN="$auth_token"
+        fi
+        export LLM_PROVIDER="$provider"
+        export LLM_PROTOCOL="$protocol"
+
+        host=$(host_from_url "$ANTHROPIC_BASE_URL")
+        echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL key=$(mask "$ANTHROPIC_API_KEY")"
+    else
+        # Export OpenAI-compatible variables (default)
+        export OPENAI_API_KEY="$key"
+        export OPENAI_BASE_URL="$base"
+        export OPENAI_MODEL="$model"
+        export LLM_PROVIDER="$provider"
+        export LLM_PROTOCOL="$protocol"
+
+        host=$(host_from_url "$OPENAI_BASE_URL")
+        echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$OPENAI_MODEL key=$(mask "$OPENAI_API_KEY")"
+    fi
     echo
 }
 
 cmd_unset() {
     local prev_p="$LLM_PROVIDER"
-    local prev_host
-    prev_host=$(host_from_url "${OPENAI_BASE_URL:-}")
-    local prev_model="$OPENAI_MODEL"
-    
-    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL LLM_PROVIDER
-    echo "🗑️ Unset OpenAI-compatible envs (was: provider=${prev_p:-∅} host=${prev_host:-∅} model=${prev_model:-∅})"
+    local prev_protocol="${LLM_PROTOCOL:-openai}"
+    local prev_host prev_model
+
+    # Get previous values based on active protocol
+    if [[ "$prev_protocol" == "anthropic" ]]; then
+        prev_host=$(host_from_url "${ANTHROPIC_BASE_URL:-}")
+        prev_model="${ANTHROPIC_MODEL:-}"
+    else
+        prev_host=$(host_from_url "${OPENAI_BASE_URL:-}")
+        prev_model="${OPENAI_MODEL:-}"
+    fi
+
+    # Unset all protocol variables (both OpenAI and Anthropic)
+    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    unset LLM_PROVIDER LLM_PROTOCOL
+
+    echo "🗑️ Unset envs (was: provider=${prev_p:-∅} protocol=${prev_protocol} host=${prev_host:-∅} model=${prev_model:-∅})"
     echo
 }
 
 cmd_list() {
     local show_all=false
     [[ "$1" == "--all" ]] && show_all=true
-    
+
     # Reload configuration to ensure we have the latest providers
     init_config
-    
+
     echo "Available providers:"
     echo
-    
+
     local providers_to_show=()
     if $show_all; then
         # Show all providers (enabled and disabled)
@@ -683,9 +972,9 @@ cmd_list() {
         # Show only enabled providers
         providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
     fi
-    
+
     # Declare loop variables outside the loop for zsh compatibility
-    local mark base model key_var have_key description enabled_status provider_enabled
+    local mark base model key_var have_key description enabled_status provider_enabled protocol
     for provider in "${providers_to_show[@]}"; do
         mark=" "
         [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
@@ -694,6 +983,9 @@ cmd_list() {
         model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
         key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
         description="$(get_provider_value "PROVIDER_DESCRIPTIONS" "$provider")"
+        protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+        protocol="${protocol:-openai}"
+
         if [[ -n "$key_var" ]] && [[ -n "$(get_var_value "$key_var")" ]]; then
             have_key="yes"
         else
@@ -707,8 +999,8 @@ cmd_list() {
             enabled_status=" (disabled)"
         fi
 
-        printf " %s %-12s  %-30s  %-24s  key:%-3s  %s%s\n" \
-            "$mark" "$provider" "$base" "$model" "$have_key" "$description" "$enabled_status"
+        printf " %s %-12s  %-9s  %-30s  %-24s  key:%-3s  %s%s\n" \
+            "$mark" "$provider" "$protocol" "$base" "$model" "$have_key" "$description" "$enabled_status"
     done
     [[ -n "$LLM_PROVIDER" ]] && echo; echo "* current provider"
     echo
@@ -716,16 +1008,29 @@ cmd_list() {
 }
 
 cmd_show() {
+    local current_protocol="${LLM_PROTOCOL:-openai}"
+
     echo "Current environment:"
-    echo "  LLM_PROVIDER     = ${LLM_PROVIDER:-∅}"
-    echo "  OPENAI_BASE_URL  = ${OPENAI_BASE_URL:-∅}"
-    echo "  OPENAI_MODEL     = ${OPENAI_MODEL:-∅}"
-    echo "  OPENAI_API_KEY   = $(mask "${OPENAI_API_KEY:-}")"
-    
+    echo "  LLM_PROVIDER       = ${LLM_PROVIDER:-∅}"
+    echo "  LLM_PROTOCOL       = ${current_protocol}"
+
+    if [[ "$current_protocol" == "anthropic" ]]; then
+        # Show Anthropic variables
+        echo "  ANTHROPIC_BASE_URL = ${ANTHROPIC_BASE_URL:-∅}"
+        echo "  ANTHROPIC_MODEL    = ${ANTHROPIC_MODEL:-∅}"
+        echo "  ANTHROPIC_API_KEY  = $(mask "${ANTHROPIC_API_KEY:-}")"
+        echo "  ANTHROPIC_AUTH_TOKEN = $(mask "${ANTHROPIC_AUTH_TOKEN:-}")"
+    else
+        # Show OpenAI variables (default)
+        echo "  OPENAI_BASE_URL    = ${OPENAI_BASE_URL:-∅}"
+        echo "  OPENAI_MODEL       = ${OPENAI_MODEL:-∅}"
+        echo "  OPENAI_API_KEY     = $(mask "${OPENAI_API_KEY:-}")"
+    fi
+
     # Show configuration source
     while IFS= read -r config_file; do
         if [[ -f "$config_file" ]]; then
-            echo "  Config file      = $config_file"
+            echo "  Config file        = $config_file"
             break
         fi
     done < <(get_config_locations)
@@ -978,104 +1283,151 @@ cmd_test() {
         echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
         return 1
     fi
-    
+
     # Validate provider name format
     if ! validate_provider_name "$provider"; then
         return 1
     fi
-    
+
     # Validate provider
-    if ! validate_provider "$provider"; then
-        case $? in
+    validate_provider "$provider"
+    local validate_result=$?
+    if [[ $validate_result -ne 0 ]]; then
+        case $validate_result in
             1) echo "❌ Unknown provider: $provider" ;;
             2) echo "❌ Provider disabled: $provider" ;;
         esac
         echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
         return 1
     fi
-    
-    echo "🧪 Testing provider: $provider"
-    
+
+    # Get protocol for this provider (defaults to "openai")
+    local protocol
+    protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+    protocol="${protocol:-openai}"
+
+    echo "🧪 Testing provider: $provider (protocol: $protocol)"
+
     local key_var base_url api_key
     key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
     base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
     api_key="$(get_var_value "$key_var")"
-    
+
     # Check if API key is available
     if [[ -z "$api_key" ]]; then
-        echo "❌ API key not found. Set $key_var in your environment."
+        echo "❌ $provider: API key not found (protocol: $protocol)"
+        echo "💡 Set $key_var in your environment."
         echo
         return 1
     fi
-    
+
     echo "✅ API key found: $(mask "$api_key")"
     echo
     echo "🔗 Base URL: $base_url"
-    
-    # Test API connectivity
-    local models_endpoint="${base_url}/models"
-    echo "🌐 Testing connectivity to: $models_endpoint"
-    
+
+    # Determine endpoint and auth headers based on protocol
+    local test_endpoint auth_headers
+    # Strip trailing slash from base_url if present
+    base_url="${base_url%/}"
+
+    if [[ "$protocol" == "anthropic" ]]; then
+        # Anthropic uses x-api-key header
+        # Endpoint: base_url/messages (base_url typically includes /v1)
+        test_endpoint="${base_url}/messages"
+        auth_headers=(-H "x-api-key: $api_key" -H "anthropic-version: 2023-06-01")
+    else
+        # OpenAI uses Authorization: Bearer header
+        # Endpoint: base_url/models
+        test_endpoint="${base_url}/models"
+        auth_headers=(-H "Authorization: Bearer $api_key")
+    fi
+
+    echo "🌐 Testing connectivity to: $test_endpoint"
+
     local start_time
     start_time=$(date +%s.%N)
     local response
-    
+
     # Use curl to test API endpoint
-    if command -v curl >/dev/null 2>&1; then
-        response=$(curl -s -w "%{http_code}" -o /dev/null \
-            --max-time 10 \
-            -H "Authorization: Bearer $api_key" \
-            -H "Content-Type: application/json" \
-            "$models_endpoint" 2>/dev/null)
-        
-        local end_time
-        end_time=$(date +%s.%N)
-        local duration
-        duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
-        
-        case "$response" in
-            200)
-                echo "✅ API connectivity test passed (HTTP $response)"
-                echo
-                echo "⏱️ Response time: ${duration}s"
-                ;;
-            401)
-                echo "❌ Authentication failed (HTTP $response)"
-                echo "💡 Check your API key: $key_var"
-                echo
-                return 1
-                ;;
-            403)
-                echo "❌ Access forbidden (HTTP $response)"
-                echo "💡 Check API key permissions"
-                echo
-                return 1
-                ;;
-            404)
-                echo "⚠️  Models endpoint not found (HTTP $response)"
-                echo "💡 Provider may not support /models endpoint"
-                echo
-                ;;
-            "")
-                echo "❌ Connection timeout or network error"
-            echo
-                echo "💡 Check internet connection and base URL"
-                return 1
-                ;;
-            *)
-                echo "⚠️  Unexpected response (HTTP $response)"
-            echo
-                echo "💡 Provider may have different API format"
-                ;;
-        esac
-        
-        echo "🏁 Test completed for provider: $provider"
-        echo
-    else
+    if ! command -v curl >/dev/null 2>&1; then
         echo "❌ curl command not found. Install curl to test API connectivity."
         echo
         return 1
     fi
+
+    response=$(curl -s -w "%{http_code}" -o /dev/null \
+        --max-time 10 \
+        "${auth_headers[@]}" \
+        -H "Content-Type: application/json" \
+        "$test_endpoint" 2>/dev/null)
+
+    local end_time
+    end_time=$(date +%s.%N)
+    local duration
+    duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
+
+    case "$response" in
+        200)
+            echo "✅ $provider: Connected successfully (protocol: $protocol)"
+            echo
+            echo "⏱️ Response time: ${duration}s"
+            ;;
+        401)
+            echo "❌ $provider: Authentication failed (protocol: $protocol)"
+            echo "💡 Check your API key: $key_var"
+            echo
+            return 1
+            ;;
+        403)
+            echo "❌ $provider: Access forbidden (protocol: $protocol)"
+            echo "💡 Check API key permissions"
+            echo
+            return 1
+            ;;
+        404)
+            echo "⚠️  $provider: Endpoint not found (protocol: $protocol, HTTP $response)"
+            echo "💡 Provider may use different API path"
+            echo
+            ;;
+        405)
+            # For Anthropic, /v1/messages returns 405 for GET requests (it requires POST)
+            # This still confirms the endpoint exists and auth headers are valid
+            if [[ "$protocol" == "anthropic" ]]; then
+                echo "✅ $provider: Connected successfully (protocol: $protocol)"
+                echo "💡 Anthropic messages endpoint verified (requires POST for full test)"
+                echo
+                echo "⏱️ Response time: ${duration}s"
+            else
+                echo "⚠️  $provider: Method not allowed (protocol: $protocol, HTTP $response)"
+                echo
+            fi
+            ;;
+        429)
+            echo "⚠️  $provider: Rate limited (protocol: $protocol)"
+            echo "💡 Please try again later"
+            echo
+            return 1
+            ;;
+        "")
+            echo "❌ $provider: Connection timeout or network error (protocol: $protocol)"
+            echo "💡 Check internet connection and base URL"
+            echo
+            return 1
+            ;;
+        5*)
+            echo "❌ $provider: Server error (protocol: $protocol, HTTP $response)"
+            echo
+            return 1
+            ;;
+        *)
+            echo "⚠️  $provider: Unexpected response (protocol: $protocol, HTTP $response)"
+            echo "💡 Provider may have different API format"
+            echo
+            ;;
+    esac
+
+    echo "🏁 Test completed for provider: $provider"
+    echo
 }
 
 cmd_help() {

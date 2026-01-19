@@ -14,13 +14,15 @@
 * **🔌 Universal Adapter:** Aliases provider-specific keys (e.g., `GEMINI_API_KEY`) to `OPENAI_API_KEY`, making almost *any* tool work with *any* provider.
 * **🛠️ Tech Stack Agnostic:** Works with `curl`, Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
 
-**New in v1.1.0:** Enhanced with a comprehensive help system, API connectivity testing, configuration backup/restore, bulk operations, and debug mode for easier troubleshooting.
+**New in v1.2.0:** Native Anthropic protocol support - exports `ANTHROPIC_*` environment variables with proper authentication headers for direct Claude API integration.
+
+**v1.1.0:** Enhanced with a comprehensive help system, API connectivity testing, configuration backup/restore, bulk operations, and debug mode for easier troubleshooting.
 
 ## Overview
 
 Manage credentials for **OpenAI, OpenRouter, Cerebras, Groq, and 15+ other providers**. 
 
-`llm-env` maps these services to the industry-standard `OPENAI_*` environment variables, ensuring compatibility with almost any tool. API keys are stored securely in your shell profile, never in code. 
+`llm-env` maps these services to the industry-standard `OPENAI_*` environment variables (or native `ANTHROPIC_*` variables for Anthropic providers), ensuring compatibility with almost any tool. API keys are stored securely in your shell profile, never in code. 
 
 **Pure Bash. Zero Dependencies. Just works.**
 
@@ -45,7 +47,8 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 This tool supports any OpenAI API compatible provider, including:
 
 - **OpenAI**: Industry standard GPT models
-- **Cerebras**: Fast inference with competitive pricing  
+- **Anthropic**: Native Claude API support with `ANTHROPIC_*` variables
+- **Cerebras**: Fast inference with competitive pricing
 - **Groq**: Lightning-fast inference
 - **OpenRouter**: Access to multiple models through one API
 - **xAI Grok**: Advanced reasoning and coding capabilities
@@ -376,7 +379,7 @@ Contributions are welcome! See the [Development Guide](docs/development.md) for 
 
 ## Version
 
-**Current Version: 1.1.0**
+**Current Version: 1.2.0**
 
 For detailed version history, feature updates, and breaking changes, see [CHANGELOG.md](CHANGELOG.md).
 

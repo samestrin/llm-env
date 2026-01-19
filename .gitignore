@@ -79,4 +79,5 @@ temp/
 
 .trae/
 planning/
-.claude
+.claude.planning/
+.index/semantic.db

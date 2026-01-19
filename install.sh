@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # LLM Environment Manager Installer
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -67,7 +67,7 @@ check_requirements() {
     # Check if we can write to install directory
     if [[ ! -w "$INSTALL_DIR" ]]; then
         print_warning "Cannot write to $INSTALL_DIR. You may need to run with sudo."
-        if [[ $EUID -ne 0 ]]; then
+        if [[ "${EUID:-0}" -ne 0 ]]; then
             print_error "Please run with sudo: sudo $0"
             exit 1
         fi
@@ -137,47 +137,6 @@ download_script() {
         print_error "Failed to install script to $INSTALL_DIR"
         rm -f "$temp_file"
         exit 1
-    fi
-}
-
-download_dependencies() {
-    print_step "Downloading required dependencies..."
-    
-    # Create lib directory in install location
-    local lib_dir="$INSTALL_DIR/lib"
-    if ! mkdir -p "$lib_dir"; then
-        print_error "Failed to create lib directory: $lib_dir"
-        return 1
-    fi
-    
-    # Download bash_compat.sh
-    local bash_compat_url="https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/lib/bash_compat.sh"
-    local temp_compat_file
-    temp_compat_file=$(mktemp)
-    
-    if curl -fsSL "$bash_compat_url" -o "$temp_compat_file"; then
-        print_success "Downloaded bash_compat.sh successfully"
-        
-        # Verify the compatibility file looks correct
-        if grep -q "compat_assoc_set" "$temp_compat_file"; then
-            if mv "$temp_compat_file" "$lib_dir/bash_compat.sh"; then
-                chmod 644 "$lib_dir/bash_compat.sh"
-                print_success "Installed bash_compat.sh to $lib_dir/bash_compat.sh"
-            else
-                print_error "Failed to install bash_compat.sh"
-                rm -f "$temp_compat_file"
-                return 1
-            fi
-        else
-            print_error "Downloaded bash_compat.sh doesn't appear to be correct"
-            rm -f "$temp_compat_file"
-            return 1
-        fi
-    else
-        print_warning "Failed to download bash_compat.sh from $bash_compat_url"
-        print_warning "The script will work on Bash 4.0+ but may fail on older versions"
-        rm -f "$temp_compat_file"
-        # Don't fail the installation, just warn
     fi
 }
 
@@ -270,9 +229,10 @@ setup_shell_function() {
     local function_code
     
     # Detect shell and config file
-    case "$SHELL" in
+    local current_shell="${SHELL:-/bin/bash}"
+    case "$current_shell" in
         */zsh|*/bash)
-            if [[ "$SHELL" == */zsh ]]; then
+            if [[ "$current_shell" == */zsh ]]; then
                 shell_config="$HOME/.zshrc"
             else
                 shell_config="$HOME/.bashrc"
@@ -295,7 +255,7 @@ function llm-env
 end"
             ;;
         */csh|*/tcsh)
-            if [[ "$SHELL" == */csh ]]; then
+            if [[ "$current_shell" == */csh ]]; then
                 shell_config="$HOME/.cshrc"
             else
                 shell_config="$HOME/.tcshrc"
@@ -306,7 +266,7 @@ end"
 alias llm-env 'source $INSTALL_DIR/$SCRIPT_NAME'"
             ;;
         *)
-            print_warning "Unsupported shell: $SHELL. Please manually add the function to your shell config."
+            print_warning "Unsupported shell: $current_shell. Please manually add the function to your shell config."
             print_warning "Add this to your shell config:"
             echo "alias llm-env='source $INSTALL_DIR/$SCRIPT_NAME'"
             return
@@ -475,7 +435,6 @@ main() {
     
     check_requirements
     download_script
-    download_dependencies
     install_config_files
     setup_shell_function
     show_next_steps

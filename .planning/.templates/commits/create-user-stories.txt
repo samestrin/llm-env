@@ -1,0 +1,7 @@
+[auto] /create-user-stories: Generate {{STORY_COUNT}} user stories
+
+Generated files:
+{{GENERATED_FILES}}
+
+Plan: {{PLAN_FOLDER}}
+Timestamp: {{TIMESTAMP}}
