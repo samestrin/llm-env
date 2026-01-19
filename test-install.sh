@@ -11,7 +11,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="test-install"
 SCRIPT_NAME="llm-env"
 GITHUB_REPO="samestrin/llm-env"  # Update this with your actual repo
 VERSION="main"  # Default to main branch, can be overridden with --version
@@ -412,7 +412,7 @@ main() {
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo "Options:"
-                echo "  --install-dir DIR    Install to custom directory (default: /usr/local/bin)"
+                echo "  --install-dir DIR    Install to custom directory (default: test-install)"
                 echo "  --version VERSION    Install specific version or branch (default: main)"
                 echo "  --offline FILE       Install from local file instead of downloading"
                 echo "  --uninstall          Remove LLM Environment Manager"
