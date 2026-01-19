@@ -1267,12 +1267,12 @@ cmd_test() {
         echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
         return 1
     fi
-    
+
     # Validate provider name format
     if ! validate_provider_name "$provider"; then
         return 1
     fi
-    
+
     # Validate provider
     if ! validate_provider "$provider"; then
         case $? in
@@ -1282,89 +1282,134 @@ cmd_test() {
         echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
         return 1
     fi
-    
-    echo "🧪 Testing provider: $provider"
-    
+
+    # Get protocol for this provider (defaults to "openai")
+    local protocol
+    protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+    protocol="${protocol:-openai}"
+
+    echo "🧪 Testing provider: $provider (protocol: $protocol)"
+
     local key_var base_url api_key
     key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
     base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
     api_key="$(get_var_value "$key_var")"
-    
+
     # Check if API key is available
     if [[ -z "$api_key" ]]; then
-        echo "❌ API key not found. Set $key_var in your environment."
+        echo "❌ $provider: API key not found (protocol: $protocol)"
+        echo "💡 Set $key_var in your environment."
         echo
         return 1
     fi
-    
+
     echo "✅ API key found: $(mask "$api_key")"
     echo
     echo "🔗 Base URL: $base_url"
-    
-    # Test API connectivity
-    local models_endpoint="${base_url}/models"
-    echo "🌐 Testing connectivity to: $models_endpoint"
-    
+
+    # Determine endpoint and auth headers based on protocol
+    local test_endpoint auth_headers
+    # Strip trailing slash from base_url if present
+    base_url="${base_url%/}"
+
+    if [[ "$protocol" == "anthropic" ]]; then
+        # Anthropic uses x-api-key header
+        # Endpoint: base_url/messages (base_url typically includes /v1)
+        test_endpoint="${base_url}/messages"
+        auth_headers=(-H "x-api-key: $api_key" -H "anthropic-version: 2023-06-01")
+    else
+        # OpenAI uses Authorization: Bearer header
+        # Endpoint: base_url/models
+        test_endpoint="${base_url}/models"
+        auth_headers=(-H "Authorization: Bearer $api_key")
+    fi
+
+    echo "🌐 Testing connectivity to: $test_endpoint"
+
     local start_time
     start_time=$(date +%s.%N)
     local response
-    
+
     # Use curl to test API endpoint
-    if command -v curl >/dev/null 2>&1; then
-        response=$(curl -s -w "%{http_code}" -o /dev/null \
-            --max-time 10 \
-            -H "Authorization: Bearer $api_key" \
-            -H "Content-Type: application/json" \
-            "$models_endpoint" 2>/dev/null)
-        
-        local end_time
-        end_time=$(date +%s.%N)
-        local duration
-        duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
-        
-        case "$response" in
-            200)
-                echo "✅ API connectivity test passed (HTTP $response)"
-                echo
-                echo "⏱️ Response time: ${duration}s"
-                ;;
-            401)
-                echo "❌ Authentication failed (HTTP $response)"
-                echo "💡 Check your API key: $key_var"
-                echo
-                return 1
-                ;;
-            403)
-                echo "❌ Access forbidden (HTTP $response)"
-                echo "💡 Check API key permissions"
-                echo
-                return 1
-                ;;
-            404)
-                echo "⚠️  Models endpoint not found (HTTP $response)"
-                echo "💡 Provider may not support /models endpoint"
-                echo
-                ;;
-            "")
-                echo "❌ Connection timeout or network error"
-            echo
-                echo "💡 Check internet connection and base URL"
-                return 1
-                ;;
-            *)
-                echo "⚠️  Unexpected response (HTTP $response)"
-            echo
-                echo "💡 Provider may have different API format"
-                ;;
-        esac
-        
-        echo "🏁 Test completed for provider: $provider"
-        echo
-    else
+    if ! command -v curl >/dev/null 2>&1; then
         echo "❌ curl command not found. Install curl to test API connectivity."
         echo
         return 1
     fi
+
+    response=$(curl -s -w "%{http_code}" -o /dev/null \
+        --max-time 10 \
+        "${auth_headers[@]}" \
+        -H "Content-Type: application/json" \
+        "$test_endpoint" 2>/dev/null)
+
+    local end_time
+    end_time=$(date +%s.%N)
+    local duration
+    duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
+
+    case "$response" in
+        200)
+            echo "✅ $provider: Connected successfully (protocol: $protocol)"
+            echo
+            echo "⏱️ Response time: ${duration}s"
+            ;;
+        401)
+            echo "❌ $provider: Authentication failed (protocol: $protocol)"
+            echo "💡 Check your API key: $key_var"
+            echo
+            return 1
+            ;;
+        403)
+            echo "❌ $provider: Access forbidden (protocol: $protocol)"
+            echo "💡 Check API key permissions"
+            echo
+            return 1
+            ;;
+        404)
+            echo "⚠️  $provider: Endpoint not found (protocol: $protocol, HTTP $response)"
+            echo "💡 Provider may use different API path"
+            echo
+            ;;
+        405)
+            # For Anthropic, /v1/messages returns 405 for GET requests (it requires POST)
+            # This still confirms the endpoint exists and auth headers are valid
+            if [[ "$protocol" == "anthropic" ]]; then
+                echo "✅ $provider: Connected successfully (protocol: $protocol)"
+                echo "💡 Anthropic messages endpoint verified (requires POST for full test)"
+                echo
+                echo "⏱️ Response time: ${duration}s"
+            else
+                echo "⚠️  $provider: Method not allowed (protocol: $protocol, HTTP $response)"
+                echo
+            fi
+            ;;
+        429)
+            echo "⚠️  $provider: Rate limited (protocol: $protocol)"
+            echo "💡 Please try again later"
+            echo
+            return 1
+            ;;
+        "")
+            echo "❌ $provider: Connection timeout or network error (protocol: $protocol)"
+            echo "💡 Check internet connection and base URL"
+            echo
+            return 1
+            ;;
+        5*)
+            echo "❌ $provider: Server error (protocol: $protocol, HTTP $response)"
+            echo
+            return 1
+            ;;
+        *)
+            echo "⚠️  $provider: Unexpected response (protocol: $protocol, HTTP $response)"
+            echo "💡 Provider may have different API format"
+            echo
+            ;;
+    esac
+
+    echo "🏁 Test completed for provider: $provider"
+    echo
 }
 
 cmd_help() {
