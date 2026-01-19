@@ -119,6 +119,7 @@ teardown() {
 }
 
 @test "cmd_show: indicates when no provider is set" {
+    unset LLM_PROVIDER
     run cmd_show
     [ "$status" -eq 0 ]
     [[ "$output" =~ "LLM_PROVIDER" ]] && [[ "$output" =~ "∅" ]]
