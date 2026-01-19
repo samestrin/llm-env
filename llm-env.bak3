@@ -1,0 +1,1719 @@
+#!/usr/bin/env bash
+# llm-env - LLM Environment Manager
+# Usage:
+#   source ./llm-env set <provider>
+#   source ./llm-env unset
+#   source ./llm-env list
+#   source ./llm-env show
+#   source ./llm-env config <command>
+
+# Version information
+VERSION="1.1.4"
+
+# ---------- Shell Detection and Version ----------
+
+# Detect which shell we're running in
+detect_shell() {
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        CURRENT_SHELL="zsh"
+        SHELL_VERSION="${ZSH_VERSION}"
+        # Enable bash compatibility for regex matching (BASH_REMATCH array)
+        setopt BASH_REMATCH 2>/dev/null || true
+    elif [[ -n "${BASH_VERSION:-}" ]]; then
+        CURRENT_SHELL="bash"
+        SHELL_VERSION="${BASH_VERSION}"
+    else
+        CURRENT_SHELL="unknown"
+        SHELL_VERSION="0.0"
+    fi
+    export CURRENT_SHELL SHELL_VERSION
+}
+
+# Parse shell version for compatibility features
+parse_bash_version() {
+    local version major minor
+
+    # Detect shell first
+    detect_shell
+
+    # Zsh has native associative array support
+    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        # Zsh has full associative array support
+        BASH_ASSOC_ARRAY_SUPPORT=true
+        BASH_DECLARE_GLOBAL_SUPPORT=true
+        # Parse zsh version
+        version="${ZSH_VERSION:-5.0}"
+        if [[ "${version}" =~ ^([0-9]+)\.([0-9]+) ]]; then
+            # With BASH_REMATCH option and 1-indexed arrays: [2] is first capture, [3] is second
+            major="${BASH_REMATCH[2]}"
+            minor="${BASH_REMATCH[3]}"
+        else
+            major=5
+            minor=0
+        fi
+        export BASH_MAJOR_VERSION=${major}
+        export BASH_MINOR_VERSION=${minor}
+        export BASH_ASSOC_ARRAY_SUPPORT
+        export BASH_DECLARE_GLOBAL_SUPPORT
+        debug "Zsh version: ${major}.${minor}, associative array support: ${BASH_ASSOC_ARRAY_SUPPORT}"
+        return
+    fi
+
+    # Bash version detection
+    version="${BASH_VERSION:-4.0.0}"
+
+    # Extract major and minor version numbers
+    if [[ "${version}" =~ ^([0-9]+)\.([0-9]+) ]]; then
+        major="${BASH_REMATCH[1]}"
+        minor="${BASH_REMATCH[2]}"
+    else
+        # Fallback to conservative defaults if parsing fails
+        major=3
+        minor=2
+    fi
+
+    # Set global compatibility flags
+    if [[ ${major} -gt 4 || (${major} -eq 4 && ${minor} -ge 0) ]]; then
+        BASH_ASSOC_ARRAY_SUPPORT=true
+    else
+        BASH_ASSOC_ARRAY_SUPPORT=false
+    fi
+
+    # Check for declare -g support (Bash 4.2+)
+    if [[ ${major} -gt 4 || (${major} -eq 4 && ${minor} -ge 2) ]]; then
+        BASH_DECLARE_GLOBAL_SUPPORT=true
+    else
+        BASH_DECLARE_GLOBAL_SUPPORT=false
+    fi
+
+    export BASH_MAJOR_VERSION=${major}
+    export BASH_MINOR_VERSION=${minor}
+    export BASH_ASSOC_ARRAY_SUPPORT
+    export BASH_DECLARE_GLOBAL_SUPPORT
+
+    debug "Bash version: ${major}.${minor}, associative array support: ${BASH_ASSOC_ARRAY_SUPPORT}, declare -g support: ${BASH_DECLARE_GLOBAL_SUPPORT}"
+}
+
+# Debug function (needed early for version detection)
+debug() {
+    if [[ "${LLM_ENV_DEBUG:-0}" == "1" ]]; then
+        echo "[DEBUG] $*" >&2
+    fi
+}
+
+# Get script directory with bash 3.2 and zsh compatibility
+get_script_dir() {
+    local script_dir
+
+    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        # In zsh, use funcsourcetrace or fallback to command -v
+        if [[ -n "${funcsourcetrace[1]:-}" ]]; then
+            script_dir="$(dirname "${funcsourcetrace[1]%:*}")"
+        else
+            script_dir="$(dirname "$(command -v llm-env 2>/dev/null || echo ".")")"
+        fi
+    elif [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+        script_dir="$(dirname "${BASH_SOURCE[0]}")"
+    else
+        # Fallback: assume script is in current directory or PATH
+        script_dir="$(dirname "$(command -v llm-env 2>/dev/null || echo ".")")"
+    fi
+    echo "$script_dir"
+}
+
+# Initialize bash version detection
+parse_bash_version
+
+# Helper function to get regex match at index (works in both bash and zsh)
+# Usage: result=$(get_match 1) to get first capture group
+# In bash: BASH_REMATCH is 0-indexed, so capture group 1 is at index 1
+# In zsh with BASH_REMATCH option: array is 1-indexed, so capture group 1 is at index 2
+get_match() {
+    local index="$1"
+    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        # Zsh arrays are 1-indexed, so add 1 to get equivalent position
+        echo "${BASH_REMATCH[$((index + 1))]}"
+    else
+        echo "${BASH_REMATCH[$index]}"
+    fi
+}
+
+# Helper function for indirect variable expansion (works in both bash and zsh)
+# Usage: result=$(get_var_value "SOME_VAR_NAME")
+get_var_value() {
+    local var_name="$1"
+    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+        # shellcheck disable=SC2296 # zsh-specific indirect expansion syntax
+        echo "${(P)var_name}"
+    else
+        echo "${!var_name}"
+    fi
+}
+
+# Configuration state variables
+CONFIG_SOURCE=""  # none, user, system, builtin
+CONFIG_LOADED=false
+
+# Bash compatibility functions for older bash versions (< 4.0)
+# Provides associative array functionality using parallel indexed arrays
+# Each "associative array" is represented by:
+# - {name}_KEYS: indexed array of keys
+# - {name}_VALUES: indexed array of values (parallel to keys)
+
+if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
+    # Set a key-value pair in a compatibility associative array
+    compat_assoc_set() {
+        local array_name="$1"
+        local key="$2"
+        local value="$3"
+
+        if [[ -z "$array_name" || -z "$key" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+        local values_array="${array_name}_VALUES"
+
+        # Initialize arrays if they don't exist (but don't overwrite existing ones)
+        if ! declare -p "$keys_array" >/dev/null 2>&1; then
+            eval "${keys_array}=()"
+        fi
+        if ! declare -p "$values_array" >/dev/null 2>&1; then
+            eval "${values_array}=()"
+        fi
+
+        # Get current arrays
+        local -a keys
+        local -a values
+        eval "keys=(\"\${${keys_array}[@]}\")" 2>/dev/null || keys=()
+        eval "values=(\"\${${values_array}[@]}\")" 2>/dev/null || values=()
+
+        # Look for existing key
+        local i
+        for ((i=0; i<${#keys[@]}; i++)); do
+            if [[ "${keys[i]}" == "$key" ]]; then
+                # Update existing key
+                values[i]="$value"
+                # Use printf to avoid word splitting issues
+                eval "${keys_array}=($(printf '%q ' "${keys[@]}"))"
+                eval "${values_array}=($(printf '%q ' "${values[@]}"))"
+                return 0
+            fi
+        done
+
+        # Add new key-value pair
+        keys+=("$key")
+        values+=("$value")
+        eval "${keys_array}=($(printf '%q ' "${keys[@]}"))"
+        eval "${values_array}=($(printf '%q ' "${values[@]}"))"
+    }
+
+    # Get a value from a compatibility associative array
+    compat_assoc_get() {
+        local array_name="$1"
+        local key="$2"
+
+        if [[ -z "$array_name" || -z "$key" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+        local values_array="${array_name}_VALUES"
+
+        # Get current arrays
+        local -a keys
+        local -a values
+        eval "keys=(\"\${${keys_array}[@]}\")" 2>/dev/null || keys=()
+        eval "values=(\"\${${values_array}[@]}\")" 2>/dev/null || values=()
+
+        # Look for key
+        local i
+        for ((i=0; i<${#keys[@]}; i++)); do
+            if [[ "${keys[i]}" == "$key" ]]; then
+                echo "${values[i]}"
+                return 0
+            fi
+        done
+
+        # Key not found - return 0 (success) with empty output
+        # Caller should check for empty string if needed
+        return 0
+    }
+
+    # Get all keys from a compatibility associative array
+    compat_assoc_keys() {
+        local array_name="$1"
+
+        if [[ -z "$array_name" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+
+        # Get and output keys
+        eval "local -a keys=(\"\${${keys_array}[@]}\")"
+        printf '%s\n' "${keys[@]}"
+    }
+
+    # Check if a key exists in a compatibility associative array
+    compat_assoc_has_key() {
+        local array_name="$1"
+        local key="$2"
+
+        if [[ -z "$array_name" || -z "$key" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+
+        # Get current keys
+        local -a keys
+        eval "keys=(\"\${${keys_array}[@]}\")"
+
+        # Look for key
+        local i
+        for ((i=0; i<${#keys[@]}; i++)); do
+            if [[ "${keys[i]}" == "$key" ]]; then
+                return 0
+            fi
+        done
+
+        return 1
+    }
+
+    # Get the number of key-value pairs in a compatibility associative array
+    compat_assoc_size() {
+        local array_name="$1"
+
+        if [[ -z "$array_name" ]]; then
+            return 1
+        fi
+
+        local keys_array="${array_name}_KEYS"
+
+        # Get keys and count them
+        eval "local -a keys=(\"\${${keys_array}[@]}\")"
+        echo "${#keys[@]}"
+    }
+fi
+
+# ---------- Configuration Loading ----------
+
+# Helper function to get user config path
+get_user_config_path() {
+    echo "${XDG_CONFIG_HOME:-${HOME}/.config}/llm-env/config.conf"
+}
+
+# Function to get configuration file locations (in order of precedence)
+get_config_locations() {
+    local locations=(
+        "$(get_user_config_path)"
+        "/usr/local/etc/llm-env/config.conf"
+        "$(get_script_dir)/config/llm-env.conf"
+    )
+    printf '%s\n' "${locations[@]}"
+}
+
+# Global arrays for configuration (conditional based on bash version)
+if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
+    # Use native associative arrays for bash 4.0+ (only declare if not already declared)
+    if ! declare -p PROVIDER_BASE_URLS >/dev/null 2>&1; then
+        declare -A PROVIDER_BASE_URLS
+    fi
+    if ! declare -p PROVIDER_API_KEY_VARS >/dev/null 2>&1; then
+        declare -A PROVIDER_API_KEY_VARS
+    fi
+    if ! declare -p PROVIDER_DEFAULT_MODELS >/dev/null 2>&1; then
+        declare -A PROVIDER_DEFAULT_MODELS
+    fi
+    if ! declare -p PROVIDER_DESCRIPTIONS >/dev/null 2>&1; then
+        declare -A PROVIDER_DESCRIPTIONS
+    fi
+    if ! declare -p PROVIDER_ENABLED >/dev/null 2>&1; then
+        declare -A PROVIDER_ENABLED
+    fi
+    if ! declare -p PROVIDER_PROTOCOLS >/dev/null 2>&1; then
+        declare -A PROVIDER_PROTOCOLS
+    fi
+else
+    # Initialize compatibility arrays for bash <4.0
+    # These are managed by the compatibility functions
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_BASE_URLS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_BASE_URLS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_API_KEY_VARS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_API_KEY_VARS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_DEFAULT_MODELS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_DEFAULT_MODELS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_DESCRIPTIONS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_DESCRIPTIONS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_ENABLED_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_ENABLED_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_PROTOCOLS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_PROTOCOLS_VALUES=()
+fi
+declare -a AVAILABLE_PROVIDERS
+
+# ---------- Array Access Wrappers ----------
+
+# Wrapper functions to provide consistent API for both native and compatibility arrays
+
+# Set a value in a provider array
+set_provider_value() {
+    local array_name="$1"
+    local key="$2"
+    local value="$3"
+
+    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
+        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+            # Zsh associative array assignment
+            eval "${array_name}[${key}]='${value}'"
+        else
+            # Bash associative array assignment
+            eval "${array_name}[\"${key}\"]='${value}'"
+        fi
+    else
+        compat_assoc_set "${array_name}" "${key}" "${value}"
+    fi
+}
+
+# Get a value from a provider array
+get_provider_value() {
+    local array_name="$1"
+    local key="$2"
+
+    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
+        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+            # Zsh associative array access
+            eval "echo \"\${${array_name}[${key}]}\""
+        else
+            # Bash associative array access
+            eval "echo \"\${${array_name}[\"${key}\"]}\""
+        fi
+    else
+        compat_assoc_get "${array_name}" "${key}"
+    fi
+}
+
+# Get all keys from a provider array
+get_provider_keys() {
+    local array_name="$1"
+
+    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
+        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+            # Zsh uses ${(k)array} for keys
+            eval "printf '%s\n' \"\${(@k)${array_name}}\""
+        else
+            # Bash uses ${!array[@]} for keys
+            eval "local -a keys=(\"\${!${array_name}[@]}\")"
+            printf '%s\n' "${keys[@]}"
+        fi
+    else
+        compat_assoc_keys "${array_name}"
+    fi
+}
+
+# Check if a key exists in a provider array
+has_provider_key() {
+    local array_name="$1"
+    local key="$2"
+
+    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
+        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+            # Zsh uses (k) to check keys
+            eval "[[ -n \"\${${array_name}[(I)${key}]}\" ]]"
+        else
+            # Bash uses ${var+set} to check if key exists
+            eval "[[ -n \"\${${array_name}[\"${key}\"]+set}\" ]]"
+        fi
+    else
+        compat_assoc_has_key "${array_name}" "${key}"
+    fi
+}
+
+# Load configuration from file
+load_config() {
+    local config_file="$1"
+    debug "Attempting to load config from: $config_file"
+    [[ ! -f "$config_file" ]] && { debug "Config file not found: $config_file"; return 1; }
+    
+    debug "Loading configuration from: $config_file"
+    local current_provider=""
+    local line_num=0
+    
+    # Read file content and process line by line to avoid subshell issues
+    local file_content
+    file_content="$(cat "$config_file")"
+    
+    # Regex patterns stored in variables for cross-shell compatibility
+    local comment_pattern="^[[:space:]]*#"
+    local empty_pattern="^[[:space:]]*$"
+    local section_pattern="^\[([^]]+)\]$"
+    local keyval_pattern="^([^=]+)=(.*)$"
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ((line_num++))
+
+        # Skip comments and empty lines
+        [[ "$line" =~ $comment_pattern ]] && continue
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_AUTH_TOKENS=()
+        [[ "$line" =~ $empty_pattern ]] && continue
+
+        # Provider section header
+        if [[ "$line" =~ $section_pattern ]]; then
+            current_provider="$(get_match 1)"
+            debug "Found provider section: $current_provider"
+            continue
+        fi
+
+        # Skip if no current provider
+        [[ -z "$current_provider" ]] && continue
+
+        # Parse key=value pairs
+        if [[ "$line" =~ $keyval_pattern ]]; then
+            local key
+            local value
+            key="$(get_match 1)"
+            value="$(get_match 2)"
+            
+            # Trim whitespace
+            key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            
+            debug "Setting $current_provider.$key = $value"
+
+            case "$key" in
+                base_url)
+                    set_provider_value "PROVIDER_BASE_URLS" "$current_provider" "$value"
+                    debug "PROVIDER_BASE_URLS[$current_provider] = $(get_provider_value "PROVIDER_BASE_URLS" "$current_provider")"
+                    ;;
+                api_key_var)
+                    set_provider_value "PROVIDER_API_KEY_VARS" "$current_provider" "$value"
+                    ;;
+                auth_token_var)
+                    set_provider_value "PROVIDER_AUTH_TOKENS" "$current_provider" "$value"
+                    ;;
+                default_model)
+                    set_provider_value "PROVIDER_DEFAULT_MODELS" "$current_provider" "$value"
+                    ;;
+                description)
+                    set_provider_value "PROVIDER_DESCRIPTIONS" "$current_provider" "$value"
+                    ;;
+                enabled)
+                    set_provider_value "PROVIDER_ENABLED" "$current_provider" "$value"
+                    ;;
+                protocol)
+                    # Normalize protocol to lowercase and trim whitespace using helper function
+                    local normalized_protocol
+                    normalized_protocol="$(normalize_protocol "$value")"
+                    # Validate against whitelist and warn if invalid
+                    local validated_protocol
+                    validated_protocol="$(validate_protocol "$current_provider" "$normalized_protocol")"
+                    set_provider_value "PROVIDER_PROTOCOLS" "$current_provider" "$validated_protocol"
+                    debug "PROVIDER_PROTOCOLS[$current_provider] = $validated_protocol"
+                    ;;
+            esac
+        fi
+    done <<< "$file_content"
+
+    # Set default protocol for providers that don't have one explicitly set
+    # Only applies to enabled providers
+    apply_default_protocols
+
+    return 0
+}
+
+# Initialize configuration
+init_config() {
+    debug "Initializing configuration"
+    
+    # Clear existing configuration
+    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
+        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
+        if [[ "${BASH_DECLARE_GLOBAL_SUPPORT}" == "true" ]]; then
+            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
+        else
+            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS
+        fi
+    else
+        unset AVAILABLE_PROVIDERS
+        AVAILABLE_PROVIDERS=()
+    fi
+    
+    local config_loaded=false
+    
+    # Try to load configuration files in order of precedence
+    while IFS= read -r config_file; do
+        if load_config "$config_file"; then
+            debug "Successfully loaded config from: $config_file"
+            config_loaded=true
+            # Set configuration source based on file location
+            if [[ "$config_file" == "$(get_user_config_path)" ]]; then
+                CONFIG_SOURCE="user"
+            elif [[ "$config_file" == "/usr/local/etc/llm-env/config.conf" ]]; then
+                CONFIG_SOURCE="system"
+            else
+                CONFIG_SOURCE="builtin"
+            fi
+            break
+        fi
+    done < <(get_config_locations)
+    
+    if ! $config_loaded; then
+        debug "No configuration file found, checking built-in fallback"
+        # Check if built-in config file exists
+        local builtin_config
+        builtin_config="$(get_script_dir)/config/llm-env.conf"
+        if [[ -f "$builtin_config" ]]; then
+            echo "⚠️  No configuration file found. Using built-in defaults."
+        echo "   Create $(get_user_config_path) for custom configuration."
+        echo
+            load_builtin_config
+            CONFIG_SOURCE="builtin"
+            config_loaded=true
+        else
+            CONFIG_SOURCE="none"
+            config_loaded=false
+        fi
+    fi
+    
+    CONFIG_LOADED=$config_loaded
+    
+    # Build list of available providers
+    debug "Building available providers list"
+    debug "PROVIDER_BASE_URLS keys: $(get_provider_keys "PROVIDER_BASE_URLS" | tr '\n' ' ')"
+    AVAILABLE_PROVIDERS=()
+    # Get all provider keys using wrapper function
+    local -a provider_keys
+    while IFS= read -r key; do
+        [[ -n "$key" ]] && provider_keys+=("$key")
+    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+    
+    # Declare loop variables outside the loop for zsh compatibility
+    local provider_enabled has_base_url has_api_key_var has_model
+    for provider in "${provider_keys[@]}"; do
+        provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+        debug "Checking provider: $provider, enabled: ${provider_enabled:-true}"
+
+        # Check if provider has all required fields
+        has_base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+        has_api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+        has_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
+
+        if [[ -z "$has_base_url" || -z "$has_api_key_var" || -z "$has_model" ]]; then
+            debug "Skipping incomplete provider $provider: base_url='$has_base_url', api_key_var='$has_api_key_var', model='$has_model'"
+            continue
+        fi
+
+        # Only include enabled providers that have all required fields
+        if [[ "${provider_enabled:-true}" == "true" ]]; then
+            AVAILABLE_PROVIDERS+=("$provider")
+            debug "Added $provider to AVAILABLE_PROVIDERS"
+        fi
+    done
+    debug "Final AVAILABLE_PROVIDERS: ${AVAILABLE_PROVIDERS[*]}"
+    
+    # Sort providers alphabetically (bash 3.2 compatible - no mapfile)
+    local sorted_providers
+    sorted_providers=$(printf '%s\n' "${AVAILABLE_PROVIDERS[@]}" | sort)
+    AVAILABLE_PROVIDERS=()
+    while IFS= read -r provider; do
+        [[ -n "$provider" ]] && AVAILABLE_PROVIDERS+=("$provider")
+    done <<< "$sorted_providers"
+
+    return 0
+}
+
+# Fallback built-in configuration
+load_builtin_config() {
+    # Core providers
+    set_provider_value "PROVIDER_BASE_URLS" "cerebras" "https://api.cerebras.ai/v1"
+    set_provider_value "PROVIDER_API_KEY_VARS" "cerebras" "LLM_CEREBRAS_API_KEY"
+    set_provider_value "PROVIDER_DEFAULT_MODELS" "cerebras" "qwen-3-coder-480b"
+    set_provider_value "PROVIDER_DESCRIPTIONS" "cerebras" "Fast inference, great for coding"
+    set_provider_value "PROVIDER_ENABLED" "cerebras" "true"
+    
+    set_provider_value "PROVIDER_BASE_URLS" "openai" "https://api.openai.com/v1"
+    set_provider_value "PROVIDER_API_KEY_VARS" "openai" "LLM_OPENAI_API_KEY"
+    set_provider_value "PROVIDER_DEFAULT_MODELS" "openai" "gpt-5-2025-08-07"
+    set_provider_value "PROVIDER_DESCRIPTIONS" "openai" "Industry standard, highest quality"
+    set_provider_value "PROVIDER_ENABLED" "openai" "true"
+    
+    set_provider_value "PROVIDER_BASE_URLS" "groq" "https://api.groq.com/openai/v1"
+    set_provider_value "PROVIDER_API_KEY_VARS" "groq" "LLM_GROQ_API_KEY"
+    set_provider_value "PROVIDER_DEFAULT_MODELS" "groq" "openai/gpt-oss-120b"
+    set_provider_value "PROVIDER_DESCRIPTIONS" "groq" "Lightning-fast inference"
+    set_provider_value "PROVIDER_ENABLED" "groq" "true"
+    
+    set_provider_value "PROVIDER_BASE_URLS" "openrouter" "https://openrouter.ai/api/v1"
+    set_provider_value "PROVIDER_API_KEY_VARS" "openrouter" "LLM_OPENROUTER_API_KEY"
+    set_provider_value "PROVIDER_DEFAULT_MODELS" "openrouter" "deepseek/deepseek-chat-v3.1:free"
+    set_provider_value "PROVIDER_DESCRIPTIONS" "openrouter" "Free tier option"
+    set_provider_value "PROVIDER_ENABLED" "openrouter" "true"
+}
+
+# ---------- Helper Functions ----------
+
+# Normalize protocol value: trim whitespace and convert to lowercase
+# Returns empty string for empty/whitespace-only input
+normalize_protocol() {
+    local value="$1"
+
+    # Return empty for empty string
+    [[ -z "$value" && -n "${value+x}" ]] && { echo ""; return 0; }
+
+    # Trim whitespace and convert to lowercase using bash 3.2 compatible approach
+    # Using parameter expansion for trimming (available in bash 3.2)
+    local trimmed="${value##[[:space:]]*}"  # Remove leading whitespace
+    trimmed="${trimmed%%[[:space:]]*}"     # Remove trailing whitespace
+
+    # Return empty for whitespace-only input
+    [[ -z "$trimmed" ]] && { echo ""; return 0; }
+
+    # Convert to lowercase - use tr as it's bash 3.2 compatible
+    # Note: This spawns a subprocess but is unavoidable in bash 3.2
+    echo "$trimmed" | tr '[:upper:]' '[:lower:]'
+}
+
+# Validate protocol value against whitelist and warn if invalid
+# Returns sanitized protocol (whitelist or default)
+validate_protocol() {
+    local provider="$1"
+    local protocol="$2"
+
+    # Valid protocols whitelist
+    local valid_openai="openai"
+    local valid_anthropic="anthropic"
+
+    # If protocol is empty after normalization, it will be defaulted later
+    [[ -z "$protocol" ]] && { echo ""; return 0; }
+
+    # Check if valid
+    if [[ "$protocol" == "$valid_openai" ]] || [[ "$protocol" == "$valid_anthropic" ]]; then
+        echo "$protocol"
+        return 0
+    fi
+
+    # Invalid protocol - emit warning and return empty (will be defaulted to openai)
+    echo "⚠️  Warning: Invalid protocol '$protocol' for provider '$provider'. Valid values: openai, anthropic. Defaulting to 'openai'." >&2
+    echo ""
+    return 0
+}
+
+# Set default protocol for providers that don't have one explicitly set
+# Only applies to enabled providers to avoid unnecessary work
+apply_default_protocols() {
+    local provider
+    local existing_protocol
+    local provider_enabled
+
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+
+        # Check if provider has a protocol set
+        existing_protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider" 2>/dev/null || echo "")"
+
+        # Only set default if protocol is empty and provider is enabled
+        # Check if provider is enabled (defaults to true if not set)
+        if [[ -z "$existing_protocol" ]]; then
+            provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider" 2>/dev/null || echo "true")"
+
+            # Only set default for enabled providers
+            if [[ "$provider_enabled" == "true" ]]; then
+                set_provider_value "PROVIDER_PROTOCOLS" "$provider" "openai"
+                debug "PROVIDER_PROTOCOLS[$provider] defaulted to 'openai'"
+            else
+                debug "PROVIDER_PROTOCOLS[$provider] not defaulted (provider disabled)"
+            fi
+        fi
+    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+}
+
+mask() {
+    local input="$1"
+    [[ -z "$input" ]] && { echo "∅"; return; }
+    [[ ${#input} -le 2 ]] && { echo "$input"; return; }
+
+    # For strings of 3-4 characters, mask first character only
+    if [[ ${#input} -le 4 ]]; then
+        echo "•${input:1}"
+        return
+    fi
+
+    # For strings > 4 characters, mask all but last 4 characters
+    local masked=""
+    local i
+    for ((i=0; i<${#input}-4; i++)); do
+        masked+="•"
+    done
+    masked+="${input: -4}"
+    echo "$masked"
+}
+
+host_from_url() {
+    awk -F/ '{print $3}' <<<"$1"
+}
+
+# Validate provider name format
+validate_provider_name() {
+    local name="$1"
+    local valid_name_pattern="^[a-zA-Z0-9_-]+$"
+    if [[ ! "$name" =~ $valid_name_pattern ]]; then
+        echo "Error: Invalid provider name '$name'. Only letters, numbers, underscores, and hyphens are allowed." >&2
+        return 1
+    fi
+    return 0
+}
+
+# Sanitize configuration values to prevent injection
+sanitize_config_value() {
+    local value="$1"
+    # Remove potential command substitution and other dangerous patterns
+    value="${value//\$(/}"
+    value="${value//\`/}"
+    value="${value//\$/}"
+    value="${value//;/}"
+    value="${value//&/}"
+    value="${value//|/}"
+    echo "$value"
+}
+
+# Validate provider exists and is enabled
+validate_provider() {
+    local provider="$1"
+    debug "Validating provider: $provider"
+    
+    # Check if provider exists
+    if ! has_provider_key "PROVIDER_BASE_URLS" "$provider"; then
+        debug "Provider not found: $provider"
+        return 1
+    fi
+    
+    # Check if provider is enabled
+    local provider_enabled
+    provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+    if [[ "${provider_enabled:-true}" != "true" ]]; then
+        debug "Provider disabled: $provider"
+        return 2
+    fi
+    
+    debug "Provider validation successful: $provider"
+    return 0
+}
+
+# ---------- Commands ----------
+
+cmd_set() {
+    local provider="$1"
+    if [[ -z "$provider" ]]; then
+        echo "Usage: source llm-env set <provider>"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        echo
+        return 1
+    fi
+    
+    # Validate provider name format
+    if ! validate_provider_name "$provider"; then
+        return 1
+    fi
+    
+    # Validate provider
+    if ! validate_provider "$provider"; then
+        case $? in
+            1) echo "❌ Unknown provider: $provider" ;;
+            2) echo "❌ Provider disabled: $provider" ;;
+        esac
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        echo
+        return 1
+    fi
+    
+    local key_var model base key
+    key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+    base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+    model="${OPENAI_MODEL_OVERRIDE:-$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")}"
+    if [[ -n "$key_var" ]]; then
+        key="$(get_var_value "$key_var")"
+    else
+        key=""
+    fi
+    
+    debug "Resolving environment for provider $provider:"
+    debug "  key_var=$key_var"
+    debug "  base=$base"
+    debug "  model=$model"
+    debug "  key_set=$([ -n "$key" ] && echo "yes" || echo "no")"
+    
+    if [[ -z "$key_var" ]]; then
+        echo "❌ Invalid provider configuration: missing API key variable for $provider"
+        echo
+        return 1
+    elif [[ -z "$key" ]]; then
+        echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
+        echo
+        return 1
+    fi
+    
+    if [[ -z "$base" || -z "$model" ]]; then
+        echo "❌ Missing base URL or model for $provider"
+        echo
+        return 1
+    fi
+    
+    export OPENAI_API_KEY="$key"
+    export OPENAI_BASE_URL="$base"
+    export OPENAI_MODEL="$model"
+    export LLM_PROVIDER="$provider"
+    
+    local host
+    host=$(host_from_url "$OPENAI_BASE_URL")
+    echo "✅ Set: provider=$LLM_PROVIDER host=$host model=$OPENAI_MODEL key=$(mask "$OPENAI_API_KEY")"
+    echo
+}
+
+cmd_unset() {
+    local prev_p="$LLM_PROVIDER"
+    local prev_host
+    prev_host=$(host_from_url "${OPENAI_BASE_URL:-}")
+    local prev_model="$OPENAI_MODEL"
+    
+    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL LLM_PROVIDER
+    echo "🗑️ Unset OpenAI-compatible envs (was: provider=${prev_p:-∅} host=${prev_host:-∅} model=${prev_model:-∅})"
+    echo
+}
+
+cmd_list() {
+    local show_all=false
+    [[ "$1" == "--all" ]] && show_all=true
+    
+    # Reload configuration to ensure we have the latest providers
+    init_config
+    
+    echo "Available providers:"
+    echo
+    
+    local providers_to_show=()
+    if $show_all; then
+        # Show all providers (enabled and disabled)
+        while IFS= read -r provider; do
+            [[ -n "$provider" ]] && providers_to_show+=("$provider")
+        done < <(get_provider_keys "PROVIDER_BASE_URLS")
+    else
+        # Show only enabled providers
+        providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
+    fi
+    
+    # Declare loop variables outside the loop for zsh compatibility
+    local mark base model key_var have_key description enabled_status provider_enabled
+    for provider in "${providers_to_show[@]}"; do
+        mark=" "
+        [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
+
+        base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+        model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
+        key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+        description="$(get_provider_value "PROVIDER_DESCRIPTIONS" "$provider")"
+        if [[ -n "$key_var" ]] && [[ -n "$(get_var_value "$key_var")" ]]; then
+            have_key="yes"
+        else
+            have_key="no"
+        fi
+
+        # Show disabled status if showing all providers
+        enabled_status=""
+        provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+        if $show_all && [[ "${provider_enabled:-true}" != "true" ]]; then
+            enabled_status=" (disabled)"
+        fi
+
+        printf " %s %-12s  %-30s  %-24s  key:%-3s  %s%s\n" \
+            "$mark" "$provider" "$base" "$model" "$have_key" "$description" "$enabled_status"
+    done
+    [[ -n "$LLM_PROVIDER" ]] && echo; echo "* current provider"
+    echo
+    return 0  # Explicit success return
+}
+
+cmd_show() {
+    echo "Current environment:"
+    echo "  LLM_PROVIDER     = ${LLM_PROVIDER:-∅}"
+    echo "  OPENAI_BASE_URL  = ${OPENAI_BASE_URL:-∅}"
+    echo "  OPENAI_MODEL     = ${OPENAI_MODEL:-∅}"
+    echo "  OPENAI_API_KEY   = $(mask "${OPENAI_API_KEY:-}")"
+    
+    # Show configuration source
+    while IFS= read -r config_file; do
+        if [[ -f "$config_file" ]]; then
+            echo "  Config file      = $config_file"
+            break
+        fi
+    done < <(get_config_locations)
+    echo
+}
+
+cmd_config() {
+    local subcmd="$1"
+    shift
+    
+    case "$subcmd" in
+        init)
+            cmd_config_init "$@"
+            ;;
+        edit)
+            cmd_config_edit "$@"
+            ;;
+        add)
+            cmd_config_add "$@"
+            ;;
+        remove)
+            cmd_config_remove "$@"
+            ;;
+        validate)
+            cmd_config_validate "$@"
+            ;;
+        backup)
+            cmd_config_backup "$@"
+            ;;
+        restore)
+            cmd_config_restore "$@"
+            ;;
+        bulk)
+            cmd_config_bulk "$@"
+            ;;
+        *)
+            echo "Usage: source llm-env config {init|edit|add|remove|validate|backup|restore|bulk}"
+            echo "  init              Create user configuration file"
+            echo "  edit              Edit user configuration file"
+            echo "  add <provider>    Add a new provider interactively"
+            echo "  remove <provider> Remove a provider"
+            echo "  validate          Validate configuration file"
+            echo "  backup            Create a backup of configuration"
+            echo "  restore <file>    Restore configuration from backup"
+            echo "  bulk <action> <providers...>  Perform bulk operations (enable|disable)"
+            ;;
+    esac
+}
+
+cmd_config_init() {
+    local user_config
+    user_config="$(get_user_config_path)"
+
+    if [[ -f "$user_config" ]]; then
+        echo "⚠️  Configuration file already exists: $user_config"
+        read -p "Overwrite? (y/N): " -n 1 -r
+        echo
+        echo
+        local yes_pattern="^[Yy]$"
+        [[ ! $REPLY =~ $yes_pattern ]] && return 1
+    fi
+
+    # Create directory if it doesn't exist
+    mkdir -p "$(dirname "$user_config")"
+
+    # Try to copy from system/repo config first (excluding user config path)
+    local default_config=""
+    local script_dir_config
+    script_dir_config="$(get_script_dir)/config/llm-env.conf"
+
+    if [[ -f "/usr/local/etc/llm-env/config.conf" ]]; then
+        default_config="/usr/local/etc/llm-env/config.conf"
+    elif [[ -f "$script_dir_config" ]]; then
+        default_config="$script_dir_config"
+    fi
+
+    if [[ -n "$default_config" ]]; then
+        cp "$default_config" "$user_config"
+        echo "✅ Created user configuration: $user_config"
+        echo "💡 Edit this file to customize your providers and models"
+        echo
+    else
+        # Generate default config inline (matches installer behavior)
+        cat > "$user_config" << 'EOF'
+# LLM Environment Manager Configuration
+# This file defines available LLM providers and their settings
+
+[openai]
+base_url=https://api.openai.com/v1
+api_key_var=LLM_OPENAI_API_KEY
+default_model=gpt-5
+description=Industry standard, highest quality
+enabled=true
+
+[cerebras]
+base_url=https://api.cerebras.ai/v1
+api_key_var=LLM_CEREBRAS_API_KEY
+default_model=qwen-3-coder-480b
+description=Fast inference, great for coding
+enabled=true
+
+[groq]
+base_url=https://api.groq.com/openai/v1
+api_key_var=LLM_GROQ_API_KEY
+default_model=openai/gpt-oss-120b
+description=Lightning-fast inference
+enabled=true
+
+[openrouter]
+base_url=https://openrouter.ai/api/v1
+api_key_var=LLM_OPENROUTER_API_KEY
+default_model=deepseek/deepseek-chat-v3.1:free
+description=Free tier option
+enabled=true
+
+[xai]
+base_url=https://api.x.ai/v1
+api_key_var=LLM_XAI_API_KEY
+default_model=grok-code-fast-1
+description=xAI Grok, excellent reasoning and coding capabilities
+enabled=false
+
+[deepseek]
+base_url=https://api.deepseek.com/v1
+api_key_var=LLM_DEEPSEEK_API_KEY
+default_model=deepseek-chat
+description=DeepSeek, excellent coding and reasoning models
+enabled=false
+EOF
+        echo "✅ Created user configuration: $user_config"
+        echo "💡 Edit this file to customize your providers and models"
+        echo
+    fi
+}
+
+cmd_config_edit() {
+    local user_config
+    user_config="$(get_user_config_path)"
+    
+    if [[ ! -f "${user_config}" ]]; then
+        echo "⚠️  User configuration not found. Creating it first..."
+        echo
+        cmd_config_init || return 1
+    fi
+    
+    # Use user's preferred editor
+    local editor="${EDITOR:-${VISUAL:-nano}}"
+    "$editor" "$user_config"
+    
+    echo "💡 Run 'source llm-env config validate' to check your configuration"
+    echo
+}
+
+cmd_config_add() {
+    local provider="$1"
+    if [[ -z "$provider" ]]; then
+        echo "Usage: source llm-env config add <provider_name>"
+        return 1
+    fi
+    
+    # Validate provider name format
+    if ! validate_provider_name "$provider"; then
+        return 1
+    fi
+    
+    echo "Adding new provider: $provider"
+    echo "Please provide the following information:"
+    
+    # Set timeout for read operations
+    local TMOUT=30
+    read -r -t $TMOUT -p "Base URL: " base_url || { echo "Timeout reached"; return 1; }
+    read -r -t $TMOUT -p "API Key Environment Variable: " api_key_var || { echo "Timeout reached"; return 1; }
+    read -r -t $TMOUT -p "Default Model: " default_model || { echo "Timeout reached"; return 1; }
+    read -r -t $TMOUT -p "Description (optional): " description || { echo "Timeout reached"; return 1; }
+    
+    # Sanitize input values
+    base_url=$(sanitize_config_value "$base_url")
+    api_key_var=$(sanitize_config_value "$api_key_var")
+    default_model=$(sanitize_config_value "$default_model")
+    description=$(sanitize_config_value "$description")
+    
+    local user_config
+    user_config="$(get_user_config_path)"
+    
+    # Create user config if it doesn't exist
+    if [[ ! -f "$user_config" ]]; then
+        cmd_config_init || return 1
+    fi
+    
+    # Append new provider
+    {
+        echo ""
+        echo "[$provider]"
+        echo "base_url=$base_url"
+        echo "api_key_var=$api_key_var"
+        echo "default_model=$default_model"
+        [[ -n "$description" ]] && echo "description=$description"
+        echo "enabled=true"
+    } >> "$user_config"
+    
+    echo "✅ Added provider '$provider' to $user_config"
+    echo "💡 Don't forget to set $api_key_var in your shell profile"
+}
+
+cmd_config_remove() {
+    local provider="$1"
+    if [[ -z "$provider" ]]; then
+        echo "Usage: source llm-env config remove <provider_name>"
+        return 1
+    fi
+    
+    # Validate provider name format
+    if ! validate_provider_name "$provider"; then
+        return 1
+    fi
+    
+    local user_config
+    user_config="$(get_user_config_path)"
+    
+    if [[ ! -f "$user_config" ]]; then
+        echo "❌ User configuration not found: $user_config"
+        return 1
+    fi
+    
+    # Create backup
+    cp "$user_config" "$user_config.backup"
+    
+    # Remove provider section
+    awk -v provider="$provider" '
+        BEGIN { in_section = 0 }
+        /^\[/ { 
+            if ($0 == "[" provider "]") {
+                in_section = 1
+                next
+            } else {
+                in_section = 0
+            }
+        }
+        !in_section { print }
+    ' "$user_config.backup" > "$user_config"
+    
+    echo "✅ Removed provider '$provider' from $user_config"
+    echo "💡 Backup saved as $user_config.backup"
+}
+
+cmd_test() {
+    local provider="$1"
+    if [[ -z "$provider" ]]; then
+        echo "Usage: source llm-env test <provider>"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        return 1
+    fi
+    
+    # Validate provider name format
+    if ! validate_provider_name "$provider"; then
+        return 1
+    fi
+    
+    # Validate provider
+    if ! validate_provider "$provider"; then
+        case $? in
+            1) echo "❌ Unknown provider: $provider" ;;
+            2) echo "❌ Provider disabled: $provider" ;;
+        esac
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        return 1
+    fi
+    
+    echo "🧪 Testing provider: $provider"
+    
+    local key_var base_url api_key
+    key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+    base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+    api_key="$(get_var_value "$key_var")"
+    
+    # Check if API key is available
+    if [[ -z "$api_key" ]]; then
+        echo "❌ API key not found. Set $key_var in your environment."
+        echo
+        return 1
+    fi
+    
+    echo "✅ API key found: $(mask "$api_key")"
+    echo
+    echo "🔗 Base URL: $base_url"
+    
+    # Test API connectivity
+    local models_endpoint="${base_url}/models"
+    echo "🌐 Testing connectivity to: $models_endpoint"
+    
+    local start_time
+    start_time=$(date +%s.%N)
+    local response
+    
+    # Use curl to test API endpoint
+    if command -v curl >/dev/null 2>&1; then
+        response=$(curl -s -w "%{http_code}" -o /dev/null \
+            --max-time 10 \
+            -H "Authorization: Bearer $api_key" \
+            -H "Content-Type: application/json" \
+            "$models_endpoint" 2>/dev/null)
+        
+        local end_time
+        end_time=$(date +%s.%N)
+        local duration
+        duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
+        
+        case "$response" in
+            200)
+                echo "✅ API connectivity test passed (HTTP $response)"
+                echo
+                echo "⏱️ Response time: ${duration}s"
+                ;;
+            401)
+                echo "❌ Authentication failed (HTTP $response)"
+                echo "💡 Check your API key: $key_var"
+                echo
+                return 1
+                ;;
+            403)
+                echo "❌ Access forbidden (HTTP $response)"
+                echo "💡 Check API key permissions"
+                echo
+                return 1
+                ;;
+            404)
+                echo "⚠️  Models endpoint not found (HTTP $response)"
+                echo "💡 Provider may not support /models endpoint"
+                echo
+                ;;
+            "")
+                echo "❌ Connection timeout or network error"
+            echo
+                echo "💡 Check internet connection and base URL"
+                return 1
+                ;;
+            *)
+                echo "⚠️  Unexpected response (HTTP $response)"
+            echo
+                echo "💡 Provider may have different API format"
+                ;;
+        esac
+        
+        echo "🏁 Test completed for provider: $provider"
+        echo
+    else
+        echo "❌ curl command not found. Install curl to test API connectivity."
+        echo
+        return 1
+    fi
+}
+
+cmd_help() {
+    echo "llm-env - LLM Environment Manager v$VERSION"
+    echo
+    echo "Usage:"
+    echo "    source llm-env <command> [options]"
+    echo
+    echo "Commands:"
+    echo "    set <provider>        Set LLM provider and export environment variables"
+    echo "    unset                 Clear all LLM environment variables"
+    echo "    list                  List all available providers"
+    echo "    show                  Show current environment"
+    echo "    config <subcommand>   Manage configuration"
+    echo "    test <provider>       Test provider API connectivity"
+    echo "    --version             Show version information"
+    echo "    --help                Show this help message"
+    echo
+    echo "Configuration Sub-Commands:"
+    echo "    init                  Create user configuration file"
+    echo "    edit                  Edit user configuration file"
+    echo "    add <provider>        Add a new provider interactively"
+    echo "    remove <provider>     Remove a provider"
+    echo "    validate              Validate configuration file"
+    echo "    backup                Create a backup of configuration"
+    echo "    restore <file>        Restore configuration from backup"
+    echo "    bulk <action> <providers...>  Perform bulk operations"
+    echo
+    echo "Examples:"
+    echo "    # Set up OpenAI provider"
+    echo "    source llm-env set openai"
+    echo
+    echo "    # List all available providers"
+    echo "    source llm-env list"
+    echo
+    echo "    # Show current environment"
+    echo "    source llm-env show"
+    echo
+    echo "    # Test provider connectivity"
+    echo "    source llm-env test openai"
+    echo
+    echo "    # Create configuration file"
+    echo "    source llm-env config init"
+    echo
+    echo "    # Add a new provider"
+    echo "    source llm-env config add my_provider"
+    echo
+    echo "    # Enable debug mode"
+    echo "    LLM_ENV_DEBUG=1 source llm-env list"
+    echo
+    echo "Environment Variables:"
+    echo "    LLM_ENV_DEBUG=1       Enable debug output"
+    echo "    OPENAI_MODEL_OVERRIDE Override default model"
+    echo
+    echo "For more information, visit: https://github.com/samestrin/llm-env"
+    echo
+}
+
+cmd_config_validate() {
+    echo "🔍 Validating configuration..."
+
+    local errors=0
+    local warnings=0
+
+    # Re-initialize to test configuration loading
+    init_config
+
+    # Declare loop variables outside loop for zsh compatibility
+    local base_url api_key_var default_model enabled
+    local url_pattern="^https?://"
+
+    # Check each provider
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+        base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
+        api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+        default_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
+        enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+        enabled="${enabled:-true}"
+
+        echo "Checking provider: $provider"
+
+        # Check required fields
+        if [[ -z "$base_url" ]]; then
+            echo "  ❌ Missing base_url"
+            ((errors++))
+        elif [[ ! "$base_url" =~ $url_pattern ]]; then
+            echo "  ⚠️  base_url should start with http:// or https://"
+            ((warnings++))
+        else
+            echo "  ✅ base_url: $base_url"
+        fi
+        
+        if [[ -z "$api_key_var" ]]; then
+            echo "  ❌ Missing api_key_var"
+            ((errors++))
+        else
+            echo "  ✅ api_key_var: $api_key_var"
+            
+            # Check if API key is set
+            if [[ -z "$(get_var_value "$api_key_var")" ]]; then
+                echo "  ⚠️  API key not set: $api_key_var"
+                ((warnings++))
+            else
+                echo "  ✅ API key is set"
+            fi
+        fi
+        
+        if [[ -z "$default_model" ]]; then
+            echo "  ❌ Missing default_model"
+            ((errors++))
+        else
+            echo "  ✅ default_model: $default_model"
+        fi
+        
+        if [[ "$enabled" != "true" && "$enabled" != "false" ]]; then
+            echo "  ⚠️  enabled should be 'true' or 'false', got: $enabled"
+            ((warnings++))
+        fi
+        
+        echo
+    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+
+    echo "Validation complete:"
+    echo "  Providers: $(get_provider_keys "PROVIDER_BASE_URLS" | wc -l | tr -d ' ')"
+    echo "  Enabled: ${#AVAILABLE_PROVIDERS[@]}"
+    echo "  Errors: $errors"
+    echo "  Warnings: $warnings"
+    
+    if (( errors > 0 )); then
+        echo "❌ Configuration has errors that need to be fixed"
+    echo
+        return 1
+    elif (( warnings > 0 )); then
+        echo "⚠️  Configuration has warnings but should work"
+    echo
+        return 0
+    else
+        echo "✅ Configuration is valid"
+    echo
+        return 0
+    fi
+}
+
+cmd_config_backup() {
+    local user_config
+    user_config="$(get_user_config_path)"
+    
+    if [[ ! -f "$user_config" ]]; then
+        echo "❌ Configuration file not found: ${user_config}"
+        echo "💡 Run 'source llm-env config init' to create one"
+        return 1
+    fi
+    
+    # Create backup directory if it doesn't exist
+    local backup_dir="$HOME/.config/llm-env/backups"
+    mkdir -p "$backup_dir"
+    
+    # Generate timestamp for backup filename
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    local backup_file="$backup_dir/config_${timestamp}.conf"
+    
+    # Create backup
+    if cp "$user_config" "$backup_file"; then
+        echo "✅ Configuration backed up to: $backup_file"
+        echo
+        echo "💡 To restore: source llm-env config restore $backup_file"
+        
+        # List recent backups
+        echo ""
+        echo "Recent backups:"
+        find "$backup_dir" -name "*.conf" -type f -exec ls -lt {} + 2>/dev/null | head -5 | while read -r line; do
+            echo "  $line"
+        done
+    else
+        echo "❌ Failed to create backup"
+        echo
+        return 1
+    fi
+}
+
+cmd_config_restore() {
+    local backup_file="$1"
+    local user_config
+    user_config="$(get_user_config_path)"
+    
+    if [[ -z "$backup_file" ]]; then
+        echo "Usage: source llm-env config restore <backup_file>"
+        echo ""
+        echo "Available backups:"
+        local backup_dir="$HOME/.config/llm-env/backups"
+        if [[ -d "$backup_dir" ]]; then
+            find "$backup_dir" -name "*.conf" -type f -exec ls -lt {} + 2>/dev/null | head -10 | while read -r line; do
+                echo "  $line"
+            done
+        else
+            echo "  No backups found"
+        fi
+        return 1
+    fi
+    
+    if [[ ! -f "$backup_file" ]]; then
+        echo "❌ Backup file not found: $backup_file"
+        return 1
+    fi
+    
+    # Confirm before restoring (skip in test environment)
+    if [[ -z "$BATS_TMPDIR" ]]; then
+        echo "⚠️  This will overwrite your current configuration:"
+        echo "   Current: $user_config"
+        echo "   Restore from: $backup_file"
+        echo ""
+        read -p "Continue? (y/N): " -n 1 -r
+        echo
+        local yes_pattern="^[Yy]$"
+        [[ ! $REPLY =~ $yes_pattern ]] && { echo "Restore cancelled"; return 1; }
+    fi
+    
+    # Create backup of current config before restoring
+    if [[ -f "$user_config" ]]; then
+        local current_backup
+        current_backup="${user_config}.pre-restore.$(date +%Y%m%d_%H%M%S)"
+        cp "$user_config" "$current_backup"
+        echo "💾 Current config backed up to: $current_backup"
+    fi
+    
+    # Restore from backup
+    if cp "$backup_file" "$user_config"; then
+        echo "✅ Configuration restored from: $backup_file"
+        echo
+        echo "💡 Run 'source llm-env config validate' to verify"
+    else
+        echo "❌ Failed to restore configuration"
+        echo
+        return 1
+    fi
+}
+
+cmd_config_bulk() {
+    local action="$1"
+    shift
+    local providers=("$@")
+    local user_config
+    user_config="$(get_user_config_path)"
+    
+    if [[ -z "${action}" ]]; then
+        echo "Usage: source llm-env config bulk <action> <provider1> [provider2] ..."
+        echo ""
+        echo "Actions:"
+        echo "  enable    Enable specified providers"
+        echo "  disable   Disable specified providers"
+        echo ""
+        echo "Examples:"
+        echo "  source llm-env config bulk enable cerebras openai"
+        echo "  source llm-env config bulk disable groq openrouter"
+        return 1
+    fi
+    
+    if [[ ${#providers[@]} -eq 0 ]]; then
+        echo "❌ No providers specified"
+        echo "Available providers: $(get_provider_keys "PROVIDER_BASE_URLS" | tr '\n' ' ')"
+        return 1
+    fi
+    
+    case "${action}" in
+        enable|disable)
+            ;;
+        *)
+            echo "❌ Invalid action: ${action}"
+            echo "Valid actions: enable, disable"
+            return 1
+            ;;
+    esac
+    
+    if [[ ! -f "$user_config" ]]; then
+        echo "❌ Configuration file not found: $user_config"
+        echo "💡 Run 'source llm-env config init' to create one"
+        return 1
+    fi
+    
+    # Create backup before making changes
+    local backup_file
+    backup_file="${user_config}.bulk-backup.$(date +%Y%m%d_%H%M%S)"
+    cp "${user_config}" "${backup_file}"
+    echo "💾 Configuration backed up to: ${backup_file}"
+    
+    echo "🔄 Performing bulk ${action} operation..."
+    local success_count=0
+    local failed_providers=()
+    local enabled_value
+
+    for provider in "${providers[@]}"; do
+        # Validate provider name format
+        if ! validate_provider_name "${provider}"; then
+            failed_providers+=("${provider} (invalid name)")
+            continue
+        fi
+
+        # Check if provider exists in config
+        if ! has_provider_key "PROVIDER_BASE_URLS" "$provider"; then
+            failed_providers+=("${provider} (not found)")
+            continue
+        fi
+
+        # Set enabled value based on action
+        case "${action}" in
+            enable) enabled_value="true" ;;
+            disable) enabled_value="false" ;;
+        esac
+        
+        # Update configuration file
+        # Use awk to update the enabled value for the provider
+        awk -v provider="${provider}" -v enabled="${enabled_value}" '
+            BEGIN { in_section = 0; found = 0; found_enabled = 0 }
+            /^\[/ { 
+                if ($0 == "[" provider "]") {
+                    in_section = 1
+                    found = 1
+                } else {
+                    if (in_section && !found_enabled) {
+                        print "enabled=" enabled
+                        found_enabled = 1
+                    }
+                    in_section = 0
+                }
+            }
+            in_section && /^enabled=/ { 
+                print "enabled=" enabled
+                found_enabled = 1
+                next
+            }
+            { print }
+            END {
+                if (found && !found_enabled) {
+                    print "enabled=" enabled
+                }
+            }
+        ' "${user_config}" > "${user_config}.tmp"
+        
+        if mv "${user_config}.tmp" "${user_config}"; then
+            echo "  ✅ ${provider}: ${action}"
+            ((success_count++))
+        else
+            failed_providers+=("${provider} (update failed)")
+        fi
+    done
+    
+    echo ""
+    echo "📊 Bulk operation results:"
+    echo "  Successful: ${success_count}/${#providers[@]}"
+    
+    if [[ ${#failed_providers[@]} -gt 0 ]]; then
+        echo "  Failed:"
+        for failure in "${failed_providers[@]}"; do
+            echo "    ❌ ${failure}"
+        done
+    fi
+    
+    # Reload configuration to reflect changes
+    init_config
+    
+    echo ""
+    echo "💡 Run 'source llm-env config validate' to verify changes"
+    echo "💡 Run 'source llm-env list' to see updated provider list"
+}
+
+# ---------- Entry Point ----------
+
+# Initialize configuration on script load
+init_config
+
+# Handle commands when called with arguments (works both when sourced and executed directly)
+# Skip command processing if the argument looks like a BATS test name
+if [[ $# -gt 0 ]] && [[ "$1" != test_* ]]; then
+case "$1" in
+    --version)
+        echo "llm-env - LLM Environment Manager v${VERSION}"
+        ;;
+    --help|help)
+        cmd_help
+        ;;
+    set)
+        shift
+        cmd_set "$1"
+        ;;
+    unset)
+        cmd_unset
+        ;;
+    list)
+        cmd_list "$@"
+        ;;
+    show)
+        cmd_show
+        ;;
+    test)
+        shift
+        cmd_test "$1"
+        ;;
+    config)
+        shift
+        cmd_config "$@"
+        ;;
+    *)
+        echo "Unknown command: $1" >&2
+        echo "Use 'source llm-env --help' for usage information." >&2
+        return 1
+        ;;
+esac
+fi

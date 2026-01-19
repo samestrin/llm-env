@@ -1,0 +1,36 @@
+version: "1.0"
+generated_at: "January 18, 2026 05:07:16PM"
+package_manager: "none"
+manifest_file: "none"
+packages_count: 3
+
+packages:
+  bats:
+    version: "bundled"
+    tier: "important"
+    doc_file: "bats.md"
+    docs_url: "https://bats-core.readthedocs.io/en/stable/"
+    github_url: "https://github.com/bats-core/bats-core"
+    last_updated: "January 18, 2026 05:07:16PM"
+    purpose: "Bash Automated Testing System"
+    type: "testing"
+
+  shellcheck:
+    version: "latest"
+    tier: "important"
+    doc_file: "shellcheck.md"
+    docs_url: "https://www.shellcheck.net/"
+    github_url: "https://github.com/koalaman/shellcheck"
+    last_updated: "January 18, 2026 05:07:16PM"
+    purpose: "Static analysis for shell scripts"
+    type: "linting"
+
+  shfmt:
+    version: "latest"
+    tier: "utility"
+    doc_file: "shfmt.md"
+    docs_url: "https://github.com/mvdan/sh/blob/master/cmd/shfmt/shfmt.1.scd"
+    github_url: "https://github.com/mvdan/sh"
+    last_updated: "January 18, 2026 05:07:16PM"
+    purpose: "Shell script formatter"
+    type: "formatting"
