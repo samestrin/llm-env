@@ -75,63 +75,133 @@ teardown() {
 }
 
 @test "associative array compatibility: works in bash 4.0+ mode" {
+    # Create test config with known openai provider
+    local test_config_dir="$BATS_TMPDIR/llm-env-assoc-test-4"
+    mkdir -p "$test_config_dir/.config/llm-env"
+    cat > "$test_config_dir/.config/llm-env/config.conf" << 'EOF'
+[openai]
+base_url=https://api.openai.com/v1
+api_key_var=LLM_OPENAI_API_KEY
+default_model=gpt-5
+description=Test OpenAI provider
+enabled=true
+EOF
+
     # Test through the main script interface
     run bash -c "
         export BASH_ASSOC_ARRAY_SUPPORT='true'
+        export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env
         get_provider_value 'PROVIDER_BASE_URLS' 'openai'
     "
+
+    # Clean up
+    rm -rf "$test_config_dir"
+
     [ "$status" -eq 0 ]
     [[ "$output" =~ "api.openai.com" ]]
 }
 
 @test "associative array compatibility: works in bash 3.2 mode" {
+    # Create test config with known openai provider
+    local test_config_dir="$BATS_TMPDIR/llm-env-assoc-test-3"
+    mkdir -p "$test_config_dir/.config/llm-env"
+    cat > "$test_config_dir/.config/llm-env/config.conf" << 'EOF'
+[openai]
+base_url=https://api.openai.com/v1
+api_key_var=LLM_OPENAI_API_KEY
+default_model=gpt-5
+description=Test OpenAI provider
+enabled=true
+EOF
+
     # Test through the main script interface
     run bash -c "
         export BASH_ASSOC_ARRAY_SUPPORT='false'
+        export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env
         get_provider_value 'PROVIDER_BASE_URLS' 'openai'
     "
+
+    # Clean up
+    rm -rf "$test_config_dir"
+
     [ "$status" -eq 0 ]
     [[ "$output" =~ "api.openai.com" ]]
 }
 
 @test "provider operations: list providers works in both modes" {
+    # Create test config with known openai provider
+    local test_config_dir="$BATS_TMPDIR/llm-env-list-test"
+    mkdir -p "$test_config_dir/.config/llm-env"
+    cat > "$test_config_dir/.config/llm-env/config.conf" << 'EOF'
+[openai]
+base_url=https://api.openai.com/v1
+api_key_var=LLM_OPENAI_API_KEY
+default_model=gpt-5
+description=Test OpenAI provider
+enabled=true
+EOF
+
     # Test with native arrays (bash 4.0+)
     run bash -c "
         export BASH_ASSOC_ARRAY_SUPPORT='true'
+        export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env list
     "
     [ "$status" -eq 0 ]
     [[ "$output" =~ "Available providers:" ]]
     [[ "$output" =~ "openai" ]]
-    
+
     # Test with compatibility arrays (bash 3.2)
     run bash -c "
         export BASH_ASSOC_ARRAY_SUPPORT='false'
+        export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env list
     "
+
+    # Clean up
+    rm -rf "$test_config_dir"
+
     [ "$status" -eq 0 ]
     [[ "$output" =~ "Available providers:" ]]
     [[ "$output" =~ "openai" ]]
 }
 
 @test "provider operations: set provider works in both modes" {
+    # Create test config with known openai provider
+    local test_config_dir="$BATS_TMPDIR/llm-env-set-test"
+    mkdir -p "$test_config_dir/.config/llm-env"
+    cat > "$test_config_dir/.config/llm-env/config.conf" << 'EOF'
+[openai]
+base_url=https://api.openai.com/v1
+api_key_var=LLM_OPENAI_API_KEY
+default_model=gpt-5
+description=Test OpenAI provider
+enabled=true
+EOF
+
     # Test with native arrays (bash 4.0+)
     run bash -c "
         export LLM_OPENAI_API_KEY='test-key-12345'
         export BASH_ASSOC_ARRAY_SUPPORT='true'
+        export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env set openai
     "
     [ "$status" -eq 0 ]
     [[ "$output" =~ "openai" ]]
-    
+
     # Test with compatibility arrays (bash 3.2)
     run bash -c "
         export LLM_OPENAI_API_KEY='test-key-12345'
         export BASH_ASSOC_ARRAY_SUPPORT='false'
+        export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env set openai
     "
+
+    # Clean up
+    rm -rf "$test_config_dir"
+
     [ "$status" -eq 0 ]
     [[ "$output" =~ "openai" ]]
 }
