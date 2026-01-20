@@ -12,7 +12,7 @@
 
 * **⚡️ Instant Context Switching:** Changes apply immediately. No need to manually `source` files or restart your shell.
 * **🔌 Universal Adapter:** Aliases provider-specific keys (e.g., `GEMINI_API_KEY`) to `OPENAI_API_KEY`, making almost *any* tool work with *any* provider.
-* **🛠️ Tech Stack Agnostic:** Works with `curl`, Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
+* **🛠️ Tech Stack Agnostic:** Works with `curl` (or `wget` for testing), Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
 
 **New in v1.2.0:** Native Anthropic protocol support - exports `ANTHROPIC_*` environment variables with proper authentication headers for direct Claude API integration.
 
@@ -24,7 +24,7 @@ Manage credentials for **OpenAI, OpenRouter, Cerebras, Groq, and 15+ other provi
 
 `llm-env` maps these services to the industry-standard `OPENAI_*` environment variables (or native `ANTHROPIC_*` variables for Anthropic providers), ensuring compatibility with almost any tool. API keys are stored securely in your shell profile, never in code. 
 
-**Pure Bash. Zero Dependencies. Just works.**
+**Pure Bash. Zero Dependencies. Just works (`curl` or `wget` required for connectivity testing).**
 
 ![llm-env demo](https://vhs.charm.sh/vhs-1A1uKsrR8uXOFDvYwmX4AZ.gif)
 

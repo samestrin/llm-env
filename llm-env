@@ -1349,18 +1349,35 @@ cmd_test() {
     start_time=$(date +%s.%N)
     local response
 
-    # Use curl to test API endpoint
-    if ! command -v curl >/dev/null 2>&1; then
-        echo "❌ curl command not found. Install curl to test API connectivity."
+    # Use curl or wget to test API endpoint
+    if command -v curl >/dev/null 2>&1; then
+        response=$(curl -s -w "%{http_code}" -o /dev/null \
+            --max-time 10 \
+            "${auth_headers[@]}" \
+            -H "Content-Type: application/json" \
+            "$test_endpoint" 2>/dev/null)
+    elif command -v wget >/dev/null 2>&1; then
+        # Construct wget headers
+        local wget_headers=()
+        if [[ "$protocol" == "anthropic" ]]; then
+            wget_headers+=("--header=x-api-key: $api_key" "--header=anthropic-version: 2023-06-01")
+        else
+            wget_headers+=("--header=Authorization: Bearer $api_key")
+        fi
+        wget_headers+=("--header=Content-Type: application/json")
+        
+        # wget prints server response headers to stderr with --server-response (-S)
+        # We capture stderr, grep for HTTP status code
+        local wget_out
+        wget_out=$(wget -q -S -O /dev/null --timeout=10 "${wget_headers[@]}" "$test_endpoint" 2>&1)
+        
+        # Extract the last HTTP status code
+        response=$(echo "$wget_out" | grep "HTTP/" | tail -1 | awk '{print $2}')
+    else
+        echo "❌ neither curl nor wget found. Please install one to test API connectivity."
         echo
         return 1
     fi
-
-    response=$(curl -s -w "%{http_code}" -o /dev/null \
-        --max-time 10 \
-        "${auth_headers[@]}" \
-        -H "Content-Type: application/json" \
-        "$test_endpoint" 2>/dev/null)
 
     local end_time
     end_time=$(date +%s.%N)
