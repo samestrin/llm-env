@@ -198,7 +198,24 @@ llm-env list
    # Should end with /v1 for most providers
    ```
 
-### 6. Environment Variables Not Persisting
+### 6. Anthropic (Claude) Specific Issues
+
+**Symptoms:**
+- `llm-env test anthropic` shows "Method not allowed (HTTP 405)" but says "connected successfully"
+- Tools expecting `OPENAI_` variables don't work when Anthropic is set
+
+**Solutions:**
+
+1. **HTTP 405 is normal for testing:**
+   Anthropic's `/v1/messages` endpoint only accepts POST requests. The test command sends a GET request to check connectivity. A 405 error confirms the endpoint exists and is reachable, so `llm-env` considers this a success.
+
+2. **Variable Swapping:**
+   When you `llm-env set anthropic` (if configured with `protocol=anthropic`), it exports `ANTHROPIC_API_KEY` and *unsets* `OPENAI_API_KEY`.
+   - Tools that *only* support OpenAI will fail.
+   - Use this mode only for tools that natively support Anthropic.
+   - If you need to use Anthropic with an OpenAI-only tool, consider using a proxy or checking if the tool supports a custom compatible endpoint (some "Anthropic" providers might offer an OpenAI-compatible endpoint, in which case use `protocol=openai`).
+
+### 7. Environment Variables Not Persisting
 
 **Symptoms:**
 - Variables work in current session but disappear after restart
