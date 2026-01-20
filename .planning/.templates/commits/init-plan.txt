@@ -1,9 +1,0 @@
-[auto] /init-plan: Create implementation plan
-
-Plan: {{PLAN_FOLDER}}
-Description: {{DESCRIPTION}}
-
-Generated files:
-{{GENERATED_FILES}}
-
-Timestamp: {{TIMESTAMP}}
