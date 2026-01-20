@@ -775,7 +775,8 @@ host_from_url() {
 validate_provider_name() {
     local name="$1"
     local valid_name_pattern="^[a-zA-Z0-9_-]+$"
-    if [[ ! "$name" =~ $valid_name_pattern ]]; then
+    # Use C locale for consistent ASCII-only character class matching
+    if LC_ALL=C; [[ ! "$name" =~ $valid_name_pattern ]]; then
         echo "Error: Invalid provider name '$name'. Only letters, numbers, underscores, and hyphens are allowed." >&2
         return 1
     fi
