@@ -16,6 +16,8 @@
 
 **New in v1.2.0:** Native Anthropic protocol support - exports `ANTHROPIC_*` environment variables with proper authentication headers for direct Claude API integration.
 
+**v1.2.1:** Added `wget` fallback for connectivity testing and improved cross-platform reliability for provider validation.
+
 **v1.1.0:** Enhanced with a comprehensive help system, API connectivity testing, configuration backup/restore, bulk operations, and debug mode for easier troubleshooting.
 
 ## Overview
@@ -379,7 +381,7 @@ Contributions are welcome! See the [Development Guide](docs/development.md) for 
 
 ## Version
 
-**Current Version: 1.2.0**
+**Current Version: 1.2.1**
 
 For detailed version history, feature updates, and breaking changes, see [CHANGELOG.md](CHANGELOG.md).
 
