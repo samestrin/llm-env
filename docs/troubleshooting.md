@@ -176,8 +176,12 @@ llm-env list
 
 1. **Test API key manually:**
    ```bash
-   # Test OpenAI API
+   # Test OpenAI API (using curl)
    curl -H "Authorization: Bearer $LLM_OPENAI_API_KEY" \
+        https://api.openai.com/v1/models
+
+   # Or using wget
+   wget -q -S -O - --header="Authorization: Bearer $LLM_OPENAI_API_KEY" \
         https://api.openai.com/v1/models
    
    # Test Cerebras API
