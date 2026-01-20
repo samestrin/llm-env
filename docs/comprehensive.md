@@ -2,6 +2,13 @@
 
 Many tools, libraries, and frameworks have adopted the `OPENAI_API_KEY` and `OPENAI_API_BASE` environment variables as a standard for interoperability, making them ideal for use with the `llm-env` manager.
 
+## Native Anthropic Support
+
+As of v1.2.0, `llm-env` supports the native Anthropic protocol. This means you can use it with tools that specifically expect `ANTHROPIC_API_KEY` and related variables, not just OpenAI-compatible ones.
+
+* **[Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python)**: Fully supported when using `protocol=anthropic`.
+* **[Claude CLI](https://github.com/anthropics/anthropic-sdk-python/tree/main/packages/claude-cli)**: Official CLI for Claude.
+
 ### Python Ecosystem
 
 * **[LangChain](https://www.langchain.com/)**: A powerful framework for building applications with large language models.
