@@ -1,9 +1,0 @@
-[auto] /analyze-postmortem: Sprint {{SPRINT_NUMBER}} postmortem analysis
-
-Sprint: {{SPRINT_FOLDER}}
-Status: {{SPRINT_STATUS}}
-
-Generated files:
-{{GENERATED_FILES}}
-
-Timestamp: {{TIMESTAMP}}

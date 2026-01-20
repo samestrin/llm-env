@@ -1,7 +1,0 @@
-[auto] /create-acceptance-criteria: Generate acceptance criteria for {{STORY_COUNT}} stories
-
-Generated files:
-{{GENERATED_FILES}}
-
-Plan: {{PLAN_FOLDER}}
-Timestamp: {{TIMESTAMP}}
