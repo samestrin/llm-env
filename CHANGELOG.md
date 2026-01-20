@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-01-20
+
+### Added
+- **Connectivity Fallback**: Added `wget` support as a fallback for `llm-env test` when `curl` is not installed.
+- **Enhanced Anthropic Documentation**: Added specific troubleshooting and compatibility sections for native Anthropic protocol usage.
+
+### Fixed
+- **Locale Sensitivity**: Fixed provider name validation regex to use `LC_ALL=C` for consistent ASCII matching across different system locales.
+- **Test Isolation**: Improved test reliability by ensuring isolated configurations for Bash version compatibility checks.
+
 ## [1.2.0] - 2026-01-19
 
 ### Added
@@ -84,6 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configuration Validation**: Input sanitization and validation to prevent injection attacks
 - **File Permissions**: Proper file permissions for configuration files
 
+[1.2.1]: https://github.com/samestrin/llm-env/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/samestrin/llm-env/compare/v1.1.4...v1.2.0
 [1.1.3]: https://github.com/samestrin/llm-env/compare/v1.1.2...v1.1.3
 [1.1.0]: https://github.com/samestrin/llm-env/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/samestrin/llm-env/releases/tag/v1.0.0
