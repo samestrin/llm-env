@@ -7,17 +7,84 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
+  # Fast parallel Linux tests on self-hosted runners
+  test-linux-unit:
+    runs-on: [self-hosted, linux, llm-env]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Verify BATS installation
+      run: |
+        if [[ ! -f tests/bats/bin/bats ]]; then
+          git submodule update --init --recursive
+        fi
+        tests/bats/bin/bats --version
+
+    - name: Run unit tests
+      run: |
+        cd tests
+        ./run_tests.sh --unit-only
+
+  test-linux-integration:
+    runs-on: [self-hosted, linux, llm-env]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Verify BATS installation
+      run: |
+        if [[ ! -f tests/bats/bin/bats ]]; then
+          git submodule update --init --recursive
+        fi
+        tests/bats/bin/bats --version
+
+    - name: Run integration tests
+      run: |
+        cd tests
+        ./run_tests.sh --integration-only
+
+  test-linux-system:
+    runs-on: [self-hosted, linux, llm-env]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Verify BATS installation
+      run: |
+        if [[ ! -f tests/bats/bin/bats ]]; then
+          git submodule update --init --recursive
+        fi
+        tests/bats/bin/bats --version
+
+    - name: Run system tests
+      run: |
+        cd tests
+        ./run_tests.sh --system-only
+
+    - name: Test installation script
+      run: |
+        export INSTALL_DIR="$GITHUB_WORKSPACE/test-install"
+        mkdir -p "$INSTALL_DIR"
+        sed 's|/usr/local/bin|'"$INSTALL_DIR"'|g' install.sh > test-install.sh
+        chmod +x test-install.sh
+        ./test-install.sh --offline ./llm-env
+        test -x "$INSTALL_DIR/llm-env"
+        "$INSTALL_DIR/llm-env" --version
+
+  # macOS tests on GitHub-hosted runners (need actual macOS)
+  test-macos:
+    runs-on: macos-latest
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
         shell: [bash, zsh]
-        exclude:
-          # zsh not pre-installed on ubuntu runners
-          - os: ubuntu-latest
-            shell: zsh
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -26,72 +93,27 @@ jobs:
 
     - name: Set up shell environment
       run: |
-        if [[ "$RUNNER_OS" == "macOS" ]]; then
-          # Install newer bash on macOS (default is 3.2.57)
-          brew install bash || true
-          # Add to PATH so newer bash is used
-          echo "/opt/homebrew/bin" >> $GITHUB_PATH
-          
-          if [[ "${{ matrix.shell }}" == "zsh" ]]; then
-            # Install zsh on macOS if needed
-            brew install zsh || true
-          fi
+        # Install newer bash on macOS (default is 3.2.57)
+        brew install bash || true
+        echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
+        if [[ "${{ matrix.shell }}" == "zsh" ]]; then
+          brew install zsh || true
         fi
-        
+
     - name: Debug environment information
       run: |
         echo "=== Environment Debug Information ==="
-        echo "Runner OS: $RUNNER_OS"
         echo "Shell: ${{ matrix.shell }}"
         echo "Default bash version: $BASH_VERSION"
-        echo "Default bash location: $(which bash)"
-        
-        # Check if newer bash is available
-        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]]; then
-          echo "Homebrew bash version: $(/opt/homebrew/bin/bash --version | head -1)"
-          echo "Homebrew bash location: /opt/homebrew/bin/bash"
-        fi
-        
-        # Test our compatibility detection with appropriate bash
-        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]]; then
-          echo "Testing with Homebrew bash..."
-          /opt/homebrew/bin/bash -c 'source ./llm-env 2>/dev/null || true; echo "BASH_ASSOC_ARRAY_SUPPORT: $BASH_ASSOC_ARRAY_SUPPORT"; echo "BASH_DECLARE_GLOBAL_SUPPORT: $BASH_DECLARE_GLOBAL_SUPPORT"; echo "BASH_MAJOR_VERSION: $BASH_MAJOR_VERSION"; echo "BASH_MINOR_VERSION: $BASH_MINOR_VERSION"'
-          
-          echo "Testing declare -g support with Homebrew bash..."
-          if /opt/homebrew/bin/bash -c 'declare -gA TEST_ARRAY 2>/dev/null'; then
-            echo "declare -g support: YES"
-          else
-            echo "declare -g support: NO"
-          fi
-        else
-          echo "Testing with system bash..."
-          source ./llm-env 2>/dev/null || true
-          echo "BASH_ASSOC_ARRAY_SUPPORT: $BASH_ASSOC_ARRAY_SUPPORT"
-          echo "BASH_DECLARE_GLOBAL_SUPPORT: $BASH_DECLARE_GLOBAL_SUPPORT"
-          echo "BASH_MAJOR_VERSION: $BASH_MAJOR_VERSION" 
-          echo "BASH_MINOR_VERSION: $BASH_MINOR_VERSION"
-          
-          echo "Testing declare -g support..."
-          if declare -gA TEST_ARRAY 2>/dev/null; then
-            echo "declare -g support: YES"
-            unset TEST_ARRAY
-          else
-            echo "declare -g support: NO"
-          fi
-        fi
 
-    - name: Install dependencies
-      run: |
-        # Install any additional dependencies if needed
-        if [[ "$RUNNER_OS" == "Linux" ]]; then
-          sudo apt-get update
-          sudo apt-get install -y curl
+        if [[ -x "/opt/homebrew/bin/bash" ]]; then
+          echo "Homebrew bash version: $(/opt/homebrew/bin/bash --version | head -1)"
         fi
 
     - name: Verify BATS installation
       run: |
         if [[ ! -f tests/bats/bin/bats ]]; then
-          echo "BATS not found, initializing submodules..."
           git submodule update --init --recursive
         fi
         tests/bats/bin/bats --version
@@ -99,22 +121,16 @@ jobs:
     - name: Run unit tests
       run: |
         cd tests
-        echo "=== Running Unit Tests ==="
-        
-        # Use newer bash on macOS if available
-        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
+        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
           SHELL=/opt/homebrew/bin/bash ./run_tests.sh --unit-only
         else
           SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --unit-only
         fi
 
-    - name: Run integration tests  
+    - name: Run integration tests
       run: |
         cd tests
-        echo "=== Running Integration Tests ==="
-        
-        # Use newer bash on macOS if available
-        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
+        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
           SHELL=/opt/homebrew/bin/bash ./run_tests.sh --integration-only
         else
           SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --integration-only
@@ -123,10 +139,7 @@ jobs:
     - name: Run system tests
       run: |
         cd tests
-        echo "=== Running System Tests ==="
-        
-        # Use newer bash on macOS if available
-        if [[ "$RUNNER_OS" == "macOS" ]] && [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
+        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
           SHELL=/opt/homebrew/bin/bash ./run_tests.sh --system-only
         else
           SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --system-only
@@ -134,71 +147,56 @@ jobs:
 
     - name: Test installation script
       run: |
-        # Test installer in dry-run mode or with temporary directory
         export INSTALL_DIR="$GITHUB_WORKSPACE/test-install"
         mkdir -p "$INSTALL_DIR"
-        
-        # Create a test version of installer that doesn't require sudo
         sed 's|/usr/local/bin|'"$INSTALL_DIR"'|g' install.sh > test-install.sh
         chmod +x test-install.sh
-        
-        # Run installer test
         ./test-install.sh --offline ./llm-env
-        
-        # Verify installation
         test -x "$INSTALL_DIR/llm-env"
-        
-        # Test version command
         "$INSTALL_DIR/llm-env" --version
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, llm-env]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Install ShellCheck
       run: |
-        sudo apt-get update
-        sudo apt-get install -y shellcheck
+        if ! command -v shellcheck &> /dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+        fi
 
     - name: Run ShellCheck on main script
-      run: |
-        shellcheck llm-env
-        
+      run: shellcheck llm-env
+
     - name: Run ShellCheck on installer
-      run: |
-        shellcheck install.sh
-        
+      run: shellcheck install.sh
+
     - name: Run ShellCheck on test runner
-      run: |
-        shellcheck tests/run_tests.sh
+      run: shellcheck tests/run_tests.sh
 
   security:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, llm-env]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Check for secrets in code
       run: |
-        # Check for actual API keys (not variable names)
-        # Look for patterns like api_key="sk-" or api_key='sk-' but exclude variable declarations
         if grep -r -E "(api[_-]key|API[_-]KEY)\s*=\s*['\"][a-zA-Z0-9_-]{20,}['\"]" . --exclude-dir=.git --exclude-dir=tests --exclude="*.md" --exclude-dir=examples; then
           echo "WARNING: Potential API keys found in code"
           exit 1
         fi
-        
+
     - name: Check file permissions
       run: |
-        # Ensure no files have overly permissive permissions
         find . -type f \( -perm -002 -o -perm -020 \) -not -path "./.git/*" | head -10
-        
+
     - name: Validate configuration files
       run: |
-        # Basic validation of configuration syntax
         if [[ -f config/llm-env.conf ]]; then
-          # Check for basic INI structure
           if ! grep -q "^\[.*\]$" config/llm-env.conf; then
             echo "ERROR: Invalid configuration file format"
             exit 1
