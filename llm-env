@@ -861,7 +861,7 @@ cmd_set() {
         key=""
     fi
 
-    # Get auth token for Anthropic protocol (optional)
+    # Get auth token for Anthropic protocol
     if [[ "$protocol" == "anthropic" ]]; then
         auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
         if [[ -n "$auth_token_var" ]]; then
@@ -872,18 +872,41 @@ cmd_set() {
     debug "Resolving environment for provider $provider:"
     debug "  protocol=$protocol"
     debug "  key_var=$key_var"
+    debug "  auth_token_var=$auth_token_var"
     debug "  base=$base"
     debug "  model=$model"
     debug "  key_set=$([ -n "$key" ] && echo "yes" || echo "no")"
+    debug "  auth_token_set=$([ -n "$auth_token" ] && echo "yes" || echo "no")"
 
-    if [[ -z "$key_var" ]]; then
-        echo "❌ Invalid provider configuration: missing API key variable for $provider"
-        echo
-        return 1
-    elif [[ -z "$key" ]]; then
-        echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
-        echo
-        return 1
+    # For anthropic protocol, either api_key_var or auth_token_var is sufficient
+    if [[ "$protocol" == "anthropic" ]]; then
+        if [[ -z "$key_var" && -z "$auth_token_var" ]]; then
+            echo "❌ Invalid provider configuration: missing api_key_var or auth_token_var for $provider"
+            echo
+            return 1
+        fi
+        if [[ -z "$key" && -z "$auth_token" ]]; then
+            local missing_vars=""
+            [[ -n "$key_var" && -z "$key" ]] && missing_vars="$key_var"
+            [[ -n "$auth_token_var" && -z "$auth_token" ]] && {
+                [[ -n "$missing_vars" ]] && missing_vars="$missing_vars or "
+                missing_vars="${missing_vars}${auth_token_var}"
+            }
+            echo "⚠️  No credentials found for $provider. Set $missing_vars in your shell profile."
+            echo
+            return 1
+        fi
+    else
+        # OpenAI protocol requires api_key_var
+        if [[ -z "$key_var" ]]; then
+            echo "❌ Invalid provider configuration: missing API key variable for $provider"
+            echo
+            return 1
+        elif [[ -z "$key" ]]; then
+            echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
+            echo
+            return 1
+        fi
     fi
 
     if [[ -z "$base" || -z "$model" ]]; then
@@ -904,10 +927,12 @@ cmd_set() {
     # Export protocol-specific variables
     local host
     if [[ "$protocol" == "anthropic" ]]; then
-        # Export Anthropic-specific variables
-        export ANTHROPIC_API_KEY="$key"
+        # Export Anthropic-specific variables (only set what's configured)
         export ANTHROPIC_BASE_URL="$base"
         export ANTHROPIC_MODEL="$model"
+        if [[ -n "$key" ]]; then
+            export ANTHROPIC_API_KEY="$key"
+        fi
         if [[ -n "$auth_token" ]]; then
             export ANTHROPIC_AUTH_TOKEN="$auth_token"
         fi
@@ -915,7 +940,13 @@ cmd_set() {
         export LLM_PROTOCOL="$protocol"
 
         host=$(host_from_url "$ANTHROPIC_BASE_URL")
-        echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL key=$(mask "$ANTHROPIC_API_KEY")"
+        local cred_display=""
+        [[ -n "$key" ]] && cred_display="key=$(mask "$key")"
+        [[ -n "$auth_token" ]] && {
+            [[ -n "$cred_display" ]] && cred_display="$cred_display "
+            cred_display="${cred_display}auth_token=$(mask "$auth_token")"
+        }
+        echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
     else
         # Export OpenAI-compatible variables (default)
         export OPENAI_API_KEY="$key"
@@ -1514,7 +1545,7 @@ cmd_config_validate() {
     init_config
 
     # Declare loop variables outside loop for zsh compatibility
-    local base_url api_key_var default_model enabled
+    local base_url api_key_var auth_token_var default_model enabled protocol
     local url_pattern="^https?://"
 
     # Check each provider
@@ -1522,9 +1553,12 @@ cmd_config_validate() {
         [[ -z "$provider" ]] && continue
         base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
         api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
+        auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
         default_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
         enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
         enabled="${enabled:-true}"
+        protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+        protocol="${protocol:-openai}"
 
         echo "Checking provider: $provider"
 
@@ -1538,13 +1572,38 @@ cmd_config_validate() {
         else
             echo "  ✅ base_url: $base_url"
         fi
-        
-        if [[ -z "$api_key_var" ]]; then
+
+        # Credential validation: anthropic protocol accepts api_key_var or auth_token_var
+        if [[ "$protocol" == "anthropic" ]]; then
+            if [[ -z "$api_key_var" && -z "$auth_token_var" ]]; then
+                echo "  ❌ Missing api_key_var or auth_token_var"
+                ((errors++))
+            else
+                if [[ -n "$api_key_var" ]]; then
+                    echo "  ✅ api_key_var: $api_key_var"
+                    if [[ -z "$(get_var_value "$api_key_var")" ]]; then
+                        echo "  ⚠️  API key not set: $api_key_var"
+                        ((warnings++))
+                    else
+                        echo "  ✅ API key is set"
+                    fi
+                fi
+                if [[ -n "$auth_token_var" ]]; then
+                    echo "  ✅ auth_token_var: $auth_token_var"
+                    if [[ -z "$(get_var_value "$auth_token_var")" ]]; then
+                        echo "  ⚠️  Auth token not set: $auth_token_var"
+                        ((warnings++))
+                    else
+                        echo "  ✅ Auth token is set"
+                    fi
+                fi
+            fi
+        elif [[ -z "$api_key_var" ]]; then
             echo "  ❌ Missing api_key_var"
             ((errors++))
         else
             echo "  ✅ api_key_var: $api_key_var"
-            
+
             # Check if API key is set
             if [[ -z "$(get_var_value "$api_key_var")" ]]; then
                 echo "  ⚠️  API key not set: $api_key_var"
