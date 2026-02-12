@@ -9,7 +9,7 @@ on:
 jobs:
   # Fast parallel Linux tests on self-hosted runners
   test-linux-unit:
-    runs-on: [self-hosted, linux, llm-env]
+    runs-on: [self-hosted, linux]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
         ./run_tests.sh --unit-only
 
   test-linux-integration:
-    runs-on: [self-hosted, linux, llm-env]
+    runs-on: [self-hosted, linux]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
         ./run_tests.sh --integration-only
 
   test-linux-system:
-    runs-on: [self-hosted, linux, llm-env]
+    runs-on: [self-hosted, linux]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -156,7 +156,7 @@ jobs:
         "$INSTALL_DIR/llm-env" --version
 
   lint:
-    runs-on: [self-hosted, linux, llm-env]
+    runs-on: [self-hosted, linux]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -178,7 +178,7 @@ jobs:
       run: shellcheck tests/run_tests.sh
 
   security:
-    runs-on: [self-hosted, linux, llm-env]
+    runs-on: [self-hosted, linux]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
