@@ -138,7 +138,7 @@ teardown() {
     [ "$ANTHROPIC_MODEL" = "claude-3" ]
 }
 
-@test "Protocol cleanup: switching openai->anthropic unsets OPENAI_ variables" {
+@test "Protocol coexistence: switching openai->anthropic preserves OPENAI_ variables" {
     # Set up environment for both providers
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
@@ -151,19 +151,23 @@ teardown() {
     # Then switch to Anthropic provider
     cmd_set "anthropic_provider"
 
-    # Verify OPENAI_ variables are unset
-    [ -z "$OPENAI_API_KEY" ]
-    [ -z "$OPENAI_BASE_URL" ]
-    [ -z "$OPENAI_MODEL" ]
+    # Verify OPENAI_ variables are preserved
+    [ -n "$OPENAI_API_KEY" ]
+    [ -n "$OPENAI_BASE_URL" ]
+    [ -n "$OPENAI_MODEL" ]
 
     # Verify ANTHROPIC_ variables are set
     [ -n "$ANTHROPIC_API_KEY" ]
     [ -n "$ANTHROPIC_AUTH_TOKEN" ]
     [ -n "$ANTHROPIC_BASE_URL" ]
     [ -n "$ANTHROPIC_MODEL" ]
+
+    # Verify active provider switched
+    [ "$LLM_PROVIDER" = "anthropic_provider" ]
+    [ "$LLM_PROTOCOL" = "anthropic" ]
 }
 
-@test "Protocol cleanup: switching anthropic->openai unsets ANTHROPIC_ variables" {
+@test "Protocol coexistence: switching anthropic->openai preserves ANTHROPIC_ variables" {
     # Set up environment for both providers
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
@@ -176,16 +180,20 @@ teardown() {
     # Then switch to OpenAI provider
     cmd_set "openai_provider"
 
-    # Verify ANTHROPIC_ variables are unset
-    [ -z "$ANTHROPIC_API_KEY" ]
-    [ -z "$ANTHROPIC_AUTH_TOKEN" ]
-    [ -z "$ANTHROPIC_BASE_URL" ]
-    [ -z "$ANTHROPIC_MODEL" ]
+    # Verify ANTHROPIC_ variables are preserved
+    [ -n "$ANTHROPIC_API_KEY" ]
+    [ -n "$ANTHROPIC_AUTH_TOKEN" ]
+    [ -n "$ANTHROPIC_BASE_URL" ]
+    [ -n "$ANTHROPIC_MODEL" ]
 
     # Verify OPENAI_ variables are set
     [ -n "$OPENAI_API_KEY" ]
     [ -n "$OPENAI_BASE_URL" ]
     [ -n "$OPENAI_MODEL" ]
+
+    # Verify active provider switched
+    [ "$LLM_PROVIDER" = "openai_provider" ]
+    [ "$LLM_PROTOCOL" = "openai" ]
 }
 
 @test "No protocol field: defaults to openai behavior" {
@@ -233,11 +241,11 @@ teardown() {
     [ "$LLM_PROVIDER" = "anthropic_provider" ]
     [ "$ANTHROPIC_API_KEY" = "anthropic-test-key-12345" ]
 
-    # Set OpenAI again (overwrites Anthropic)
+    # Set OpenAI again (switches active provider, preserves Anthropic)
     cmd_set "openai_provider"
     [ "$LLM_PROVIDER" = "openai_provider" ]
     [ "$OPENAI_API_KEY" = "sk-test-key-12345" ]
-    [ -z "$ANTHROPIC_API_KEY" ]  # Should be cleaned up
+    [ -n "$ANTHROPIC_API_KEY" ]  # Both protocols coexist
 }
 
 @test "OpenAI confirmation message includes protocol" {
@@ -257,4 +265,50 @@ teardown() {
 
     [ "$status" -eq 0 ]
     [[ "$output" =~ "protocol" ]] || [[ "$output" =~ "anthropic" ]]
+}
+
+@test "cmd_show: displays both protocols when both are configured" {
+    # Set up environment for both providers
+    export OPENAI_TEST_KEY="sk-test-key-12345"
+    export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
+    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
+
+    # Set OpenAI first, then Anthropic
+    cmd_set "openai_provider"
+    cmd_set "anthropic_provider"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+
+    # Active provider should be anthropic
+    [[ "$output" =~ "anthropic_provider" ]]
+    [[ "$output" =~ "LLM_PROTOCOL       = anthropic" ]]
+
+    # Both protocols should be displayed
+    [[ "$output" =~ "OPENAI_BASE_URL" ]]
+    [[ "$output" =~ "OPENAI_MODEL" ]]
+    [[ "$output" =~ "OPENAI_API_KEY" ]]
+    [[ "$output" =~ "ANTHROPIC_BASE_URL" ]]
+    [[ "$output" =~ "ANTHROPIC_MODEL" ]]
+    [[ "$output" =~ "ANTHROPIC_API_KEY" ]]
+}
+
+@test "cmd_show: displays only active protocol when other is not configured" {
+    # Set up only OpenAI
+    export OPENAI_TEST_KEY="sk-test-key-12345"
+
+    cmd_set "openai_provider"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+
+    # OpenAI variables should be displayed
+    [[ "$output" =~ "OPENAI_BASE_URL" ]]
+    [[ "$output" =~ "OPENAI_MODEL" ]]
+
+    # Anthropic variables should NOT be displayed
+    [[ ! "$output" =~ "ANTHROPIC_BASE_URL" ]]
+    [[ ! "$output" =~ "ANTHROPIC_MODEL" ]]
 }
