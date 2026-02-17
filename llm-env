@@ -607,7 +607,7 @@ init_config() {
     done < <(get_provider_keys "PROVIDER_BASE_URLS")
     
     # Declare loop variables outside the loop for zsh compatibility
-    local provider_enabled has_base_url has_api_key_var has_model
+    local provider_enabled has_base_url has_api_key_var has_model has_protocol has_auth_token_var
     for provider in "${provider_keys[@]}"; do
         provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
         debug "Checking provider: $provider, enabled: ${provider_enabled:-true}"
@@ -616,9 +616,24 @@ init_config() {
         has_base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
         has_api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
         has_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
+        has_protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+        has_protocol="${has_protocol:-openai}"
 
-        if [[ -z "$has_base_url" || -z "$has_api_key_var" || -z "$has_model" ]]; then
-            debug "Skipping incomplete provider $provider: base_url='$has_base_url', api_key_var='$has_api_key_var', model='$has_model'"
+        # base_url and model are always required
+        if [[ -z "$has_base_url" || -z "$has_model" ]]; then
+            debug "Skipping incomplete provider $provider: base_url='$has_base_url', model='$has_model'"
+            continue
+        fi
+
+        # Credential validation: anthropic protocol accepts api_key_var or auth_token_var
+        if [[ "$has_protocol" == "anthropic" ]]; then
+            has_auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
+            if [[ -z "$has_api_key_var" && -z "$has_auth_token_var" ]]; then
+                debug "Skipping incomplete anthropic provider $provider: no api_key_var or auth_token_var"
+                continue
+            fi
+        elif [[ -z "$has_api_key_var" ]]; then
+            debug "Skipping incomplete provider $provider: no api_key_var"
             continue
         fi
 
@@ -915,15 +930,6 @@ cmd_set() {
         return 1
     fi
 
-    # Clean up variables from the other protocol to prevent leakage
-    if [[ "$protocol" == "openai" ]]; then
-        # Unset Anthropic variables when switching to OpenAI
-        unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
-    else
-        # Unset OpenAI variables when switching to Anthropic
-        unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
-    fi
-
     # Export protocol-specific variables
     local host
     if [[ "$protocol" == "anthropic" ]]; then
@@ -1042,21 +1048,28 @@ cmd_list() {
 cmd_show() {
     local current_protocol="${LLM_PROTOCOL:-openai}"
 
+    # Detect which protocols have variables set
+    local has_openai=false has_anthropic=false
+    [[ -n "${OPENAI_BASE_URL:-}" || -n "${OPENAI_MODEL:-}" || -n "${OPENAI_API_KEY:-}" ]] && has_openai=true
+    [[ -n "${ANTHROPIC_BASE_URL:-}" || -n "${ANTHROPIC_MODEL:-}" || -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" ]] && has_anthropic=true
+
     echo "Current environment:"
     echo "  LLM_PROVIDER       = ${LLM_PROVIDER:-∅}"
     echo "  LLM_PROTOCOL       = ${current_protocol}"
 
-    if [[ "$current_protocol" == "anthropic" ]]; then
-        # Show Anthropic variables
+    # Show OpenAI variables if set, or if it's the active protocol
+    if [[ "$has_openai" == true || "$current_protocol" == "openai" ]]; then
+        echo "  OPENAI_BASE_URL    = ${OPENAI_BASE_URL:-∅}"
+        echo "  OPENAI_MODEL       = ${OPENAI_MODEL:-∅}"
+        echo "  OPENAI_API_KEY     = $(mask "${OPENAI_API_KEY:-}")"
+    fi
+
+    # Show Anthropic variables if set, or if it's the active protocol
+    if [[ "$has_anthropic" == true || "$current_protocol" == "anthropic" ]]; then
         echo "  ANTHROPIC_BASE_URL = ${ANTHROPIC_BASE_URL:-∅}"
         echo "  ANTHROPIC_MODEL    = ${ANTHROPIC_MODEL:-∅}"
         echo "  ANTHROPIC_API_KEY  = $(mask "${ANTHROPIC_API_KEY:-}")"
         echo "  ANTHROPIC_AUTH_TOKEN = $(mask "${ANTHROPIC_AUTH_TOKEN:-}")"
-    else
-        # Show OpenAI variables (default)
-        echo "  OPENAI_BASE_URL    = ${OPENAI_BASE_URL:-∅}"
-        echo "  OPENAI_MODEL       = ${OPENAI_MODEL:-∅}"
-        echo "  OPENAI_API_KEY     = $(mask "${OPENAI_API_KEY:-}")"
     fi
 
     # Show configuration source
