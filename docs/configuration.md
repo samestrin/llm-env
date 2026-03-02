@@ -75,7 +75,7 @@ By default, all providers use the OpenAI protocol, exporting `OPENAI_*` environm
 - Uses: `Authorization: Bearer <key>` header
 
 **Anthropic Protocol:**
-- Exports: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`
+- Exports: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - Uses: `x-api-key: <key>` and `anthropic-version: 2023-06-01` headers
 
 ## Configuration Examples
@@ -119,8 +119,26 @@ When you run `llm-env set anthropic`, this exports:
 - `ANTHROPIC_API_KEY` - Your API key
 - `ANTHROPIC_BASE_URL` - https://api.anthropic.com/v1
 - `ANTHROPIC_MODEL` - claude-sonnet-4-20250514
+- `ANTHROPIC_DEFAULT_OPUS_MODEL` - Model for opus plan mode (defaults to main model)
+- `ANTHROPIC_DEFAULT_SONNET_MODEL` - Model for most tasks (defaults to main model)
+- `ANTHROPIC_DEFAULT_HAIKU_MODEL` - Model primarily used for summarization (defaults to main model)
+- `CLAUDE_CODE_SUBAGENT_MODEL` - Model to use when starting subagents (defaults to main model)
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` - Flag to reduce non-essential API traffic (defaults to false)
 
 The `llm-env test anthropic` command uses proper Anthropic authentication headers (`x-api-key` and `anthropic-version`).
+
+### Claude Code Specific Configuration
+
+For enhanced Claude Code compatibility during Anthropic outages, you can override the Claude-specific model variables by setting them as environment variables before running `llm-env set anthropic`:
+
+```bash
+export ANTHROPIC_DEFAULT_OPUS_MODEL="your-custom-model"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="your-custom-model"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="your-custom-model"
+export CLAUDE_CODE_SUBAGENT_MODEL="your-custom-model"
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="true"
+llm-env set anthropic
+```
 
 ### Overriding Existing Providers
 
