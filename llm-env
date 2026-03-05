@@ -992,6 +992,8 @@ cmd_unset() {
     # Unset all protocol variables (both OpenAI and Anthropic)
     unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
     unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
+    unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
     unset LLM_PROVIDER LLM_PROTOCOL
 
     echo "🗑️ Unset envs (was: provider=${prev_p:-∅} protocol=${prev_protocol} host=${prev_host:-∅} model=${prev_model:-∅})"
@@ -1500,6 +1502,199 @@ cmd_test() {
     echo
 }
 
+cmd_quickstart() {
+    echo "🚀 Quickstart - Adding synthetic model providers"
+    echo
+
+    # Check for quickstart JSON files in the same directory
+    local script_dir
+    script_dir="$(get_script_dir)"
+    local synthetic_json="$script_dir/quickstart-synthetic.json"
+    local alibaba_json="$script_dir/quickstart-alibaba.json"
+
+    local json_files=()
+    if [[ -f "$synthetic_json" ]]; then
+        json_files+=("$synthetic_json")
+    fi
+    if [[ -f "$alibaba_json" ]]; then
+        json_files+=("$alibaba_json")
+    fi
+
+    if [[ ${#json_files[@]} -eq 0 ]]; then
+        echo "❌ No quickstart JSON files found in script directory: $script_dir"
+        echo "💡 Expected files: quickstart-synthetic.json, quickstart-alibaba.json"
+        return 1
+    fi
+
+    # Load configuration from user config path
+    local user_config
+    user_config="$(get_user_config_path)"
+
+    # Create directory if it doesn't exist
+    mkdir -p "$(dirname "$user_config")"
+
+    # Check if config file exists, create if it doesn't
+    if [[ ! -f "$user_config" ]]; then
+        echo "📝 Creating user configuration file: $user_config"
+        touch "$user_config"
+    else
+        echo "📝 Using existing user configuration: $user_config"
+    fi
+
+    # Process each JSON file
+    local added_providers=()
+    for json_file in "${json_files[@]}"; do
+        echo "🔍 Processing: $json_file"
+
+        # Parse the JSON file and extract providers
+        local provider_start_found=false
+        local in_providers_array=false
+        local provider_block=""
+        local current_line=""
+        local brace_level=0
+        local in_provider_block=false
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            # Remove leading/trailing whitespace and commas
+            local clean_line
+            clean_line="$(echo "$line" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*,[[:space:]]*$//' | sed 's/[[:space:]]*$//')"
+
+            # Check if we're in the providers array
+            if [[ "$clean_line" == '"providers"'* ]] || [[ "$clean_line" == "'providers'"* ]]; then
+                in_providers_array=true
+                continue
+            fi
+
+            # Start counting braces to find individual provider objects
+            if [[ "$in_providers_array" == true ]] && [[ "$clean_line" == "["* ]]; then
+                brace_level=1
+                continue
+            fi
+
+            # Process braces to track object boundaries
+            if [[ "$in_providers_array" == true ]] && [[ "$brace_level" -gt 0 ]]; then
+                local open_braces close_braces
+                open_braces=$(echo "$clean_line" | grep -o '{' | wc -c)
+                close_braces=$(echo "$clean_line" | grep -o '}' | wc -c)
+
+                if [[ "$open_braces" -gt 0 ]]; then
+                    # Start a new provider block if not already in one
+                    if [[ "$brace_level" -eq 1 ]] && [[ "$in_provider_block" == false ]]; then
+                        in_provider_block=true
+                        provider_block="{"
+                        current_line=""
+                    else
+                        # Add to current block
+                        if [[ "$in_provider_block" == true ]]; then
+                            provider_block="$provider_block$clean_line"$'\n'
+                        fi
+                    fi
+                    ((brace_level += open_braces))
+                fi
+
+                if [[ "$close_braces" -gt 0 ]]; then
+                    ((brace_level -= close_braces))
+
+                    if [[ "$in_provider_block" == true ]]; then
+                        provider_block="$provider_block$clean_line"$'\n'
+
+                        # If we've closed all braces for this provider, process it
+                        if [[ "$brace_level" -eq 1 ]]; then
+                            # We're still inside the array, continue
+                            continue
+                        elif [[ "$brace_level" -eq 0 ]]; then
+                            # End of provider object, process it
+                            provider_block="$provider_block}"
+
+                            # Extract provider fields from the block
+                            local name base_url api_key_var default_model description protocol enabled
+                            name=$(echo "$provider_block" | grep -o '"name":[[:space:]]*"[^"]*"' | head -1 | sed 's/"name":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
+                            base_url=$(echo "$provider_block" | grep -o '"base_url":[[:space:]]*"[^"]*"' | head -1 | sed 's/"base_url":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
+                            api_key_var=$(echo "$provider_block" | grep -o '"api_key_var":[[:space:]]*"[^"]*"' | head -1 | sed 's/"api_key_var":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
+                            default_model=$(echo "$provider_block" | grep -o '"default_model":[[:space:]]*"[^"]*"' | head -1 | sed 's/"default_model":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
+
+                            # Handle special case where default_model might need adjustment
+                            # If model has format like "hf:Vendor/ModelName", use just the model name part
+                            if [[ "$default_model" == hf:*/* ]]; then
+                                # Extract just the model name part after the last "/"
+                                default_model="${default_model##*/}"
+                            fi
+                            description=$(echo "$provider_block" | grep -o '"description":[[:space:]]*"[^"]*"' | head -1 | sed 's/"description":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
+                            protocol=$(echo "$provider_block" | grep -o '"protocol":[[:space:]]*"[^"]*"' | head -1 | sed 's/"protocol":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g' | sed 's/^$/openai/')
+                            enabled=$(echo "$provider_block" | grep -o '"enabled":[[:space:]]*[a-zA-Z]*' | head -1 | sed 's/"enabled":[[:space:]]*//' | sed 's/[",]//g' | sed 's/^$/true/')
+
+                            # Write provider to user config if not already present
+                            if [[ -n "$name" ]] && [[ -n "$base_url" ]] && [[ -n "$api_key_var" ]]; then
+                                # Check if provider already exists in config
+                                if ! grep -q "^\[$name\]$" "$user_config" 2>/dev/null; then
+                                    echo "  ➕ Adding provider: $name"
+
+                                    {
+                                        echo ""
+                                        echo "# $description"
+                                        echo "[$name]"
+                                        echo "base_url=$base_url"
+                                        echo "api_key_var=$api_key_var"
+                                        echo "default_model=$default_model"
+                                        if [[ -n "$protocol" ]] && [[ "$protocol" != "openai" ]]; then
+                                            echo "protocol=$protocol"
+                                        fi
+                                        echo "description=$description"
+                                        echo "enabled=$enabled"
+                                        echo ""
+                                    } >> "$user_config"
+
+                                    added_providers+=("$name")
+                                else
+                                    echo "  ⚠️  Skipping provider '$name' - already exists in config"
+                                fi
+                            fi
+
+                            # Reset for next provider
+                            provider_block=""
+                            in_provider_block=false
+                        else
+                            # Still in provider block, add the line
+                            provider_block="$provider_block$clean_line"$'\n'
+                        fi
+                    fi
+                elif [[ "$in_provider_block" == true ]]; then
+                    # Inside provider block, add the line
+                    provider_block="$provider_block$clean_line"$'\n'
+                fi
+            fi
+        done < "$json_file"
+
+        echo
+    done
+
+    if [[ ${#added_providers[@]} -gt 0 ]]; then
+        echo "🎉 Successfully added ${#added_providers[@]} new provider(s) to your configuration:"
+        for provider in "${added_providers[@]}"; do
+            echo "  - $provider"
+        done
+        echo
+        echo "💡 Next steps:"
+        echo "   1. Set the corresponding API keys in your shell profile:"
+        for provider in "${added_providers[@]}"; do
+            local api_key_var
+            api_key_var=$(grep -A 10 "^\[$provider\]$" "$user_config" | grep "^api_key_var=" | cut -d'=' -f2)
+            echo "      export $api_key_var='your-api-key-here'"
+        done
+        echo "   2. Reload your shell: source ~/.bashrc or source ~/.zshrc"
+        echo "   3. Test the new providers: source llm-env test <provider-name>"
+        echo "   4. Use a provider: source llm-env set <provider-name>"
+    else
+        echo "ℹ️  No new providers were added (they may already exist in your configuration)"
+    fi
+
+    # Display referral information
+    echo
+    echo "🔗 Learn more about synthetic models at: https://synthetic.new"
+    echo "   If you'd like to support this integration, use referral code: LLMENV_QUICKSTART"
+    echo
+}
+
 cmd_help() {
     echo "llm-env - LLM Environment Manager v$VERSION"
     echo
@@ -1512,6 +1707,7 @@ cmd_help() {
     echo "    list                  List all available providers"
     echo "    show                  Show current environment"
     echo "    config <subcommand>   Manage configuration"
+    echo "    quickstart            Add synthetic model providers from JSON files"
     echo "    test <provider>       Test provider API connectivity"
     echo "    --version             Show version information"
     echo "    --help                Show this help message"
@@ -1928,6 +2124,9 @@ case "$1" in
     config)
         shift
         cmd_config "$@"
+        ;;
+    quickstart)
+        cmd_quickstart
         ;;
     *)
         echo "Unknown command: $1" >&2
