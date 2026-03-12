@@ -7,6 +7,14 @@ load ../lib/bats_helpers
 setup() {
     setup_test_env
 
+    # Clear any pre-existing LLM environment variables
+    unset LLM_PROVIDER LLM_PROTOCOL
+    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
+    unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+    unset _ANTHROPIC_AUTH_TOKEN
+
     # Create test configuration with explicit protocol field
     local test_config='[openai_provider]
 base_url = https://api.openai.com/v1
@@ -19,7 +27,6 @@ protocol = openai
 [anthropic_provider]
 base_url = https://api.anthropic.com
 api_key_var = ANTHROPIC_TEST_KEY
-auth_token_var = ANTHROPIC_TEST_TOKEN
 default_model = claude-3
 description = Anthropic provider
 enabled = true
@@ -41,9 +48,10 @@ enabled = true'
 
 teardown() {
     teardown_test_env
-    unset OPENAI_TEST_KEY ANTHROPIC_TEST_KEY ANTHROPIC_TEST_TOKEN PROT_NO_PROTO_KEY
+    unset OPENAI_TEST_KEY ANTHROPIC_TEST_KEY PROT_NO_PROTO_KEY
     unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL LLM_PROVIDER
     unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    unset _ANTHROPIC_AUTH_TOKEN
 }
 
 @test "OpenAI protocol: exports OPENAI_API_KEY correctly" {
@@ -93,7 +101,6 @@ teardown() {
 @test "Anthropic protocol: exports ANTHROPIC_API_KEY correctly" {
     # Set up environment with test credentials
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
     # Call cmd_set for provider with protocol="anthropic"
     cmd_set "anthropic_provider"
@@ -102,22 +109,9 @@ teardown() {
     [ "$ANTHROPIC_API_KEY" = "anthropic-test-key-12345" ]
 }
 
-@test "Anthropic protocol: exports ANTHROPIC_AUTH_TOKEN correctly" {
-    # Set up environment with test credentials
-    export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
-
-    # Call cmd_set for provider with protocol="anthropic"
-    cmd_set "anthropic_provider"
-
-    # Verify ANTHROPIC_AUTH_TOKEN is exported
-    [ "$ANTHROPIC_AUTH_TOKEN" = "anthropic-test-token-6789" ]
-}
-
 @test "Anthropic protocol: exports ANTHROPIC_BASE_URL correctly" {
     # Set up environment with test credentials
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
     # Call cmd_set for provider with protocol="anthropic"
     cmd_set "anthropic_provider"
@@ -129,7 +123,6 @@ teardown() {
 @test "Anthropic protocol: exports ANTHROPIC_MODEL correctly" {
     # Set up environment with test credentials
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
     # Call cmd_set for provider with protocol="anthropic"
     cmd_set "anthropic_provider"
@@ -142,7 +135,6 @@ teardown() {
     # Set up environment for both providers
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
     # First set OpenAI provider
     cmd_set "openai_provider"
@@ -158,7 +150,6 @@ teardown() {
 
     # Verify ANTHROPIC_ variables are set
     [ -n "$ANTHROPIC_API_KEY" ]
-    [ -n "$ANTHROPIC_AUTH_TOKEN" ]
     [ -n "$ANTHROPIC_BASE_URL" ]
     [ -n "$ANTHROPIC_MODEL" ]
 
@@ -171,7 +162,6 @@ teardown() {
     # Set up environment for both providers
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
     # First set Anthropic provider
     cmd_set "anthropic_provider"
@@ -182,7 +172,6 @@ teardown() {
 
     # Verify ANTHROPIC_ variables are preserved
     [ -n "$ANTHROPIC_API_KEY" ]
-    [ -n "$ANTHROPIC_AUTH_TOKEN" ]
     [ -n "$ANTHROPIC_BASE_URL" ]
     [ -n "$ANTHROPIC_MODEL" ]
 
@@ -229,7 +218,6 @@ teardown() {
     # Set up environment for both providers
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
     # Set OpenAI provider
     cmd_set "openai_provider"
@@ -259,7 +247,6 @@ teardown() {
 
 @test "Anthropic confirmation message includes protocol" {
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
     run cmd_set "anthropic_provider"
 
@@ -271,7 +258,6 @@ teardown() {
     # Set up environment for both providers
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
-    export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
     # Set OpenAI first, then Anthropic
     cmd_set "openai_provider"

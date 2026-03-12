@@ -14,11 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Zsh Compatibility**: Removed debug output from config parsing loop in zsh shell
 - **Variable Coexistence**: Allow OpenAI and Anthropic variables to coexist in same session
-- **Authentication**: Allow auth_token_var as sole credential for anthropic protocol
 - **CI Configuration**: Removed llm-env tag from self-hosted runners
+- **Auth Conflict Prevention**: Save and restore `ANTHROPIC_AUTH_TOKEN` when setting Anthropic providers to avoid Claude CLI auth conflict
 
 ### Changed
 - **Project Cleanup**: Removed .planning directory from git tracking
+- **Removed auth_token_var**: Removed support for `auth_token_var` config field - `ANTHROPIC_AUTH_TOKEN` is reserved for Claude CLI web login
 
 ## [1.2.1] - 2026-01-20
 

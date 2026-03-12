@@ -253,16 +253,21 @@ teardown_test_env() {
     # Restore original environment
     export XDG_CONFIG_HOME="$ORIG_XDG_CONFIG_HOME"
     export HOME="$ORIG_HOME"
-    
+
     # Clear arrays
     clear_provider_arrays
-    
+
     # Clean up temp directory
     [[ -n "$BATS_TEST_TMPDIR" ]] && rm -rf "$BATS_TEST_TMPDIR"
     unset BATS_TEST_TMPDIR
-    
-    # Clear test environment variables
-    unset LLM_PROVIDER OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
+
+    # Clear test environment variables (both protocols)
+    unset LLM_PROVIDER LLM_PROTOCOL
+    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
+    unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+    unset _ANTHROPIC_AUTH_TOKEN
 }
 
 # Helper to create test configuration files

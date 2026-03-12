@@ -19,7 +19,6 @@ protocol = openai
 [anthropic_provider]
 base_url = https://api.anthropic.com
 api_key_var = ANTHROPIC_TEST_KEY
-auth_token_var = ANTHROPIC_TEST_TOKEN
 default_model = claude-3
 description = Anthropic provider
 enabled = true
@@ -40,7 +39,7 @@ enabled = true'
 
 teardown() {
     teardown_test_env
-    unset OPENAI_TEST_KEY ANTHROPIC_TEST_KEY ANTHROPIC_TEST_TOKEN PROT_NO_PROTO_KEY
+    unset OPENAI_TEST_KEY ANTHROPIC_TEST_KEY PROT_NO_PROTO_KEY
 }
 
 # ========================================
