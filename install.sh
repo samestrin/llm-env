@@ -156,9 +156,21 @@ install_config_files() {
     # Check if config already exists
     if [[ -f "$config_file" ]]; then
         print_warning "Configuration file already exists: $config_file"
+
+        # Ask if user wants to add synthetic providers
+        echo
+        echo -e "${YELLOW}Would you like to add synthetic model providers now?${NC}"
+        echo "These are Claude-compatible models from synthetic.new and Alibaba Cloud."
+        echo -e "${BLUE}This will download quickstart JSON files and add the providers to your config.${NC}"
+        echo
+        read -p "Add synthetic providers? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            add_synthetic_providers
+        fi
         return 0
     fi
-    
+
     # Create default configuration file
     if cat > "$config_file" << 'EOF'
 # LLM Environment Manager Configuration
@@ -216,9 +228,67 @@ EOF
         fi
 
         print_success "Created default configuration: $config_file"
+
+        # Ask if user wants to add synthetic providers to the new config
+        echo
+        echo -e "${GREEN}Great! Would you like to add synthetic model providers now?${NC}"
+        echo "These are Claude-compatible models from synthetic.new and Alibaba Cloud."
+        echo -e "${BLUE}This will download quickstart JSON files and add the providers to your config.${NC}"
+        echo
+        read -p "Add synthetic providers? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            add_synthetic_providers
+        fi
     else
         print_error "Failed to create configuration file"
         return 1
+    fi
+}
+
+# Function to add synthetic providers from JSON files
+add_synthetic_providers() {
+    print_step "Adding synthetic model providers..."
+
+    # Get the llm-env script path
+    local llm_env_script="$INSTALL_DIR/$SCRIPT_NAME"
+
+    if [[ -f "$llm_env_script" ]]; then
+        print_step "Running quickstart command to add synthetic providers..."
+
+        # Download quickstart JSON files to the same directory as llm-env
+        local script_dir
+        script_dir="$(dirname "$llm_env_script")"
+
+        # Try to download the quickstart files from the repository
+        local synthetic_url="https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/quickstart-synthetic.json"
+        local alibaba_url="https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/quickstart-alibaba.json"
+
+        # Download JSON files
+        if curl -fsSL "$synthetic_url" -o "$script_dir/quickstart-synthetic.json" 2>/dev/null; then
+            print_success "Downloaded quickstart-synthetic.json"
+        else
+            print_warning "Could not download quickstart-synthetic.json from $synthetic_url"
+        fi
+
+        if curl -fsSL "$alibaba_url" -o "$script_dir/quickstart-alibaba.json" 2>/dev/null; then
+            print_success "Downloaded quickstart-alibaba.json"
+        else
+            print_warning "Could not download quickstart-alibaba.json from $alibaba_url"
+        fi
+
+        # Run the quickstart command to add providers
+        if source "$llm_env_script" quickstart 2>/dev/null; then
+            print_success "Synthetic providers added successfully"
+        else
+            print_error "Failed to add synthetic providers"
+        fi
+
+        # Clean up downloaded JSON files
+        rm -f "$script_dir/quickstart-synthetic.json" 2>/dev/null || true
+        rm -f "$script_dir/quickstart-alibaba.json" 2>/dev/null || true
+    else
+        print_error "llm-env script not found at $llm_env_script"
     fi
 }
 

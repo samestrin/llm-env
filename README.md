@@ -44,7 +44,38 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 
 ![llm-env --help](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ylderczpgbos0fdzfn02.png)
 
-### Supported Providers
+### Quickstart - Synthetic Model Integration
+
+The `llm-env` tool now supports integration with synthetic Claude-compatible models through our new quickstart feature:
+
+```bash
+# Add synthetic providers from pre-defined JSON configurations
+llm-env quickstart
+
+# This will download and configure providers like:
+# - synthetic-glm-5: GLM-5 Claude-compatible model from synthetic.new
+# - synthetic-minimax-m2-5: MiniMax-M2.5 Claude-compatible model from synthetic.new
+# - synthetic-kimi-k2-5: Kimi-K2.5 Claude-compatible model from synthetic.new
+# - alibaba-qwen3-5-plus: Qwen3.5 Plus - Recommended model with enhanced capabilities from Alibaba Cloud
+# - alibaba-qwen-max: Qwen Max - Recommended for complex, multi-step tasks from Alibaba Cloud
+# - alibaba-qwen-plus: Qwen Plus - Balanced performance model from Alibaba Cloud
+# - alibaba-qwen-turbo: Qwen Turbo - Fast, economical model from Alibaba Cloud
+```
+
+The quickstart feature fetches JSON configuration files containing pre-defined provider settings and adds them to your user configuration. These providers offer Claude-compatible models that work with any OpenAI-compatible tool through llm-env's environment variable mapping.
+
+Learn more about synthetic models at: https://synthetic.new
+
+### Installation Integration
+
+During installation, you'll be prompted to add synthetic providers to expand your model selection immediately after installation:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | bash
+# You'll be asked: "Add synthetic providers? (y/N):"
+```
+
+## Supported Providers
 
 This tool supports any OpenAI API compatible provider, including:
 
