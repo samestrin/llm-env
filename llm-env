@@ -976,18 +976,26 @@ cmd_set() {
 }
 
 cmd_unset() {
-    local prev_p="$LLM_PROVIDER"
-    local prev_protocol="${LLM_PROTOCOL:-openai}"
-    local prev_host prev_model
+    # Check if anything is actually set
+    local has_openai=false has_anthropic=false
+    [[ -n "${OPENAI_BASE_URL:-}" || -n "${OPENAI_MODEL:-}" || -n "${OPENAI_API_KEY:-}" ]] && has_openai=true
+    [[ -n "${ANTHROPIC_BASE_URL:-}" || -n "${ANTHROPIC_MODEL:-}" || -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" ]] && has_anthropic=true
 
-    # Get previous values based on active protocol
-    if [[ "$prev_protocol" == "anthropic" ]]; then
-        prev_host=$(host_from_url "${ANTHROPIC_BASE_URL:-}")
-        prev_model="${ANTHROPIC_MODEL:-}"
-    else
-        prev_host=$(host_from_url "${OPENAI_BASE_URL:-}")
-        prev_model="${OPENAI_MODEL:-}"
+    if [[ -z "${LLM_PROVIDER:-}" && "$has_openai" == false && "$has_anthropic" == false ]]; then
+        echo "ℹ️  Nothing to unset — no LLM environment variables are currently set."
+        echo
+        return 0
     fi
+
+    local prev_p="${LLM_PROVIDER:-}"
+    local prev_protocol="${LLM_PROTOCOL:-openai}"
+
+    # Capture previous state for both protocols
+    local prev_openai_host prev_openai_model prev_anthropic_host prev_anthropic_model
+    prev_openai_host=$(host_from_url "${OPENAI_BASE_URL:-}")
+    prev_openai_model="${OPENAI_MODEL:-}"
+    prev_anthropic_host=$(host_from_url "${ANTHROPIC_BASE_URL:-}")
+    prev_anthropic_model="${ANTHROPIC_MODEL:-}"
 
     # Unset all protocol variables (both OpenAI and Anthropic)
     unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
@@ -996,7 +1004,16 @@ cmd_unset() {
     unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
     unset LLM_PROVIDER LLM_PROTOCOL
 
-    echo "🗑️ Unset envs (was: provider=${prev_p:-∅} protocol=${prev_protocol} host=${prev_host:-∅} model=${prev_model:-∅})"
+    echo "🗑️ Unset LLM environment variables."
+    if [[ -n "$prev_p" ]]; then
+        echo "   Provider : $prev_p (protocol: $prev_protocol)"
+    fi
+    if [[ "$has_openai" == true ]]; then
+        echo "   OpenAI   : host=${prev_openai_host:-∅} model=${prev_openai_model:-∅}"
+    fi
+    if [[ "$has_anthropic" == true ]]; then
+        echo "   Anthropic: host=${prev_anthropic_host:-∅} model=${prev_anthropic_model:-∅}"
+    fi
     echo
 }
 
