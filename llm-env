@@ -1367,8 +1367,12 @@ cmd_test() {
 
     if [[ "$protocol" == "anthropic" ]]; then
         # Anthropic uses x-api-key header
-        # Endpoint: base_url/messages (base_url typically includes /v1)
-        test_endpoint="${base_url}/messages"
+        # Endpoint: base_url/v1/messages (append /v1 if not already present)
+        if [[ "$base_url" == */v1 ]]; then
+            test_endpoint="${base_url}/messages"
+        else
+            test_endpoint="${base_url}/v1/messages"
+        fi
         auth_headers=(-H "x-api-key: $api_key" -H "anthropic-version: 2023-06-01")
     else
         # OpenAI uses Authorization: Bearer header
