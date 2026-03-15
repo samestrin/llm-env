@@ -506,7 +506,7 @@ load_config() {
                     set_provider_value "PROVIDER_BASE_URLS" "$current_provider" "$value"
                     debug "PROVIDER_BASE_URLS[$current_provider] = $(get_provider_value "PROVIDER_BASE_URLS" "$current_provider")"
                     ;;
-                api_key_var)
+                api_key_var|auth_token_var)
                     set_provider_value "PROVIDER_API_KEY_VARS" "$current_provider" "$value"
                     ;;
                 default_model)
