@@ -894,13 +894,6 @@ cmd_set() {
     # Export protocol-specific variables
     local host
     if [[ "$protocol" == "anthropic" ]]; then
-        # Save existing ANTHROPIC_AUTH_TOKEN if set (for Claude CLI web login)
-        # This avoids auth conflict when we set ANTHROPIC_API_KEY
-        if [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" && -z "${_ANTHROPIC_AUTH_TOKEN:-}" ]]; then
-            export _ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_AUTH_TOKEN"
-            unset ANTHROPIC_AUTH_TOKEN
-        fi
-
         # Export Anthropic-specific variables
         export ANTHROPIC_BASE_URL="$base"
         export ANTHROPIC_MODEL="$model"
@@ -935,7 +928,7 @@ cmd_unset() {
     # Check if anything is actually set
     local has_openai=false has_anthropic=false
     [[ -n "${OPENAI_BASE_URL:-}" || -n "${OPENAI_MODEL:-}" || -n "${OPENAI_API_KEY:-}" ]] && has_openai=true
-    [[ -n "${ANTHROPIC_BASE_URL:-}" || -n "${ANTHROPIC_MODEL:-}" || -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" ]] && has_anthropic=true
+    [[ -n "${ANTHROPIC_BASE_URL:-}" || -n "${ANTHROPIC_MODEL:-}" || -n "${ANTHROPIC_API_KEY:-}" ]] && has_anthropic=true
 
     if [[ -z "${LLM_PROVIDER:-}" && "$has_openai" == false && "$has_anthropic" == false ]]; then
         echo "ℹ️  Nothing to unset — no LLM environment variables are currently set."
@@ -955,16 +948,10 @@ cmd_unset() {
 
     # Unset all protocol variables (both OpenAI and Anthropic)
     unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
-    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_MODEL
     unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
     unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
     unset LLM_PROVIDER LLM_PROTOCOL
-
-    # Restore saved ANTHROPIC_AUTH_TOKEN if it was saved
-    if [[ -n "${_ANTHROPIC_AUTH_TOKEN:-}" ]]; then
-        export ANTHROPIC_AUTH_TOKEN="$_ANTHROPIC_AUTH_TOKEN"
-        unset _ANTHROPIC_AUTH_TOKEN
-    fi
 
     echo "🗑️ Unset LLM environment variables."
     if [[ -n "$prev_p" ]]; then
@@ -1040,7 +1027,7 @@ cmd_show() {
     # Detect which protocols have variables set
     local has_openai=false has_anthropic=false
     [[ -n "${OPENAI_BASE_URL:-}" || -n "${OPENAI_MODEL:-}" || -n "${OPENAI_API_KEY:-}" ]] && has_openai=true
-    [[ -n "${ANTHROPIC_BASE_URL:-}" || -n "${ANTHROPIC_MODEL:-}" || -n "${ANTHROPIC_API_KEY:-}" || -n "${ANTHROPIC_AUTH_TOKEN:-}" ]] && has_anthropic=true
+    [[ -n "${ANTHROPIC_BASE_URL:-}" || -n "${ANTHROPIC_MODEL:-}" || -n "${ANTHROPIC_API_KEY:-}" ]] && has_anthropic=true
 
     echo "Current environment:"
     echo "  LLM_PROVIDER       = ${LLM_PROVIDER:-∅}"
@@ -1058,7 +1045,6 @@ cmd_show() {
         echo "  ANTHROPIC_BASE_URL = ${ANTHROPIC_BASE_URL:-∅}"
         echo "  ANTHROPIC_MODEL    = ${ANTHROPIC_MODEL:-∅}"
         echo "  ANTHROPIC_API_KEY  = $(mask "${ANTHROPIC_API_KEY:-}")"
-        echo "  ANTHROPIC_AUTH_TOKEN = $(mask "${ANTHROPIC_AUTH_TOKEN:-}")"
     fi
 
     # Show configuration source
