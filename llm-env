@@ -1342,10 +1342,11 @@ cmd_test() {
 
     echo "🧪 Testing provider: $provider (protocol: $protocol)"
 
-    local key_var base_url api_key
+    local key_var base_url api_key default_model
     key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
     base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
     api_key="$(get_var_value "$key_var")"
+    default_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
 
     # Check if API key is available
     if [[ -z "$api_key" ]]; then
@@ -1384,11 +1385,22 @@ cmd_test() {
 
     # Use curl or wget to test API endpoint
     if command -v curl >/dev/null 2>&1; then
-        response=$(curl -s -w "%{http_code}" -o /dev/null \
-            --max-time 10 \
-            "${auth_headers[@]}" \
-            -H "Content-Type: application/json" \
-            "$test_endpoint" 2>/dev/null)
+        if [[ "$protocol" == "anthropic" ]]; then
+            # Anthropic requires POST with a minimal messages payload
+            response=$(curl -s -w "%{http_code}" -o /dev/null \
+                --max-time 10 \
+                "${auth_headers[@]}" \
+                -H "Content-Type: application/json" \
+                -X POST \
+                -d "{\"model\":\"${default_model}\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" \
+                "$test_endpoint" 2>/dev/null)
+        else
+            response=$(curl -s -w "%{http_code}" -o /dev/null \
+                --max-time 10 \
+                "${auth_headers[@]}" \
+                -H "Content-Type: application/json" \
+                "$test_endpoint" 2>/dev/null)
+        fi
     elif command -v wget >/dev/null 2>&1; then
         # Construct wget headers
         local wget_headers=()
@@ -1398,12 +1410,18 @@ cmd_test() {
             wget_headers+=("--header=Authorization: Bearer $api_key")
         fi
         wget_headers+=("--header=Content-Type: application/json")
-        
+
         # wget prints server response headers to stderr with --server-response (-S)
         # We capture stderr, grep for HTTP status code
         local wget_out
-        wget_out=$(wget -q -S -O /dev/null --timeout=10 "${wget_headers[@]}" "$test_endpoint" 2>&1)
-        
+        if [[ "$protocol" == "anthropic" ]]; then
+            wget_out=$(wget -q -S -O /dev/null --timeout=10 \
+                --post-data="{\"model\":\"${default_model}\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" \
+                "${wget_headers[@]}" "$test_endpoint" 2>&1)
+        else
+            wget_out=$(wget -q -S -O /dev/null --timeout=10 "${wget_headers[@]}" "$test_endpoint" 2>&1)
+        fi
+
         # Extract the last HTTP status code
         response=$(echo "$wget_out" | grep "HTTP/" | tail -1 | awk '{print $2}')
     else
@@ -1441,17 +1459,8 @@ cmd_test() {
             echo
             ;;
         405)
-            # For Anthropic, /v1/messages returns 405 for GET requests (it requires POST)
-            # This still confirms the endpoint exists and auth headers are valid
-            if [[ "$protocol" == "anthropic" ]]; then
-                echo "✅ $provider: Connected successfully (protocol: $protocol)"
-                echo "💡 Anthropic messages endpoint verified (requires POST for full test)"
-                echo
-                echo "⏱️ Response time: ${duration}s"
-            else
-                echo "⚠️  $provider: Method not allowed (protocol: $protocol, HTTP $response)"
-                echo
-            fi
+            echo "⚠️  $provider: Method not allowed (protocol: $protocol, HTTP $response)"
+            echo
             ;;
         429)
             echo "⚠️  $provider: Rate limited (protocol: $protocol)"
