@@ -127,6 +127,38 @@ When you run `llm-env set anthropic`, this exports:
 
 The `llm-env test anthropic` command uses proper Anthropic authentication headers (`x-api-key` and `anthropic-version`).
 
+### Provider Groups
+
+Groups let you set multiple providers with a single command. This is useful when tools need both `OPENAI_*` and `ANTHROPIC_*` variables simultaneously (e.g., Claude Code using Anthropic for chat but an OpenAI-compatible provider for embeddings).
+
+```ini
+# Define a group with [group:name] syntax
+[group:default]
+providers=cerebras,anthropic
+
+[group:dev]
+providers=groq,anthropic
+```
+
+Usage:
+```bash
+# Set all providers in the "default" group
+source llm-env set default
+
+# Or use comma-separated providers directly (no config needed)
+source llm-env set cerebras,anthropic
+```
+
+Each provider in the group sets its own protocol's variables. For example, if `cerebras` uses `openai` protocol and `anthropic` uses `anthropic` protocol, both `OPENAI_*` and `ANTHROPIC_*` variables are set.
+
+Groups appear in `llm-env list` output:
+```
+Provider groups:
+
+   default       → cerebras,anthropic
+   dev           → groq,anthropic
+```
+
 ### Claude Code Specific Configuration
 
 For enhanced Claude Code compatibility during Anthropic outages, you can override the Claude-specific model variables by setting them as environment variables before running `llm-env set anthropic`:

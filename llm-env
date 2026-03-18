@@ -8,7 +8,7 @@
 #   source ./llm-env config <command>
 
 # Version information
-VERSION="1.2.2"
+VERSION="1.3.0"
 
 # ---------- Shell Detection and Version ----------
 
@@ -370,7 +370,19 @@ else
     # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_AUTH_TOKENS_VALUES=()
 fi
+# Provider groups: map group name → comma-separated provider list
+if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
+    if ! declare -p PROVIDER_GROUPS >/dev/null 2>&1; then
+        declare -A PROVIDER_GROUPS
+    fi
+else
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_GROUPS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_GROUPS_VALUES=()
+fi
 declare -a AVAILABLE_PROVIDERS
+declare -a AVAILABLE_GROUPS
 
 # ---------- Array Access Wrappers ----------
 
@@ -457,6 +469,7 @@ load_config() {
     
     debug "Loading configuration from: $config_file"
     local current_provider=""
+    local current_group=""
     local line_num=0
     
     # Read file content and process line by line to avoid subshell issues
@@ -467,6 +480,7 @@ load_config() {
     local comment_pattern="^[[:space:]]*#"
     local empty_pattern="^[[:space:]]*$"
     local section_pattern="^\[([^]]+)\]$"
+    local group_prefix_pattern="^group:"
     local keyval_pattern="^([^=]+)=(.*)$"
 
     # Declare loop variables outside the loop for zsh compatibility
@@ -480,10 +494,36 @@ load_config() {
         [[ "$line" =~ $comment_pattern ]] && continue
         [[ "$line" =~ $empty_pattern ]] && continue
 
-        # Provider section header
+        # Section header
         if [[ "$line" =~ $section_pattern ]]; then
-            current_provider="$(get_match 1)"
-            debug "Found provider section: $current_provider"
+            local section_name
+            section_name="$(get_match 1)"
+            if [[ "$section_name" =~ $group_prefix_pattern ]]; then
+                # Group section: [group:name]
+                current_group="${section_name#group:}"
+                current_provider=""
+                debug "Found group section: $current_group"
+            else
+                # Provider section: [name]
+                current_provider="$section_name"
+                current_group=""
+                debug "Found provider section: $current_provider"
+            fi
+            continue
+        fi
+
+        # Handle group key=value (only "providers" key supported)
+        if [[ -n "$current_group" ]]; then
+            if [[ "$line" =~ $keyval_pattern ]]; then
+                key="$(get_match 1)"
+                value="$(get_match 2)"
+                key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                if [[ "$key" == "providers" ]]; then
+                    set_provider_value "PROVIDER_GROUPS" "$current_group" "$value"
+                    debug "PROVIDER_GROUPS[$current_group] = $value"
+                fi
+            fi
             continue
         fi
 
@@ -546,16 +586,17 @@ init_config() {
     
     # Clear existing configuration
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_AUTH_TOKENS
+        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_GROUPS
         if [[ "${BASH_DECLARE_GLOBAL_SUPPORT}" == "true" ]]; then
-            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS
+            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_GROUPS
         else
-            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS
+            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_GROUPS
         fi
     else
         unset AVAILABLE_PROVIDERS
         AVAILABLE_PROVIDERS=()
     fi
+    AVAILABLE_GROUPS=()
     
     local config_loaded=false
     
@@ -652,6 +693,19 @@ init_config() {
     while IFS= read -r provider; do
         [[ -n "$provider" ]] && AVAILABLE_PROVIDERS+=("$provider")
     done <<< "$sorted_providers"
+
+    # Build list of available groups
+    AVAILABLE_GROUPS=()
+    local -a group_keys
+    while IFS= read -r key; do
+        [[ -n "$key" ]] && group_keys+=("$key")
+    done < <(get_provider_keys "PROVIDER_GROUPS")
+    local group_name
+    for group_name in "${group_keys[@]}"; do
+        AVAILABLE_GROUPS+=("$group_name")
+        debug "Added group: $group_name"
+    done
+    debug "Final AVAILABLE_GROUPS: ${AVAILABLE_GROUPS[*]}"
 
     return 0
 }
@@ -836,14 +890,10 @@ validate_provider() {
 
 # ---------- Commands ----------
 
-cmd_set() {
+# Set a single provider's environment variables
+# Returns 0 on success, 1 on failure
+set_single_provider() {
     local provider="$1"
-    if [[ -z "$provider" ]]; then
-        echo "Usage: source llm-env set <provider>"
-        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
-        echo
-        return 1
-    fi
 
     # Validate provider name format
     if ! validate_provider_name "$provider"; then
@@ -972,7 +1022,69 @@ cmd_set() {
         host=$(host_from_url "$OPENAI_BASE_URL")
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$OPENAI_MODEL key=$(mask "$OPENAI_API_KEY")"
     fi
+    return 0
+}
+
+# Set multiple providers from a comma-separated list
+set_multiple_providers() {
+    local provider_list="$1"
+    local failed=0
+    local count=0
+
+    # Split comma-separated list and set each provider
+    local provider
+    while IFS= read -r provider; do
+        # Trim whitespace
+        provider="$(echo "$provider" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        [[ -z "$provider" ]] && continue
+        ((count+=1))
+        if ! set_single_provider "$provider"; then
+            ((failed+=1))
+        fi
+    done <<< "$(echo "$provider_list" | tr ',' '\n')"
+
+    if [[ "$count" -gt 1 ]]; then
+        # For multi-provider sets, update LLM_PROVIDER to show all
+        export LLM_PROVIDER="$provider_list"
+    fi
+
     echo
+    [[ "$failed" -eq 0 ]] && return 0 || return 1
+}
+
+cmd_set() {
+    local input="$1"
+    if [[ -z "$input" ]]; then
+        echo "Usage: source llm-env set <provider|group|provider1,provider2>"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        if [[ ${#AVAILABLE_GROUPS[@]} -gt 0 ]]; then
+            echo "Available groups: ${AVAILABLE_GROUPS[*]}"
+        fi
+        echo
+        return 1
+    fi
+
+    # Check if input is a group name
+    local group_providers
+    group_providers="$(get_provider_value "PROVIDER_GROUPS" "$input")"
+    if [[ -n "$group_providers" ]]; then
+        debug "Setting group '$input' with providers: $group_providers"
+        set_multiple_providers "$group_providers"
+        return $?
+    fi
+
+    # Check if input contains commas (multi-provider set)
+    if [[ "$input" == *,* ]]; then
+        debug "Setting comma-separated providers: $input"
+        set_multiple_providers "$input"
+        return $?
+    fi
+
+    # Single provider
+    set_single_provider "$input"
+    local rc=$?
+    echo
+    return $rc
 }
 
 cmd_unset() {
@@ -1068,6 +1180,19 @@ cmd_list() {
             "$mark" "$provider" "$protocol" "$base" "$model" "$have_key" "$description" "$enabled_status"
     done
     [[ -n "$LLM_PROVIDER" ]] && echo; echo "* current provider"
+
+    # Show groups if any are defined
+    if [[ ${#AVAILABLE_GROUPS[@]} -gt 0 ]]; then
+        echo
+        echo "Provider groups:"
+        echo
+        local group_name group_providers
+        for group_name in "${AVAILABLE_GROUPS[@]}"; do
+            group_providers="$(get_provider_value "PROVIDER_GROUPS" "$group_name")"
+            printf "   %-12s  → %s\n" "$group_name" "$group_providers"
+        done
+    fi
+
     echo
     return 0  # Explicit success return
 }
@@ -1719,7 +1844,7 @@ cmd_help() {
     echo "    source llm-env <command> [options]"
     echo
     echo "Commands:"
-    echo "    set <provider>        Set LLM provider and export environment variables"
+    echo "    set <provider>        Set LLM provider (or group/comma-separated list)"
     echo "    unset                 Clear all LLM environment variables"
     echo "    list                  List all available providers"
     echo "    show                  Show current environment"
@@ -1742,6 +1867,12 @@ cmd_help() {
     echo "Examples:"
     echo "    # Set up OpenAI provider"
     echo "    source llm-env set openai"
+    echo
+    echo "    # Set multiple providers at once (comma-separated)"
+    echo "    source llm-env set cerebras,anthropic"
+    echo
+    echo "    # Set a provider group (defined in config)"
+    echo "    source llm-env set default"
     echo
     echo "    # List all available providers"
     echo "    source llm-env list"
