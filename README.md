@@ -219,8 +219,14 @@ llm-env set deepseek     # Excellent for code generation
 llm-env set groq         # Fast inference for real-time apps
 llm-env set openai       # Complex reasoning tasks
 
+# Set multiple providers at once (e.g., OpenAI + Anthropic)
+llm-env set cerebras,anthropic
+
+# Or define a group in your config and set it by name
+llm-env set default      # Sets all providers in the "default" group
+
 # Switch between providers as needed
-llm-env list             # See all available providers
+llm-env list             # See all available providers and groups
 llm-env show             # Check current configuration
 ```
 
@@ -268,6 +274,24 @@ source llm-env config restore /path/to/backup.conf
 # Bulk operations
 source llm-env config bulk enable cerebras openai
 source llm-env config bulk disable groq openrouter
+```
+
+### Provider Groups
+
+Define groups to set multiple providers with a single command:
+
+```ini
+# In ~/.config/llm-env/config.conf
+[group:default]
+providers=cerebras,anthropic
+```
+
+```bash
+# Sets both cerebras (OPENAI_*) and anthropic (ANTHROPIC_*) at once
+source llm-env set default
+
+# Or use comma-separated providers directly (no config needed)
+source llm-env set cerebras,anthropic
 ```
 
 **For detailed configuration options, examples, and advanced setup, see the [Configuration Guide](docs/configuration.md)**
