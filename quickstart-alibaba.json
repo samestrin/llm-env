@@ -1,0 +1,40 @@
+{
+  "providers": [
+    {
+      "name": "alibaba-qwen3-5-plus",
+      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
+      "api_key_var": "LLM_ALIBABA_API_KEY",
+      "default_model": "qwen3.5-plus",
+      "description": "Qwen3.5 Plus - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocol": "openai",
+      "enabled": true
+    },
+    {
+      "name": "alibaba-kimi-k2-5",
+      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
+      "api_key_var": "LLM_ALIBABA_API_KEY",
+      "default_model": "kimi-k2.5",
+      "description": "Kimi K2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocol": "openai",
+      "enabled": true
+    },
+    {
+      "name": "alibaba-glm-5",
+      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
+      "api_key_var": "LLM_ALIBABA_API_KEY",
+      "default_model": "glm-5",
+      "description": "GLM-5 - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocol": "openai",
+      "enabled": true
+    },
+    {
+      "name": "alibaba-minimax-m2-5",
+      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
+      "api_key_var": "LLM_ALIBABA_API_KEY",
+      "default_model": "MiniMax-M2.5",
+      "description": "MiniMax M2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocol": "openai",
+      "enabled": true
+    }
+  ]
+}
