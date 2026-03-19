@@ -1704,6 +1704,10 @@ cmd_quickstart() {
             # Check if we're in the providers array
             if [[ "$clean_line" == '"providers"'* ]] || [[ "$clean_line" == "'providers'"* ]]; then
                 in_providers_array=true
+                # Handle "providers": [ on same line
+                if [[ "$clean_line" == *"["* ]]; then
+                    brace_level=1
+                fi
                 continue
             fi
 
@@ -1716,8 +1720,8 @@ cmd_quickstart() {
             # Process braces to track object boundaries
             if [[ "$in_providers_array" == true ]] && [[ "$brace_level" -gt 0 ]]; then
                 local open_braces close_braces
-                open_braces=$(echo "$clean_line" | grep -o '{' | wc -c)
-                close_braces=$(echo "$clean_line" | grep -o '}' | wc -c)
+                open_braces=$(echo "$clean_line" | grep -o '{' | wc -l)
+                close_braces=$(echo "$clean_line" | grep -o '}' | wc -l)
 
                 if [[ "$open_braces" -gt 0 ]]; then
                     # Start a new provider block if not already in one
@@ -1740,13 +1744,8 @@ cmd_quickstart() {
                     if [[ "$in_provider_block" == true ]]; then
                         provider_block="$provider_block$clean_line"$'\n'
 
-                        # If we've closed all braces for this provider, process it
-                        if [[ "$brace_level" -eq 1 ]]; then
-                            # We're still inside the array, continue
-                            continue
-                        elif [[ "$brace_level" -eq 0 ]]; then
-                            # End of provider object, process it
-                            provider_block="$provider_block}"
+                        # If we've closed the provider object (back to array level)
+                        if [[ "$brace_level" -le 1 ]]; then
 
                             # Extract provider fields from the block
                             local name base_url api_key_var default_model description protocol enabled
@@ -1818,10 +1817,15 @@ cmd_quickstart() {
         echo
         echo "💡 Next steps:"
         echo "   1. Set the corresponding API keys in your shell profile:"
+        local shown_keys=""
         for provider in "${added_providers[@]}"; do
             local api_key_var
             api_key_var=$(grep -A 10 "^\[$provider\]$" "$user_config" | grep "^api_key_var=" | cut -d'=' -f2)
-            echo "      export $api_key_var='your-api-key-here'"
+            # Only show each unique key var once
+            if [[ "$shown_keys" != *"|$api_key_var|"* ]]; then
+                echo "      export $api_key_var='your-api-key-here'"
+                shown_keys="${shown_keys}|$api_key_var|"
+            fi
         done
         echo "   2. Reload your shell: source ~/.bashrc or source ~/.zshrc"
         echo "   3. Test the new providers: source llm-env test <provider-name>"
