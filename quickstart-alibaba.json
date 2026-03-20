@@ -7,7 +7,8 @@
       "default_model": "qwen3.5-plus",
       "description": "Qwen3.5 Plus - Recommended coding model from Alibaba Cloud Coding Plan",
       "protocol": "openai",
-      "enabled": true
+      "enabled": true,
+      "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
     },
     {
       "name": "alibaba-kimi-k2-5",
@@ -16,7 +17,8 @@
       "default_model": "kimi-k2.5",
       "description": "Kimi K2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
       "protocol": "openai",
-      "enabled": true
+      "enabled": true,
+      "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
     },
     {
       "name": "alibaba-glm-5",
@@ -25,7 +27,8 @@
       "default_model": "glm-5",
       "description": "GLM-5 - Recommended coding model from Alibaba Cloud Coding Plan",
       "protocol": "openai",
-      "enabled": true
+      "enabled": true,
+      "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
     },
     {
       "name": "alibaba-minimax-m2-5",
@@ -34,7 +37,8 @@
       "default_model": "MiniMax-M2.5",
       "description": "MiniMax M2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
       "protocol": "openai",
-      "enabled": true
+      "enabled": true,
+      "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
     }
   ]
 }

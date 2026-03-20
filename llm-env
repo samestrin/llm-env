@@ -338,6 +338,9 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
     if ! declare -p PROVIDER_AUTH_TOKENS >/dev/null 2>&1; then
         declare -A PROVIDER_AUTH_TOKENS
     fi
+    if ! declare -p PROVIDER_SIGNUP_URLS >/dev/null 2>&1; then
+        declare -A PROVIDER_SIGNUP_URLS
+    fi
 else
     # Initialize compatibility arrays for bash <4.0
     # These are managed by the compatibility functions
@@ -369,6 +372,10 @@ else
     PROVIDER_AUTH_TOKENS_KEYS=()
     # shellcheck disable=SC2034  # Used by compatibility functions and tests
     PROVIDER_AUTH_TOKENS_VALUES=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_SIGNUP_URLS_KEYS=()
+    # shellcheck disable=SC2034  # Used by compatibility functions and tests
+    PROVIDER_SIGNUP_URLS_VALUES=()
 fi
 # Provider groups: map group name → comma-separated provider list
 if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
@@ -561,6 +568,9 @@ load_config() {
                 enabled)
                     set_provider_value "PROVIDER_ENABLED" "$current_provider" "$value"
                     ;;
+                signup_url)
+                    set_provider_value "PROVIDER_SIGNUP_URLS" "$current_provider" "$value"
+                    ;;
                 protocol)
                     # Normalize protocol to lowercase and trim whitespace using helper function
                     normalized_protocol="$(normalize_protocol "$value")"
@@ -586,11 +596,11 @@ init_config() {
     
     # Clear existing configuration
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_GROUPS
+        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
         if [[ "${BASH_DECLARE_GLOBAL_SUPPORT}" == "true" ]]; then
-            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_GROUPS
+            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
         else
-            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_GROUPS
+            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
         fi
     else
         unset AVAILABLE_PROVIDERS
@@ -739,6 +749,16 @@ load_builtin_config() {
 }
 
 # ---------- Helper Functions ----------
+
+# Create a clickable terminal hyperlink using OSC 8 escape sequence
+# Falls back to plain "label (url)" if terminal doesn't support it
+# Usage: link "https://example.com" "Click here"
+link() {
+    local url="$1"
+    local label="${2:-$url}"
+    # OSC 8 hyperlink: supported by most modern terminals
+    printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$url" "$label"
+}
 
 # Normalize protocol value: trim whitespace and convert to lowercase
 # Returns empty string for empty/whitespace-only input
@@ -958,6 +978,11 @@ set_single_provider() {
                 missing_vars="${missing_vars}${auth_token_var}"
             }
             echo "⚠️  No credentials found for $provider. Set $missing_vars in your shell profile."
+            local signup_url
+            signup_url="$(get_provider_value "PROVIDER_SIGNUP_URLS" "$provider")"
+            if [[ -n "$signup_url" ]]; then
+                printf '   🔑 Get an API key: %s\n' "$(link "$signup_url" "$signup_url")"
+            fi
             echo
             return 1
         fi
@@ -969,6 +994,11 @@ set_single_provider() {
             return 1
         elif [[ -z "$key" ]]; then
             echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
+            local signup_url
+            signup_url="$(get_provider_value "PROVIDER_SIGNUP_URLS" "$provider")"
+            if [[ -n "$signup_url" ]]; then
+                printf '   🔑 Get an API key: %s\n' "$(link "$signup_url" "$signup_url")"
+            fi
             echo
             return 1
         fi
@@ -1763,6 +1793,8 @@ cmd_quickstart() {
                             description=$(echo "$provider_block" | grep -o '"description":[[:space:]]*"[^"]*"' | head -1 | sed 's/"description":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
                             protocol=$(echo "$provider_block" | grep -o '"protocol":[[:space:]]*"[^"]*"' | head -1 | sed 's/"protocol":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g' | sed 's/^$/openai/')
                             enabled=$(echo "$provider_block" | grep -o '"enabled":[[:space:]]*[a-zA-Z]*' | head -1 | sed 's/"enabled":[[:space:]]*//' | sed 's/[",]//g' | sed 's/^$/true/')
+                            local signup_url
+                            signup_url=$(echo "$provider_block" | grep -o '"signup_url":[[:space:]]*"[^"]*"' | head -1 | sed 's/"signup_url":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
 
                             # Write provider to user config if not already present
                             if [[ -n "$name" ]] && [[ -n "$base_url" ]] && [[ -n "$api_key_var" ]]; then
@@ -1782,6 +1814,9 @@ cmd_quickstart() {
                                         fi
                                         echo "description=$description"
                                         echo "enabled=$enabled"
+                                        if [[ -n "$signup_url" ]]; then
+                                            echo "signup_url=$signup_url"
+                                        fi
                                         echo ""
                                     } >> "$user_config"
 
@@ -1816,28 +1851,45 @@ cmd_quickstart() {
         done
         echo
         echo "💡 Next steps:"
-        echo "   1. Set the corresponding API keys in your shell profile:"
+        echo "   1. Get your API keys:"
         local shown_keys=""
         for provider in "${added_providers[@]}"; do
-            local api_key_var
+            local api_key_var signup_url
             api_key_var=$(grep -A 10 "^\[$provider\]$" "$user_config" | grep "^api_key_var=" | cut -d'=' -f2)
+            signup_url=$(grep -A 10 "^\[$provider\]$" "$user_config" | grep "^signup_url=" | cut -d'=' -f2-)
             # Only show each unique key var once
             if [[ "$shown_keys" != *"|$api_key_var|"* ]]; then
-                echo "      export $api_key_var='your-api-key-here'"
+                if [[ -n "$signup_url" ]]; then
+                    printf '      🔑 %s → Sign up: %s\n' "$api_key_var" "$(link "$signup_url" "$signup_url")"
+                else
+                    echo "      🔑 $api_key_var"
+                fi
                 shown_keys="${shown_keys}|$api_key_var|"
             fi
         done
-        echo "   2. Reload your shell: source ~/.bashrc or source ~/.zshrc"
-        echo "   3. Test the new providers: source llm-env test <provider-name>"
-        echo "   4. Use a provider: source llm-env set <provider-name>"
+        echo
+        echo "   2. Add your keys to your shell profile:"
+        shown_keys=""
+        for provider in "${added_providers[@]}"; do
+            local api_key_var
+            api_key_var=$(grep -A 10 "^\[$provider\]$" "$user_config" | grep "^api_key_var=" | cut -d'=' -f2)
+            if [[ "$shown_keys" != *"|$api_key_var|"* ]]; then
+                echo "      export $api_key_var='your-key-here'"
+                shown_keys="${shown_keys}|$api_key_var|"
+            fi
+        done
+        echo "   3. Reload your shell: source ~/.bashrc or source ~/.zshrc"
+        echo "   4. Test the new providers: source llm-env test <provider-name>"
+        echo "   5. Use a provider: source llm-env set <provider-name>"
     else
         echo "ℹ️  No new providers were added (they may already exist in your configuration)"
     fi
 
-    # Display referral information
+    # Display sign-up links
     echo
-    echo "🔗 Learn more about synthetic models at: https://synthetic.new"
-    echo "   If you'd like to support this integration, use referral code: LLMENV_QUICKSTART"
+    echo "🔗 Sign up for API access:"
+    printf '   Synthetic: %s\n' "$(link "https://synthetic.new/?referral=ugceNlJ08A3Eeww" "https://synthetic.new")"
+    printf '   Alibaba Cloud Coding Plan: %s\n' "$(link "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX" "https://alibabacloud.com/campaign/benefits")"
     echo
 }
 

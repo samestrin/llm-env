@@ -1,0 +1,34 @@
+{
+  "providers": [
+    {
+      "name": "synthetic-minimax-m2-5",
+      "base_url": "https://api.synthetic.new/openai/v1",
+      "api_key_var": "LLM_SYNTHETIC_API_KEY",
+      "default_model": "MiniMax-M2.5",
+      "description": "MiniMax-M2.5 Claude-compatible model from synthetic.new",
+      "protocol": "openai",
+      "enabled": true,
+      "signup_url": "https://synthetic.new/?referral=ugceNlJ08A3Eeww"
+    },
+    {
+      "name": "synthetic-glm-5",
+      "base_url": "https://api.synthetic.new/openai/v1",
+      "api_key_var": "LLM_SYNTHETIC_API_KEY",
+      "default_model": "glm-5",
+      "description": "GLM-5 Claude-compatible model from synthetic.new",
+      "protocol": "openai",
+      "enabled": true,
+      "signup_url": "https://synthetic.new/?referral=ugceNlJ08A3Eeww"
+    },
+    {
+      "name": "synthetic-kimi-k2-5",
+      "base_url": "https://api.synthetic.new/openai/v1",
+      "api_key_var": "LLM_SYNTHETIC_API_KEY",
+      "default_model": "kimi-k2.5",
+      "description": "Kimi-K2.5 Claude-compatible model from synthetic.new",
+      "protocol": "openai",
+      "enabled": true,
+      "signup_url": "https://synthetic.new/?referral=ugceNlJ08A3Eeww"
+    }
+  ]
+}
