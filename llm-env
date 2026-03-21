@@ -492,7 +492,7 @@ load_config() {
 
     # Declare loop variables outside the loop for zsh compatibility
     # In zsh, re-declaring local variables inside a loop prints previous values
-    local key value normalized_protocol validated_protocol
+    local key value normalized_protocol validated_protocol section_name
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_num+=1))
@@ -503,7 +503,6 @@ load_config() {
 
         # Section header
         if [[ "$line" =~ $section_pattern ]]; then
-            local section_name
             section_name="$(get_match 1)"
             if [[ "$section_name" =~ $group_prefix_pattern ]]; then
                 # Group section: [group:name]
