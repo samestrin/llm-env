@@ -1536,15 +1536,45 @@ cmd_test() {
 
     echo "🧪 Testing provider: $provider (protocol: $protocol)"
 
-    local key_var base_url api_key
+    local key_var base_url api_key auth_token_var auth_token
     key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
     base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
-    api_key="$(get_var_value "$key_var")"
+    if [[ -n "$key_var" ]]; then
+        api_key="$(get_var_value "$key_var")"
+    else
+        api_key=""
+    fi
+
+    # Get auth token for Anthropic protocol
+    auth_token_var=""
+    auth_token=""
+    if [[ "$protocol" == "anthropic" ]]; then
+        auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
+        if [[ -n "$auth_token_var" ]]; then
+            auth_token="$(get_var_value "$auth_token_var")"
+        fi
+    fi
+
+    # Use auth_token as api_key fallback for anthropic protocol
+    if [[ -z "$api_key" && -n "$auth_token" ]]; then
+        api_key="$auth_token"
+        key_var="$auth_token_var"
+    fi
 
     # Check if API key is available
     if [[ -z "$api_key" ]]; then
+        local missing_vars=""
+        if [[ "$protocol" == "anthropic" ]]; then
+            [[ -n "$key_var" ]] && missing_vars="$key_var"
+            [[ -n "$auth_token_var" ]] && {
+                [[ -n "$missing_vars" ]] && missing_vars="$missing_vars or "
+                missing_vars="${missing_vars}${auth_token_var}"
+            }
+        else
+            missing_vars="$key_var"
+        fi
         echo "❌ $provider: API key not found (protocol: $protocol)"
-        echo "💡 Set $key_var in your environment."
+        echo "💡 Set $missing_vars in your environment."
         echo
         return 1
     fi
