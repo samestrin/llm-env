@@ -97,7 +97,7 @@ def test_build_v2_payload_per_model_probe_decisions():
     raw = load_fixture()
 
     def selective_probe(model_id: str) -> bool:
-        return "kimi" in model_id
+        return "kimi" in model_id.lower()
 
     out = synthetic.build_v2_payload(
         fetch=fake_fetch_returning(raw),
