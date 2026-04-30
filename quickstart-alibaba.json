@@ -1,44 +1,52 @@
 {
-  "providers": [
+  "schema_version": "2",
+  "generated_at": "2026-04-30T00:00:00Z",
+  "source": "alibaba",
+  "vendor_short": "alibaba",
+  "endpoints": {
+    "openai": "https://coding-intl.dashscope.aliyuncs.com/v1",
+    "anthropic": "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"
+  },
+  "api_key_var": "LLM_ALIBABA_API_KEY",
+  "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX",
+  "models": [
     {
-      "name": "alibaba-qwen3-5-plus",
-      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
-      "api_key_var": "LLM_ALIBABA_API_KEY",
-      "default_model": "qwen3.5-plus",
+      "id": "qwen3.5-plus",
+      "family": "qwen",
+      "version": "3.5",
       "description": "Qwen3.5 Plus - Recommended coding model from Alibaba Cloud Coding Plan",
-      "protocol": "openai",
-      "enabled": true,
-      "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "qwen3.5-plus"
     },
     {
-      "name": "alibaba-kimi-k2-5",
-      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
-      "api_key_var": "LLM_ALIBABA_API_KEY",
-      "default_model": "kimi-k2.5",
+      "id": "kimi-k2.5",
+      "family": "kimi",
+      "version": "2.5",
       "description": "Kimi K2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
-      "protocol": "openai",
-      "enabled": true,
-      "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "kimi-k2.5"
     },
     {
-      "name": "alibaba-glm-5",
-      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
-      "api_key_var": "LLM_ALIBABA_API_KEY",
-      "default_model": "glm-5",
-      "description": "GLM-5 - Recommended coding model from Alibaba Cloud Coding Plan",
-      "protocol": "openai",
-      "enabled": true,
-      "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
+      "id": "glm-5",
+      "family": "glm",
+      "version": "5",
+      "description": "GLM 5 - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "glm-5"
     },
     {
-      "name": "alibaba-minimax-m2-5",
-      "base_url": "https://coding-intl.dashscope.aliyuncs.com/v1",
-      "api_key_var": "LLM_ALIBABA_API_KEY",
-      "default_model": "MiniMax-M2.5",
+      "id": "minimax-m2.5",
+      "family": "minimax",
+      "version": "2.5",
       "description": "MiniMax M2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
-      "protocol": "openai",
-      "enabled": true,
-      "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "MiniMax-M2.5"
     }
-  ]
+  ],
+  "family_latest": {
+    "qwen": "qwen3.5-plus",
+    "kimi": "kimi-k2.5",
+    "glm": "glm-5",
+    "minimax": "minimax-m2.5"
+  }
 }

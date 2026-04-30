@@ -10,30 +10,34 @@ setup() {
 @test "validate_provider_name: accepts valid provider names" {
     run validate_provider_name "cerebras"
     [ "$status" -eq 0 ]
-    
+
     run validate_provider_name "openai-v2"
     [ "$status" -eq 0 ]
-    
+
     run validate_provider_name "groq_fast"
     [ "$status" -eq 0 ]
-    
+
     run validate_provider_name "provider123"
+    [ "$status" -eq 0 ]
+
+    # v1.4.0: dots are accepted to express versioned model ids like kimi-k2.5
+    run validate_provider_name "openai_synth_kimi-k2.5"
+    [ "$status" -eq 0 ]
+
+    run validate_provider_name "anth_alibaba_qwen3.5-plus"
     [ "$status" -eq 0 ]
 }
 
 @test "validate_provider_name: rejects invalid provider names" {
-    run validate_provider_name "invalid.provider"
-    [ "$status" -eq 1 ]
-    
     run validate_provider_name "provider with spaces"
     [ "$status" -eq 1 ]
-    
+
     run validate_provider_name "provider@special"
     [ "$status" -eq 1 ]
-    
+
     run validate_provider_name ""
     [ "$status" -eq 1 ]
-    
+
     run validate_provider_name "provider/slash"
     [ "$status" -eq 1 ]
 }

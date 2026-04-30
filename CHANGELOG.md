@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-30
+
+### Added
+- **Quickstart Schema v2**: New `quickstart-{synthetic,alibaba}.json` schema with top-level `endpoints.openai` and `endpoints.anthropic`, per-model `protocols[]` array, and `family_latest{}` map
+- **Anthropic Protocol Quickstart**: Synthetic and Alibaba quickstart files now provision both `openai_*` and `anth_*` providers, automatically configuring `protocol=anthropic` for the latter
+- **Per-Model Groups**: Each model with both protocols available gets a `[group:<vendor>_<id>]` binding, so `source llm-env set synth_kimi-k2.5` activates both `OPENAI_*` and `ANTHROPIC_*` env vars in one shot
+- **Family-Latest Aliases**: `[group:synth_kimi]`, `[group:synth_glm]`, `[group:alibaba_qwen]`, etc., resolve to whichever model is currently latest in that effective family (subtype-aware: `qwen-coder` and `qwen-thinking` track separately from `qwen`)
+- **`LLM_ENV_QUICKSTART_DIR` env var**: Override the directory where `cmd_quickstart` looks for JSON files (used by integration tests and advanced setups)
+
+### Changed
+- **Naming Scheme**: Quickstart-emitted providers are now `<protocol>_<vendor-short>_<model>` (e.g. `openai_synth_kimi-k2.5`, `anth_alibaba_qwen3.5-plus`). Previous `<vendor>-<model>` names are no longer emitted.
+- **Quickstart Parser**: Rewritten with pure-bash JSON helpers. Quantization variants (`-NVFP4`, `-FP8`, etc.) are no longer carried in the curated JSON files. Schema version is enforced — the parser rejects any file without `schema_version: "2"`.
+
+### Removed
+- `backend/synthetic-model-discovery.sh`: stale prototype superseded by the upcoming Python scraper (PR2)
+- `test-quickstart.sh`: ad-hoc shell test, replaced by `tests/integration/test_quickstart.bats`
+
+### Migration
+Existing user configs are not modified. Provider sections written by older quickstart runs (e.g. `[synthetic-kimi-k2-5]`) continue to work — they just stop getting refreshed. To pick up the new naming and groups, re-run `llm-env quickstart` after updating to v1.4.0.
+
 ## [1.3.2] - 2026-03-20
 
 ### Added

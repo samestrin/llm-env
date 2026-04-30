@@ -157,16 +157,18 @@ install_config_files() {
     if [[ -f "$config_file" ]]; then
         print_warning "Configuration file already exists: $config_file"
 
-        # Ask if user wants to add synthetic providers
-        echo
-        echo -e "${YELLOW}Would you like to add synthetic model providers now?${NC}"
-        echo "These are Claude-compatible models from synthetic.new and Alibaba Cloud."
-        echo -e "${BLUE}This will download quickstart JSON files and add the providers to your config.${NC}"
-        echo
-        read -p "Add synthetic providers? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            add_synthetic_providers
+        # Ask if user wants to add synthetic providers (interactive shells only)
+        if [[ -t 0 ]]; then
+            echo
+            echo -e "${YELLOW}Would you like to add synthetic model providers now?${NC}"
+            echo "These are Claude-compatible models from synthetic.new and Alibaba Cloud."
+            echo -e "${BLUE}This will download quickstart JSON files and add the providers to your config.${NC}"
+            echo
+            read -p "Add synthetic providers? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                add_synthetic_providers
+            fi
         fi
         return 0
     fi
@@ -229,16 +231,18 @@ EOF
 
         print_success "Created default configuration: $config_file"
 
-        # Ask if user wants to add synthetic providers to the new config
-        echo
-        echo -e "${GREEN}Great! Would you like to add synthetic model providers now?${NC}"
-        echo "These are Claude-compatible models from synthetic.new and Alibaba Cloud."
-        echo -e "${BLUE}This will download quickstart JSON files and add the providers to your config.${NC}"
-        echo
-        read -p "Add synthetic providers? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            add_synthetic_providers
+        # Ask if user wants to add synthetic providers (interactive shells only)
+        if [[ -t 0 ]]; then
+            echo
+            echo -e "${GREEN}Great! Would you like to add synthetic model providers now?${NC}"
+            echo "These are Claude-compatible models from synthetic.new and Alibaba Cloud."
+            echo -e "${BLUE}This will download quickstart JSON files and add the providers to your config.${NC}"
+            echo
+            read -p "Add synthetic providers? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                add_synthetic_providers
+            fi
         fi
     else
         print_error "Failed to create configuration file"
@@ -278,6 +282,7 @@ add_synthetic_providers() {
         fi
 
         # Run the quickstart command to add providers
+        # shellcheck source=/dev/null
         if source "$llm_env_script" quickstart 2>/dev/null; then
             print_success "Synthetic providers added successfully"
         else

@@ -11,7 +11,7 @@
 #   - llm-env installed (https://github.com/samestrin/llm-env)
 #   - At least one API key set:
 #       export LLM_SYNTHETIC_API_KEY='your-synthetic-key'
-#       export LLM_ALIBABA_API_KEY='sk-sp-your-alibaba-coding-plan-key'
+#       export LLM_ALIBABA_API_KEY='your-alibaba-key'
 #
 # Usage:
 #   bash demo-quickstart.sh              # Run full demo

@@ -44,25 +44,41 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 
 ![llm-env --help](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ylderczpgbos0fdzfn02.png)
 
-### Quickstart - Synthetic Model Integration
+### Quickstart - Synthetic & Alibaba Coding Plan
 
-The `llm-env` tool now supports integration with synthetic Claude-compatible models through our new quickstart feature:
+The `llm-env quickstart` command provisions provider definitions for both Synthetic and Alibaba Cloud Coding Plan from curated JSON files:
 
 ```bash
-# Add synthetic providers from pre-defined JSON configurations
 llm-env quickstart
-
-# This will download and configure providers like:
-# - synthetic-glm-5: GLM-5 Claude-compatible model from synthetic.new
-# - synthetic-minimax-m2-5: MiniMax-M2.5 Claude-compatible model from synthetic.new
-# - synthetic-kimi-k2-5: Kimi-K2.5 Claude-compatible model from synthetic.new
-# - alibaba-qwen3-5-plus: Qwen3.5 Plus - Recommended model with enhanced capabilities from Alibaba Cloud
-# - alibaba-qwen-max: Qwen Max - Recommended for complex, multi-step tasks from Alibaba Cloud
-# - alibaba-qwen-plus: Qwen Plus - Balanced performance model from Alibaba Cloud
-# - alibaba-qwen-turbo: Qwen Turbo - Fast, economical model from Alibaba Cloud
 ```
 
-The quickstart feature fetches JSON configuration files containing pre-defined provider settings and adds them to your user configuration. These providers offer Claude-compatible models that work with any OpenAI-compatible tool through llm-env's environment variable mapping.
+For each model the command emits up to two provider sections plus a group binding them, using the naming scheme `<protocol>_<vendor-short>_<model>`:
+
+```ini
+[openai_synth_kimi-k2.5]    # OpenAI-compatible endpoint
+[anth_synth_kimi-k2.5]      # Anthropic-compatible endpoint (protocol=anthropic)
+[group:synth_kimi-k2.5]     # Activates both at once
+```
+
+There are also family-latest aliases that always resolve to whichever model is currently the newest in that effective family:
+
+```bash
+source llm-env set synth_kimi          # latest Kimi (both protocols)
+source llm-env set synth_glm           # latest GLM base
+source llm-env set synth_glm-flash     # latest GLM Flash
+source llm-env set synth_qwen-coder    # latest Qwen Coder
+source llm-env set alibaba_qwen        # latest Alibaba Qwen
+```
+
+A specific model is also addressable directly:
+
+```bash
+source llm-env set synth_kimi-k2.5            # both protocols, this exact version
+source llm-env set openai_synth_kimi-k2.5     # only the OpenAI side
+source llm-env set anth_alibaba_qwen3.5-plus  # only the Anthropic side
+```
+
+The JSON files live at the top of the repository and follow schema v2 (see `quickstart-synthetic.json` and `quickstart-alibaba.json`). They are refreshed daily by a scheduled GitHub Actions job (see `.github/workflows/update-quickstart.yml`, available after PR2 lands).
 
 Learn more about synthetic models at: https://synthetic.new
 
