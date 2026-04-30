@@ -1,0 +1,21 @@
+{
+  "object": "list",
+  "data": [
+    { "id": "hf:MiniMaxAI/MiniMax-M2.5",                                       "object": "model", "owned_by": "minimax" },
+    { "id": "hf:moonshotai/Kimi-K2.5",                                         "object": "model", "owned_by": "moonshot" },
+    { "id": "hf:nvidia/Kimi-K2.5-NVFP4",                                       "object": "model", "owned_by": "nvidia" },
+    { "id": "hf:nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4",               "object": "model", "owned_by": "nvidia" },
+    { "id": "hf:zai-org/GLM-4.7",                                              "object": "model", "owned_by": "zai-org" },
+    { "id": "hf:zai-org/GLM-4.7-Flash",                                        "object": "model", "owned_by": "zai-org" },
+    { "id": "hf:zai-org/GLM-5",                                                "object": "model", "owned_by": "zai-org" },
+    { "id": "hf:zai-org/GLM-5.1",                                              "object": "model", "owned_by": "zai-org" },
+    { "id": "hf:deepseek-ai/DeepSeek-V3.2",                                    "object": "model", "owned_by": "deepseek" },
+    { "id": "hf:openai/gpt-oss-120b",                                          "object": "model", "owned_by": "openai" },
+    { "id": "hf:deepseek-ai/DeepSeek-R1-0528",                                 "object": "model", "owned_by": "deepseek" },
+    { "id": "hf:deepseek-ai/DeepSeek-V3",                                      "object": "model", "owned_by": "deepseek" },
+    { "id": "hf:meta-llama/Llama-3.3-70B-Instruct",                            "object": "model", "owned_by": "meta-llama" },
+    { "id": "hf:Qwen/Qwen3-235B-A22B-Thinking-2507",                           "object": "model", "owned_by": "qwen" },
+    { "id": "hf:Qwen/Qwen3-Coder-480B-A35B-Instruct",                          "object": "model", "owned_by": "qwen" },
+    { "id": "hf:Qwen/Qwen3.5-397B-A17B",                                       "object": "model", "owned_by": "qwen" }
+  ]
+}
