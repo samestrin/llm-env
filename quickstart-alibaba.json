@@ -1,6 +1,6 @@
 {
   "schema_version": "2",
-  "generated_at": "2026-04-30T00:00:00Z",
+  "generated_at": "2026-04-30T21:28:01Z",
   "source": "alibaba",
   "vendor_short": "alibaba",
   "endpoints": {
@@ -14,32 +14,44 @@
       "id": "qwen3.5-plus",
       "family": "qwen",
       "version": "3.5",
-      "description": "Qwen3.5 Plus - Recommended coding model from Alibaba Cloud Coding Plan",
-      "protocols": ["openai", "anthropic"],
+      "description": "qwen3.5-plus - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
       "upstream_id": "qwen3.5-plus"
     },
     {
       "id": "kimi-k2.5",
       "family": "kimi",
       "version": "2.5",
-      "description": "Kimi K2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
-      "protocols": ["openai", "anthropic"],
+      "description": "kimi-k2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
       "upstream_id": "kimi-k2.5"
     },
     {
       "id": "glm-5",
       "family": "glm",
       "version": "5",
-      "description": "GLM 5 - Recommended coding model from Alibaba Cloud Coding Plan",
-      "protocols": ["openai", "anthropic"],
+      "description": "glm-5 - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
       "upstream_id": "glm-5"
     },
     {
       "id": "minimax-m2.5",
       "family": "minimax",
       "version": "2.5",
-      "description": "MiniMax M2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
-      "protocols": ["openai", "anthropic"],
+      "description": "MiniMax-M2.5 - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
       "upstream_id": "MiniMax-M2.5"
     }
   ],
