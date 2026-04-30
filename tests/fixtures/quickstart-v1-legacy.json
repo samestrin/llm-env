@@ -1,0 +1,13 @@
+{
+  "providers": [
+    {
+      "name": "legacy-provider",
+      "base_url": "https://api.legacy.example/v1",
+      "api_key_var": "LLM_LEGACY_API_KEY",
+      "default_model": "legacy-model",
+      "description": "Legacy v1 schema provider",
+      "protocol": "openai",
+      "enabled": true
+    }
+  ]
+}
