@@ -1,6 +1,6 @@
 {
   "schema_version": "2",
-  "generated_at": "2026-04-30T21:27:59Z",
+  "generated_at": "2026-04-30T23:23:56Z",
   "source": "synthetic",
   "vendor_short": "synth",
   "endpoints": {
@@ -82,7 +82,8 @@
       "version": "3.2",
       "description": "Deepseek 3.2 from synthetic.new",
       "protocols": [
-        "openai"
+        "openai",
+        "anthropic"
       ],
       "upstream_id": "hf:deepseek-ai/DeepSeek-V3.2"
     },
