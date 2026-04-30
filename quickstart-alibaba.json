@@ -11,15 +11,15 @@
   "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX",
   "models": [
     {
-      "id": "qwen3.5-plus",
+      "id": "qwen3.6-plus",
       "family": "qwen",
-      "version": "3.5",
-      "description": "qwen3.5-plus - Recommended coding model from Alibaba Cloud Coding Plan",
+      "version": "3.6",
+      "description": "qwen3.6-plus - Recommended coding model from Alibaba Cloud Coding Plan",
       "protocols": [
         "openai",
         "anthropic"
       ],
-      "upstream_id": "qwen3.5-plus"
+      "upstream_id": "qwen3.6-plus"
     },
     {
       "id": "kimi-k2.5",
@@ -56,7 +56,7 @@
     }
   ],
   "family_latest": {
-    "qwen": "qwen3.5-plus",
+    "qwen": "qwen3.6-plus",
     "kimi": "kimi-k2.5",
     "glm": "glm-5",
     "minimax": "minimax-m2.5"
