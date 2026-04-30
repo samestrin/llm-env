@@ -1,0 +1,505 @@
+
+
+
+<!DOCTYPE html>
+<html lang="en" class="transparent alicloud back-to-top new_default">
+<link rel="stylesheet" href="//g.alicdn.com/aliyun-help/help-portal-fe/0.12.39/css/index.css" />
+<head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8"/>
+<meta name="spm-id" content="a2c63">
+<meta name="data-spm" content="a2c63" />
+<meta name="aplus-core" content="aplus.js">
+<meta name="aplus-ajax" content="chksum">
+<meta name="aplus-waiting" content="MAN">
+<meta name="aplus-pvhash" content="1">
+ <meta name="kloud:supported-langs" content="en,zh,tc,ja,id"/>
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="applicable-device" content="pc,mobile">
+<meta name="aplus-rhost-v" content="sg.mmstat.com">
+<meta name="aplus-rhost-g" content="sg.mmstat.com">
+<title>
+ Understand Coding Plan Pricing and Quota Limits - Model Studio - Alibaba Cloud
+
+</title>
+ <meta name="keywords" content="Model Studio, Coding Plan quota rules, qwen3-coder-plus model access, API key generation workflow, Claude Code endpoint setup, free tier request limits, subscription tier comparison">
+ <meta name="description" content="Model Studio Coding Plan provides dedicated monthly quota tiers—Lite and Pro—with exclusive API keys for AI coding assistants like Claude Code. Understand how per-invocation quota logic and monthly resets govern uninterrupted coding workflows.">
+ <script>
+window.globalData = {
+website: "intl",
+language: "en",
+nodeId:"3005961",
+channel: "",
+notfound: "",
+statusCode: "",
+errorType: ""
+};
+// UT的全局配置变量，在CDN加载前配置
+window.$ACE_TRACKER_CONFIG = {
+enableHistory: true,
+enableHash: false
+};
+</script>
+<!-- <base href="https://www.alibabacloud.com">-->
+<link rel="canonical" href="https://www.alibabacloud.com/help/en/model-studio/coding-plan"/>
+ <meta property="og:title" content="Coding Plan overview - Alibaba Cloud" />
+ <meta property="og:type" content="website" />
+ <meta property="og:url" content="https://www.alibabacloud.com/help/en/model-studio/coding-plan" />
+ <meta property="og:image" content="https://img.alicdn.com/tfs/TB1xpNqnmslXu8jSZFuXXXg7FXa-1200-630.png_.webp" />
+ <meta property="og:description" content="Model Studio Coding Plan provides dedicated monthly quota tiers—Lite and Pro—with exclusive API keys for AI coding assistants like Claude Code. Understand how per-invocation quota logic and monthly resets govern uninterrupted coding workflows." />
+ <link rel="shortcut icon" href="//img.alicdn.com/tfs/TB1ugg7M9zqK1RjSZPxXXc4tVXa-32-32.png"/>
+<link rel="stylesheet" href="https://o.alicdn.com/fund/alicloud-pure-layout/css/index.min.css" />
+ <link
+rel="icon"
+href="https://img.alicdn.com/imgextra/i2/O1CN01TFs5Qw27uYvfA6gib_!!6000000007857-55-tps-32-32.svg"
+type="image/x-icon"
+/>
+</head>
+<body data-spm="" class="HAS_ALPS_RESOURCE"><script  type="text/javascript">
+(function  (d)  {
+var  t=d.createElement("script");t.type="text/javascript";t.async=true;t.id="tb-beacon-aplus";
+t.setAttribute("exparams","category=&userid=&aplus&yunid=&yunpk=&channel=&cps=");
+t.src="//g.alicdn.com/alilog/mlog/aplus_v2.js";
+d.getElementsByTagName("head")[0].appendChild(t);
+})(document);
+</script><script>
+with(document)with(body)with(insertBefore(createElement("script"),firstChild))setAttribute("exparams","category=&userid=&aplus&yunid=&&trid=0a3c5c7817775808622434034e5d46&asid=AQAAAAA+u/Np+BNtSQAAAAA9mp+oSPNU+Q==",id="tb-beacon-aplus",src=(location>"https"?"//g":"//g")+".alicdn.com/alilog/mlog/aplus_v2.js")
+</script>
+
+ <script async src="https://o.alicdn.com/fund/alicloud-pure-layout/index.js"></script>
+
+<div id="app">
+<div class="aliyun-app-layout">
+
+<!-- docId:3005961 -->
+<input type="hidden" id="website" value="intl">
+<div class="products-wrapper$tip" data-spm="879954">
+<section id="products" class="intl-product container">
+<div class="row">
+<div class="col-lg-3 col-md-3 col-sm-4 col-xs-12" id="navDocument">
+<div class="doc-nav">
+<a class="doc-center" href="/help/en">
+<i class="icon-docs icon-docs-back"></i>
+Document Center
+</a>
+</div>
+<div class="placeholder-ele">&nbsp;</div>
+</div>
+<div class="col-lg-7 col-md-7 col-sm-8 col-xs-12 doc-content">
+<div class="all-products action" id="J_AllProducts">
+<div class="all-products-head">
+<div class="all-products-title">All Products</div>
+<div class="all-products-search-wrapper">
+<div class="all-products-search focus">
+<input autocomplete="off" class="all-products-search-box-input" id="J_AllProductsSearch" placeholder="Search Product" data-spm-anchor-id="a2c4g.11186623.6.i0.1f753945H9RVzu">
+<i class="icon-search icon-docs icon-docs-search"></i>
+<ul class="all-products-search-result" style="display: none;">
+</ul>
+</div>
+</div>
+</div>
+<div class="all-products-body" id="J_AllProductsBody"></div>
+</div>
+<div class="search-product-modal">
+Search
+</div>
+<div class="breadcrumbs-top" data-spm="a1">
+<div class="row nav-breadcrumb">
+ <div class="col-md-12 hidden-sm hidden-xs">
+<ul class="breadcrumb text-sm">
+<li><a class="active" title="Document Center" href="/help/en">Document Center</a></li>
+ <li><a class="active" title="Alibaba Cloud Model Studio" href="/help/en/model-studio/">Alibaba Cloud Model Studio</a></li>
+ <li><a class="active" title="User Guide (Models)" href="/help/en/model-studio/model-user-guide/">User Guide (Models)</a></li>
+ <li><a class="active" title="Coding Plan" href="/help/en/model-studio/coding-plan-guide/">Coding Plan</a></li>
+ <li><a class="active" title="Overview" href="/help/en/model-studio/coding-plan">Overview</a></li>
+ </ul>
+</div>
+ <div class="col-md-4 col-sm-12">
+<button type="button" class="navbar-toggle bc mr0" data-toggle="collapse"
+data-target="#sideMenu-mobile">
+<span class="icon-bar"></span>
+<span class="icon-bar"></span>
+all-products-head <span class="icon-bar"></span>
+</button>
+</div>
+</div>
+<form class="search-bar clearfix" method="GET" action="/s/en">
+<input type="hidden" name="type" value="doc"/>
+<div class="select">
+<p class="select-text">
+<span class="placeholder">This Product</span>
+<i class="icon-docs icon-docs-selected"></i>
+</p>
+<ul class="select-options" style="display:none;">
+<li class="option selected" data-value="h_pid_$productId">This Product</li>
+<li class="option" data-value="">All Products</li>
+</ul>
+<input type="hidden" name="rangeinfo" value="h_pid_2400256"/>
+</div>
+<input autocomplete="off" class="search-key" type="text" placeholder="Search by keyword" name="k"/>
+<ul class="help-top-search-result" style="display: block;"></ul>
+<button class="search-submit" type="submit">
+<i class="icon-docs icon-docs-search"></i>
+</button>
+<div class="collapse-menus select">
+<p class="select-text">
+<span class="placeholder">Alibaba Cloud Model Studio:Coding Plan overview</span>
+<i class="icon-docs icon-docs-more"></i>
+</p>
+</div>
+</form>
+</div>
+<header id="header-faq" class="clearfix">
+<a class="doc-center" href="/help/en">
+<i class="icon-docs icon-docs-back"></i>
+Document Center
+</a>
+<div class="download-links">
+ </div>
+<h1 class="page-title">Alibaba Cloud Model Studio:Coding Plan overview</h1>
+<div class="doc-status">
+Last Updated:Mar 30, 2026
+</div>
+</header>
+<article class="product-description markdown-body">
+<div lang="en" class="icms-help-docs-content">
+
+  <main id="main-3212317">
+    
+    
+    <p data-tag="shortdesc" id="05d3959bc955r" class="shortdesc">Monthly subscription for AI coding tools — top models at fixed, predictable pricing.</p>
+    <div data-tag="body" id="0f157a2f8a3c3" class="body">
+      
+      <section id="f93011b1607v0" props="intl" data-cond-props="intl" class="section">
+        <h2 id="f514b6df51cks"><b>Plan details</b></h2>
+        <div type="note" id="1b7ada5a6aifp" class="note note-note"><div class="note-icon-wrapper"><i class="icon-note note note"></i></div><div class="noteContentSpan"><strong>Note </strong>
+          <p id="fab6fe07b6qpl">Effective March 20, 2026 at 00:00:00 (UTC+8), the Lite plan will no longer accept new subscriptions. Existing subscribers retain full access to usage, renewal, and upgrade options. <a class="" href="https://www.alibabacloud.com/zh/notice/detail?_p_lc=1&amp;id=1781" id="2a86203b2ez8h">Announcement</a></p>
+        </div></div>
+        <table id="a99539e08ekpq" tablewidth="100" tablecolswidth="25.04 74.96" autofit="true" class="table">
+          <colgroup colwidth="0.5*" style="width:25.04%"></colgroup>
+          <colgroup colwidth="1.5*" style="width:74.96%"></colgroup>
+          <tbody class="tbody">
+            <tr id="d0cfa7ab30pqy">
+              <td id="754589ea53pyi" rowspan="1" style="background-color:#e5e5e5;vertical-align:middle" colspan="1">
+                <p id="570ba19084t36"></p>
+              </td>
+              <td id="4283a0278darw" rowspan="1" style="background-color:#e5e5e5;vertical-align:middle" colspan="1">
+                <p id="719ba01fc5z30"><b>Pro</b></p>
+              </td>
+            </tr>
+            <tr id="daaa3d2f03254">
+              <td id="59535889833lr" rowspan="1" style="vertical-align:middle" colspan="1">
+                <p id="239945cf8cmfx">Models</p>
+              </td>
+              <td id="1bbe56b28d7dc" rowspan="1" style="vertical-align:middle" colspan="1">
+                <p id="2eae93d2889ja">Recommended: <b>qwen3.5-plus</b> (vision), <b>kimi-k2.5</b> (vision), <b>glm-5</b>, <b>MiniMax-M2.5</b></p>
+                <p id="975f2b57e2037">More: qwen3-max-2026-01-23, qwen3-coder-next, qwen3-coder-plus, glm-4.7</p>
+              </td>
+            </tr>
+            <tr id="73de41e87auej">
+              <td id="b893cec039f1h" rowspan="1" style="vertical-align:middle" colspan="1">
+                <p id="e1bf613644v9i">Pricing</p>
+              </td>
+              <td id="857e20d7688ke" rowspan="1" style="vertical-align:middle" colspan="1">
+                <p id="e6efeec1e052i"><b>$50</b>/month</p>
+              </td>
+            </tr>
+            <tr id="7a942cdc26whl">
+              <td id="a7ba3e247f3ae" rowspan="1" style="vertical-align:middle" colspan="1">
+                <p id="43503d5ff7xy6">Quota</p>
+              </td>
+              <td id="096083ed50pv4" rowspan="1" style="vertical-align:middle" colspan="1">
+                <ul id="a3aa657f24td5">
+                  <li id="72c557b3bfeuh">
+                    <p id="91f65175178wx"><b>6,000</b> requests per 5 hours</p>
+                  </li>
+                  <li id="d9ef1c5d630k6">
+                    <p id="af3f8ed49clj2"><b>45,000</b> requests per week</p>
+                  </li>
+                  <li id="2fe41f98cdg6j">
+                    <p id="e099b3f3bau1w"><b>90,000</b> requests per month</p>
+                  </li>
+                </ul>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <ul id="97e6be180cjnx">
+          <li id="b4dd6ec551473">
+            <p id="dc5bed1cba613"><b>Quota usage:</b> Each query uses quota based on model requests. Simple tasks use ~5-10 requests, complex tasks use 10-30+. Usage varies by task complexity, context length, and tool usage. Check your usage on the <span props="intl"><a class="" href="https://modelstudio.console.alibabacloud.com/ap-southeast-1/?tab=globalset#/efm/coding_plan" id="d5267b861378c">Coding Plan page</a></span>.</p>
+          </li>
+          <li id="5dd15431320t2">
+            <p id="e8b33dc764s20"><b>Quota reset</b>:</p>
+            <ol id="0a5d1d90e0nvl" start="1">
+              <li id="1fd9cdcb9189o">
+                <p id="655266f0cci2x">5-hour quota: Uses a sliding window. Each request is reset exactly 5 hours after it was used. Example: 100 requests used at 10:00 become available again at 15:00; 50 requests used at 10:30 become available at 15:30.</p>
+              </li>
+              <li id="82f21c833ay3j">
+                <p id="cdd43df67eyet">Weekly quota: Resets every Monday at 00:00:00 (UTC+8).</p>
+              </li>
+              <li id="62aa5e160djkv">
+                <p id="9ea1634e3dy9m">Monthly quota: Resets on the same calendar date each month as your subscription start date, at 00:00:00 (UTC+8).</p>
+              </li>
+            </ol>
+          </li>
+        </ul>
+      </section>
+      <section id="c4213f1af0co1" class="section">
+        <h2 jc="left" id="05edda38e69wa" data-spm-anchor-id="a2c63.p38356.0.i1.45ab73fcwRmGeH" style="text-align:left"><b>Getting started</b></h2>
+      </section>
+      <section id="40184273b7pog" class="section">
+        <h3 id="d8bfda628cox3"><b>Step 1: Subscribe to Coding Plan</b></h3>
+        <p id="6188149d150rq">Go to the <span props="intl"><a class="" href="https://modelstudio.console.alibabacloud.com/ap-southeast-1/?tab=globalset#/efm/coding_plan" id="05d03760a1zw0">Coding Plan page</a></span>, select a plan, and complete the purchase.</p>
+        <p id="adeadb6a67182">Subscribe directly with your Alibaba Cloud account. RAM users require authorization first.</p>
+        <div id="cf8e1a407a5kw" outputclass="collapse" class="collapse">
+          <p jc="left" id="6fd074fb97nz8" data-tag="expandable-title" style="text-align:left" class="expandable-title"><b>Steps to authorize a RAM user</b></p>
+          <div data-tag="expandable-content" id="e1faa82aa645z" class="expandable-content">
+            <ol id="7029afe7d5rv4">
+              <li id="695d43fc8cbu4">
+                <p id="4c5df205d65ke"><b>Add a user:</b> Log on to Alibaba Cloud Model Studio with your Alibaba Cloud account. Go to the <span props="intl"><a class="" href="https://modelstudio.console.alibabacloud.com/ap-southeast-1/?tab=app#/authority" id="fe2d69a00afga">Permissions</a></span> page for your target workspace. Click <b data-tag="uicontrol" id="8cdff00352eod" class="uicontrol">Add User</b> to add the RAM user. Enter a username and click <b data-tag="uicontrol" id="bcf0dabe5dgb8" class="uicontrol">OK</b>. <img alt="image" id="07514549e0gvt" placement="break" src="https://help-static-aliyun-doc.aliyuncs.com/assets/img/en-US/9842172771/p1057319.png" width="700" class="image break"></p>
+              </li>
+              <li id="2fedf44c70yvu">
+                <p id="44834cca08ot3"><b>Grant permissions:</b> Click <b data-tag="uicontrol" id="fdf4186ccbszi" class="uicontrol">Permissions</b> to the right of the user. Add <b data-tag="uicontrol" id="a34b960fe3nyo" class="uicontrol">Administrator</b> and click <b data-tag="uicontrol" id="90c1b2bd24bua" class="uicontrol">Confirm</b>. <img alt="image" id="7adfe89e78u7p" placement="break" src="https://help-static-aliyun-doc.aliyuncs.com/assets/img/en-US/9842172771/p1057328.png" width="600" class="image break"></p>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </section>
+      <section id="2782cf93b1w8h" class="section">
+        <h3 id="2531c37fd64f9"><b>Step 2: Get your plan-specific API key and base URL</b></h3>
+        <p id="bd1fc715816dc">Get and configure your plan's API key and base URL to ensure its quota is deducted correctly.</p>
+        <ul id="46f29e9bd9zq1" start="1">
+          <li id="970e698ff6l11">
+            <p id="8de7cb57a7f0j"><b>API key:</b> Go to the <span props="intl"><a class="" href="https://modelstudio.console.alibabacloud.com/ap-southeast-1/?tab=globalset#/efm/coding_plan" id="abbb37586be5i">Coding Plan page</a></span> to get your plan-specific API key, in the format of <code data-tag="code" id="eab4ce35a0ilv" class="code">sk-sp-xxxxx</code>.</p>
+          </li>
+          <li id="c3a8c28c77zmd">
+            <p id="8da68c261aygh"><b>Base URL:</b> Use one of the following base URLs depending on your tool. For detailed instructions, see the corresponding documentation.</p>
+            <ul id="e6cd751b87fnt" start="1">
+              <li id="a111bce515if3">
+                <p id="7ee41b805affx"><b>OpenAI compatible:</b> <code data-tag="inlineCode" data-init-id="81cf983287cg2" id="81c2e6dc2ej8o" props="intl" data-cond-props="intl" class="inlineCode">https://coding-intl.dashscope.aliyuncs.com/v1</code></p>
+              </li>
+              <li id="e7d13a3f8eui7">
+                <p id="682a95958a8r0"><b>Anthropic compatible:</b> <code data-tag="inlineCode" data-init-id="994120450dlme" id="8a2e47fb07f5o" props="intl" data-cond-props="intl" class="inlineCode">https://coding-intl.dashscope.aliyuncs.com/apps/anthropic</code></p>
+              </li>
+            </ul>
+          </li>
+        </ul>
+        <div id="m4n5o6p7q8rst" type="note" class="note note-note"><div class="note-icon-wrapper"><i class="icon-note note note"></i></div><div class="noteContentSpan"><strong>Note </strong>
+          <p id="1d974b10266o7">The API key and base URL for Coding Plan differ from the API key (<code data-tag="code" id="p7q8r9s0t1abc" class="code">sk-xxxxx</code>) and base URL (<code data-tag="code" class="code" id="156d863dcdcw9" props="intl" data-cond-props="intl">https://dashscope-intl.aliyuncs.com/xxxxxx</code>) for Model Studio's pay-as-you-go service. Do not use them interchangeably.</p>
+        </div></div>
+      </section>
+      <section id="d976677d45eer" class="section">
+        <h3 id="5f8507878alf8"><b>Step 3: Choose an AI tool</b></h3>
+        
+        <section id="7e96b5cccam6q" props="intl" data-cond-props="intl" class="section">
+          <style>
+  /*
+   * Key notes:
+   * All selectors are prefixed with #cp01tbl01cnintl to scope styles within this container.
+   */
+
+  /* 1. Outer container */
+  #cp01tbl01cnintl {
+    display: flex;
+    flex-wrap: wrap;
+    /* Note 1: Reduce card gap */
+    gap: 12px; 
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+
+  /* 2. Card base styles */
+  #cp01tbl01cnintl .cp-card {
+    /* Note 2: Update width calculation based on new gap */
+    width: calc((100% - 24px) / 3);
+    border: 1px solid #e8e8e8;
+    border-radius: 8px;
+    background: #fff;
+    transition: all 0.2s ease;
+    display: flex; 
+  }
+
+  #cp01tbl01cnintl .cp-card:hover {
+    border-color: #1677ff;
+    box-shadow: 0 4px 12px rgba(22, 119, 255, 0.12);
+    transform: translateY(-2px);
+  }
+
+  /* 3. Card inner link styles */
+  #cp01tbl01cnintl .cp-card a.cp-link {
+    display: block;
+    width: 100%;
+    /* Note 3: Reduce top/bottom padding inside cards */
+    padding: 12px 16px;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  #cp01tbl01cnintl .cp-card a.cp-link b {
+    display: block;
+    color: #1a1a1a;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    line-height: 1.4;
+  }
+
+  #cp01tbl01cnintl .cp-card a.cp-link span {
+    display: block;
+    color: #666;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  
+  /* 4. Placeholder for empty cards */
+  #cp01tbl01cnintl .cp-card-placeholder {
+    /* Also update width calculation */
+    width: calc((100% - 24px) / 3);
+    visibility: hidden;
+  }
+
+  /* 5. Responsive adjustments */
+  @media (max-width: 768px) {
+    #cp01tbl01cnintl .cp-card,
+    #cp01tbl01cnintl .cp-card-placeholder {
+      width: 100%;
+    }
+  }
+</style>
+
+<!-- HTML structure reordered per screenshot; removed "OpenCode (Desktop App)" -->
+<div class="card-grid-container" id="cp01tbl01cnintl">
+  <!-- Card 1: Codex -->
+  <div id="804d858114jbh" class="cp-card">
+    <a id="8fa4d32394qfq" class="cp-link" href="/help/en/model-studio/codex-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>Codex</b>
+      <span>Command-line coding tool from OpenAI</span>
+    </a>
+  </div>
+  <!-- Card 2: OpenClaw -->
+  <div id="e418ac0368mz7" class="cp-card">
+    <a id="2ae7e29f39fue" class="cp-link" href="/help/en/model-studio/openclaw-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>OpenClaw</b>
+      <span>Open-source, self-hosted personal AI assistant</span>
+    </a>
+  </div>
+  <!-- Card 3: OpenCode -->
+  <div id="bac224b98401f" class="cp-card">
+    <a id="21bb8cc43awsl" class="cp-link" href="/help/en/model-studio/opencode-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>OpenCode</b>
+      <span>Open-source AI coding agent</span>
+    </a>
+  </div>
+  <!-- Card 4: Claude Code -->
+  <div id="132ca5e5898bu" class="cp-card">
+    <a id="6c8c16e70fu6l" class="cp-link" href="/help/en/model-studio/claude-code-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>Claude Code</b>
+      <span>AI terminal coding assistant with natural language support</span>
+    </a>
+  </div>
+  <!-- Card 5: Cline -->
+  <div id="a2e4e92742mv1" class="cp-card">
+    <a id="a4b97ce12bxkj" class="cp-link" href="/help/en/model-studio/cline-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>Cline</b>
+      <span>VS Code extension with intelligent code completion and debugging</span>
+    </a>
+  </div>
+  <!-- Card 6: Cursor -->
+  <div id="7f78d75a142t8" class="cp-card">
+    <a id="93d93e859e2aq" class="cp-link" href="/help/en/model-studio/cursor-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>Cursor</b>
+      <span>AI-native code editor</span>
+    </a>
+  </div>
+  <!-- Card 7: Qwen Code -->
+  <div id="2f07bc6962wm1" class="cp-card">
+    <a id="db2e8f4538nyh" class="cp-link" href="/help/en/model-studio/qwen-code-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>Qwen Code</b>
+      <span>Open-source command-line AI tool optimized for Qwen3-Coder</span>
+    </a>
+  </div>
+  <!-- Card 8: Kilo Code -->
+  <div id="bff9dfe5ac1yb" class="cp-card">
+    <a id="8fd66b0f41r1d" class="cp-link" href="/help/en/model-studio/kilo-code-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>Kilo Code</b>
+      <span>IDE extension for efficient coding</span>
+    </a>
+  </div>
+  <!-- Card 9: Kilo CLI -->
+  <div id="5d6b9db273577" class="cp-card">
+    <a id="8f7740fec3s37" class="cp-link" href="/help/en/model-studio/kilo-cli-coding-plan" target="_blank" rel="noopener noreferrer">
+      <b>Kilo CLI</b>
+      <span>Lightweight, high-performance command-line coding tool</span>
+    </a>
+  </div>
+</div>
+
+        </section>
+        <p id="3de20357cc2ix">For more tools (such as other IDEs), see <a href="/help/en/model-studio/other-tools-coding-plan" id="6ddcbd8d98j15" title="" class="xref">Other tools</a>.</p>
+      </section>
+      <p id="983240e2f0lya"></p>
+      <section id="d79db9c14dbmq" class="section">
+        <h2 id="d489c2bd21rap"><b>Before you subscribe</b></h2>
+        <p id="ab9a8c488coe6">Coding Plan is <b>non-refundable</b>. Review these points before subscribing:</p>
+        <ol id="3971b5ca97wx5" start="1">
+          <li id="2cbbbe812exug">
+            <p id="ef8742384frdn"><b>No API calls:</b> Use Coding Plan only in coding tools like Claude Code or OpenClaw. Do not use it for automated scripts, custom application backends, or non-interactive batch API calls. <b>Using your Coding Plan API key outside the allowed scope constitutes misuse or abuse. Your subscription may be suspended, or your API key may be revoked.</b></p>
+          </li>
+          
+          <li id="cf51ea142b1t8">
+            <p id="e2e8834152m5b"><b>Account policy:</b> Coding Plan is for the subscriber's personal use only. Account sharing is prohibited and may result in subscription suspension. </p>
+          </li>
+        </ol>
+      </section>
+      <section id="437dc15afa03b" class="section">
+        <h2 id="50095a467eg3p">FAQ</h2>
+        <section id="bf4ad0346fdpk" class="section">
+          <h3 id="db649df68086n">I purchased Coding Plan. Why am I still being charged or seeing overdue payments?</h3>
+          <p id="13d2220084of0">This typically happens if you're using the general Model Studio API key and base URL instead of Coding Plan's. Switch to your Coding Plan-specific API key (starts with <code data-tag="code" id="419fed47b6dd2" class="code">sk-sp-</code>) and base URL (contains <code data-tag="code" id="ab655cb83f719" class="code">coding.dashscope.aliyuncs.com</code>). For setup steps, see <a href="#2531c37fd64f9" id="0223e5bd85dir" title="" class="xref">Get your plan-specific API key and base URL</a>.</p>
+        </section>
+        <p id="6d46cd54advlf">For more questions, see <a href="/help/en/model-studio/coding-plan-faq" id="3bd9da79dbex6" title="" class="xref">full FAQ</a>.</p>
+      </section>
+    </div>
+  </main>
+
+
+
+
+</div>
+</article>
+<script type="text/javascript">
+window.storeDocs = {
+language: '$lang',
+docGithubLink: '$!githubInfo.url'
+}
+</script>
+<div class="nav-footer">
+ </div>
+<div class="alicloud-document-ask clearfix"></div>
+<div class="feedback-message" style="display:none;">
+<span class="hasfeedback acon acon-done-16"></span>
+Thank you! We've received your  feedback.
+</div>
+</div>
+<div class="col-log-2 col-md-2 col-sm-0 col-xs-0 nav-catalog">
+<div class="article-catalog" id="articleCatalog"></div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</div>
+<script
+crossorigin
+src="https://g.alicdn.com/code/lib/??react/16.8.6/umd/react.production.min.js,react-dom/16.8.6/umd/react-dom.production.min.js"
+></script>
+<script
+src="https://g.alicdn.com/code/lib/lodash.js/4.17.21/lodash.min.js"
+crossorigin="anonymous"
+></script>
+<script src="//g.alicdn.com/aliyun-help/help-portal-fe/0.12.39/js/vendor.js"></script>
+<script src="//g.alicdn.com/aliyun-help/help-portal-fe/0.12.39/js/index.js"></script>
+<script defer src="https://cloud-assets.alicdn.com/alicdn/dawn/user-tracker/latest/js/index.js"></script>
+</body>
+</html>

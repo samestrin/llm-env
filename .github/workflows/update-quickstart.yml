@@ -1,0 +1,54 @@
+name: Update Quickstart Files
+
+on:
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+
+      - name: Run scraper unit tests
+        run: python -m pytest scripts/tests/
+
+      - name: Refresh quickstart JSON files
+        env:
+          LLM_SYNTHETIC_API_KEY: ${{ secrets.LLM_SYNTHETIC_API_KEY }}
+        run: python -m scripts.update_quickstart
+
+      - name: Open PR if files changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: refresh quickstart JSON files"
+          title: "chore: refresh quickstart JSON files"
+          body: |
+            Automated daily refresh of `quickstart-synthetic.json` and
+            `quickstart-alibaba.json`.
+
+            Triggered by `.github/workflows/update-quickstart.yml`.
+            Review the model diff before merging.
+          branch: automated/quickstart-refresh
+          delete-branch: true
+          add-paths: |
+            quickstart-synthetic.json
+            quickstart-alibaba.json
