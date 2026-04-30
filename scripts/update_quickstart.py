@@ -139,7 +139,25 @@ def run(output_dir: Path, *, dry_run: bool = False) -> int:
 
     On partial failure (one source ok, one not) the successful file is
     written but the return code reflects the failure.
+
+    Refuses to run without ``LLM_SYNTHETIC_API_KEY`` set, since without
+    it the per-model anthropic-protocol probe returns False for every
+    model and we'd silently emit JSON files with no anthropic providers
+    or groups. Pass ``LLM_ENV_SCRAPER_ALLOW_NO_KEY=1`` in the env to
+    override (used by tests and for debugging).
     """
+    import os as _os
+    if not _os.environ.get("LLM_SYNTHETIC_API_KEY") and not _os.environ.get(
+        "LLM_ENV_SCRAPER_ALLOW_NO_KEY"
+    ):
+        print(
+            "ERROR: LLM_SYNTHETIC_API_KEY is not set. The anthropic-protocol "
+            "probe requires it; without the key, every model would be marked "
+            "openai-only and groups would not be emitted. Refusing to run.",
+            file=sys.stderr,
+        )
+        return 2
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
