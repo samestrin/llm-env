@@ -755,7 +755,10 @@ load_builtin_config() {
 link() {
     local url="$1"
     local label="${2:-$url}"
-    # OSC 8 hyperlink: supported by most modern terminals
+    # OSC 8 hyperlink: supported by most modern terminals.
+    # The trailing \\ is part of the ST (string terminator), not an attempt
+    # to escape a single quote, so disable the SC1003 false positive.
+    # shellcheck disable=SC1003
     printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$url" "$label"
 }
 
