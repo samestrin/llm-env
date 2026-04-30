@@ -9,6 +9,13 @@ import pytest
 from scripts import update_quickstart
 
 
+@pytest.fixture(autouse=True)
+def allow_no_key(monkeypatch):
+    """Bypass the LLM_SYNTHETIC_API_KEY gate for these unit tests."""
+    monkeypatch.setenv("LLM_ENV_SCRAPER_ALLOW_NO_KEY", "1")
+    monkeypatch.delenv("LLM_SYNTHETIC_API_KEY", raising=False)
+
+
 # --- Helpers ---------------------------------------------------------------
 
 
@@ -180,6 +187,27 @@ def test_run_partial_failure_preserves_good_source(tmp_path, monkeypatch):
     assert syn_target.exists()
     # Alibaba untouched: file still parses to the seeded good payload.
     assert json.loads(ali_target.read_text())["source"] == "alibaba"
+
+
+def test_run_refuses_without_synthetic_api_key(tmp_path, monkeypatch):
+    """Without the key, the anthropic probe degrades silently — refuse."""
+    monkeypatch.delenv("LLM_SYNTHETIC_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_ENV_SCRAPER_ALLOW_NO_KEY", raising=False)
+    rc = update_quickstart.run(output_dir=tmp_path)
+    assert rc == 2
+
+
+def test_run_proceeds_when_api_key_present(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLM_SYNTHETIC_API_KEY", "test-key")
+    monkeypatch.delenv("LLM_ENV_SCRAPER_ALLOW_NO_KEY", raising=False)
+    monkeypatch.setattr(
+        update_quickstart.synthetic, "build_v2_payload", lambda **kw: _minimal_synthetic_payload(),
+    )
+    monkeypatch.setattr(
+        update_quickstart.alibaba, "build_v2_payload", lambda **kw: _minimal_alibaba_payload(),
+    )
+    rc = update_quickstart.run(output_dir=tmp_path)
+    assert rc == 0
 
 
 def test_run_returns_nonzero_when_source_emits_invalid(tmp_path, monkeypatch):
