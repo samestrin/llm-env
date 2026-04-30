@@ -243,3 +243,36 @@ def test_ai_fallback_failure_leaves_low_confidence(monkeypatch):
     monkeypatch.setattr(classify, "ai_classify", lambda name: None)
     result = classify.classify_with_fallback("totally-unknown-foo")
     assert result["confidence"] == "low"
+
+
+# --- Adversarial -----------------------------------------------------------
+
+
+def test_compare_versions_with_non_numeric_tokens():
+    # Lexicographic fallback for non-integer parts. Numeric < non-numeric.
+    assert classify.compare_versions("1", "1.beta") == -1
+    assert classify.compare_versions("1.beta", "1") == 1
+    assert classify.compare_versions("1.alpha", "1.beta") == -1
+
+
+def test_pick_latest_empty_returns_none():
+    assert classify.pick_latest([]) is None
+
+
+def test_pick_latest_single_returns_entry():
+    only = {"id": "x", "version": "1", "size_b": None}
+    assert classify.pick_latest([only]) is only
+
+
+def test_pick_latest_stable_on_full_tie():
+    a = {"id": "a", "version": "1", "size_b": 10}
+    b = {"id": "b", "version": "1", "size_b": 10}
+    # First in list wins on full tie.
+    assert classify.pick_latest([a, b])["id"] == "a"
+    assert classify.pick_latest([b, a])["id"] == "b"
+
+
+def test_classify_handles_unicode_id_without_crash():
+    # Should not raise; low-confidence result is acceptable.
+    result = classify.classify("天空-model-1")
+    assert result["confidence"] in ("low", "high")

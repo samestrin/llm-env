@@ -118,6 +118,8 @@ def build_v2_payload(
     (``lambda name: None``) to disable AI fallback.
     """
     raw = fetch(models_url)
+    if not isinstance(raw, dict):
+        raise ValueError("synthetic /models payload was not a dict")
     raw_models: Iterable[dict] = raw.get("data", []) or []
 
     seen_ids: set[str] = set()

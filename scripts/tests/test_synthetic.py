@@ -212,3 +212,40 @@ def test_build_v2_payload_validates_output_shape():
     model_ids = {m["id"] for m in out["models"]}
     for fam, target in out["family_latest"].items():
         assert target in model_ids, f"family_latest[{fam}]={target} not in models[]"
+
+
+# --- Adversarial -----------------------------------------------------------
+
+
+def test_build_v2_payload_rejects_non_dict_response():
+    with pytest.raises(ValueError):
+        synthetic.build_v2_payload(
+            fetch=lambda url: None,
+            probe_anthropic=fake_probe_all_supported(),
+        )
+
+
+def test_build_v2_payload_skips_entry_without_id():
+    payload = {
+        "object": "list",
+        "data": [
+            {"id": "hf:moonshotai/Kimi-K2.5"},
+            {"object": "model", "owned_by": "x"},  # no id
+            {"id": ""},                              # blank id
+            {"id": None},                            # None id
+        ],
+    }
+    out = synthetic.build_v2_payload(
+        fetch=fake_fetch_returning(payload),
+        probe_anthropic=fake_probe_all_supported(),
+    )
+    ids = {m["id"] for m in out["models"]}
+    assert ids == {"kimi-k2.5"}
+
+
+def test_build_v2_payload_handles_data_missing_key():
+    out = synthetic.build_v2_payload(
+        fetch=fake_fetch_returning({"object": "list"}),  # no "data"
+        probe_anthropic=fake_probe_all_supported(),
+    )
+    assert out["models"] == []
