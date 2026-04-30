@@ -8,7 +8,7 @@
 #   source ./llm-env config <command>
 
 # Version information
-VERSION="1.3.5"
+VERSION="1.4.0"
 
 # ---------- Shell Detection and Version ----------
 
@@ -1709,38 +1709,425 @@ cmd_test() {
     echo
 }
 
-cmd_quickstart() {
-    echo "🚀 Quickstart - Adding synthetic model providers"
-    echo
+# --- Quickstart v2 helpers ---------------------------------------------------
+#
+# These pure-bash helpers parse the quickstart-{synthetic,alibaba}.json files
+# in schema v2. They avoid jq to keep the project's zero-runtime-deps ethos.
 
-    # Check for quickstart JSON files in the same directory
-    local script_dir
-    script_dir="$(get_script_dir)"
-    local synthetic_json="$script_dir/quickstart-synthetic.json"
-    local alibaba_json="$script_dir/quickstart-alibaba.json"
+# Extract a top-level JSON string scalar by key from a JSON document.
+# Usage: _qs_json_string "$json" "schema_version"
+# Echoes the value (without quotes), or empty string if not found.
+_qs_json_string() {
+    local json="$1" key="$2"
+    # Look for "key": "value" anywhere in the doc. The first occurrence wins,
+    # so callers should isolate sub-objects before calling on inner keys.
+    printf '%s' "$json" \
+        | tr -d '\n' \
+        | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" \
+        | head -n 1 \
+        | sed -E 's/^"[^"]*"[[:space:]]*:[[:space:]]*"//; s/"$//'
+}
 
-    local json_files=()
-    if [[ -f "$synthetic_json" ]]; then
-        json_files+=("$synthetic_json")
+# Extract a single JSON object value by key from a top-level document.
+# Echoes the object text including its surrounding braces.
+# Returns empty if not found.
+_qs_json_object() {
+    local json="$1" key="$2"
+    # Find the index of "key" in the document.
+    local prefix rest depth=0 i ch out=""
+    rest="${json#*\"$key\"}"
+    if [[ "$rest" == "$json" ]]; then
+        # Key not present
+        return 0
     fi
-    if [[ -f "$alibaba_json" ]]; then
-        json_files+=("$alibaba_json")
+    # Skip past the colon to the opening brace.
+    rest="${rest#*:}"
+    # Strip leading whitespace.
+    rest="${rest#"${rest%%[!$' \t\n\r']*}"}"
+    if [[ "${rest:0:1}" != "{" ]]; then
+        return 0
     fi
+    # Walk the object respecting nested braces and strings.
+    local in_string=false esc=false
+    for (( i=0; i<${#rest}; i++ )); do
+        ch="${rest:i:1}"
+        out+="$ch"
+        if [[ "$in_string" == true ]]; then
+            if [[ "$esc" == true ]]; then
+                esc=false
+            elif [[ "$ch" == "\\" ]]; then
+                esc=true
+            elif [[ "$ch" == '"' ]]; then
+                in_string=false
+            fi
+            continue
+        fi
+        case "$ch" in
+            '"') in_string=true ;;
+            '{') ((depth++)) ;;
+            '}') ((depth--))
+                if [[ $depth -eq 0 ]]; then
+                    printf '%s' "$out"
+                    return 0
+                fi
+                ;;
+        esac
+    done
+    return 0
+}
 
-    if [[ ${#json_files[@]} -eq 0 ]]; then
-        echo "❌ No quickstart JSON files found in script directory: $script_dir"
-        echo "💡 Expected files: quickstart-synthetic.json, quickstart-alibaba.json"
+# Extract a JSON array body by key from a document.
+# Echoes the contents *between* the [ and ], not including the brackets.
+# Returns empty if not found.
+_qs_json_array_body() {
+    local json="$1" key="$2"
+    local rest depth=0 i ch out="" in_string=false esc=false
+    rest="${json#*\"$key\"}"
+    if [[ "$rest" == "$json" ]]; then
+        return 0
+    fi
+    rest="${rest#*:}"
+    rest="${rest#"${rest%%[!$' \t\n\r']*}"}"
+    if [[ "${rest:0:1}" != "[" ]]; then
+        return 0
+    fi
+    # Skip the opening [.
+    rest="${rest:1}"
+    for (( i=0; i<${#rest}; i++ )); do
+        ch="${rest:i:1}"
+        if [[ "$in_string" == true ]]; then
+            out+="$ch"
+            if [[ "$esc" == true ]]; then
+                esc=false
+            elif [[ "$ch" == "\\" ]]; then
+                esc=true
+            elif [[ "$ch" == '"' ]]; then
+                in_string=false
+            fi
+            continue
+        fi
+        case "$ch" in
+            '"') in_string=true; out+="$ch" ;;
+            '[') ((depth++)); out+="$ch" ;;
+            ']')
+                if [[ $depth -eq 0 ]]; then
+                    printf '%s' "$out"
+                    return 0
+                fi
+                ((depth--)); out+="$ch"
+                ;;
+            *) out+="$ch" ;;
+        esac
+    done
+    return 0
+}
+
+# Split an array body of objects into a NUL-delimited list of JSON objects.
+# Each emitted object includes its surrounding braces. Use NUL because object
+# bodies span multiple lines.
+# Callers should consume with: while IFS= read -r -d '' obj; do ...; done < <(...)
+_qs_split_object_array() {
+    local body="$1"
+    local depth=0 i ch out="" in_string=false esc=false started=false
+    for (( i=0; i<${#body}; i++ )); do
+        ch="${body:i:1}"
+        if [[ "$in_string" == true ]]; then
+            out+="$ch"
+            if [[ "$esc" == true ]]; then
+                esc=false
+            elif [[ "$ch" == "\\" ]]; then
+                esc=true
+            elif [[ "$ch" == '"' ]]; then
+                in_string=false
+            fi
+            continue
+        fi
+        case "$ch" in
+            '"') in_string=true; out+="$ch" ;;
+            '{')
+                if [[ "$started" == false ]]; then
+                    started=true; out=""
+                fi
+                ((depth++)); out+="$ch"
+                ;;
+            '}')
+                ((depth--)); out+="$ch"
+                if [[ $depth -eq 0 ]]; then
+                    printf '%s\0' "$out"
+                    out=""
+                    started=false
+                fi
+                ;;
+            *)
+                if [[ "$started" == true ]]; then
+                    out+="$ch"
+                fi
+                ;;
+        esac
+    done
+}
+
+# Extract simple "key": "value" pairs from a flat JSON object.
+# Emits one "key=value" per line. Skips nested objects/arrays.
+# Used for family_latest-style maps.
+_qs_extract_string_pairs() {
+    local obj="$1"
+    # Strip outer braces.
+    obj="${obj#\{}"
+    obj="${obj%\}}"
+    # Find all "key": "value" pairs.
+    printf '%s' "$obj" \
+        | tr -d '\n' \
+        | grep -oE '"[^"]+"[[:space:]]*:[[:space:]]*"[^"]*"' \
+        | sed -E 's/^"([^"]+)"[[:space:]]*:[[:space:]]*"([^"]*)"$/\1=\2/'
+}
+
+# Extract array of strings (e.g. protocols).
+# Echoes one string per line.
+_qs_extract_string_array() {
+    local body="$1"
+    printf '%s' "$body" \
+        | tr -d '\n' \
+        | grep -oE '"[^"]*"' \
+        | sed -E 's/^"//; s/"$//'
+}
+
+# Validate that a model id is safe to use as an INI section name.
+# Allowed: alphanumerics, dot, dash, underscore.
+_qs_id_is_safe() {
+    local id="$1"
+    [[ -n "$id" && "$id" =~ ^[a-zA-Z0-9._-]+$ ]]
+}
+
+# Process a single quickstart v2 JSON file. Appends provider and group
+# sections to the user config. Echoes informational messages to stdout.
+# On schema/validation error, returns 1 and emits an error message.
+#
+# Args:
+#   $1 = path to JSON file
+#   $2 = path to user config file
+# Updates the global array `_qs_added_names` with names of added sections.
+_qs_added_names=()
+_qs_process_v2_file() {
+    local json_file="$1" user_config="$2"
+    local json
+    json="$(cat "$json_file")"
+    if [[ -z "$json" ]]; then
+        echo "❌ Quickstart file is empty: $json_file" >&2
         return 1
     fi
 
-    # Load configuration from user config path
+    local schema_version
+    schema_version="$(_qs_json_string "$json" "schema_version")"
+    if [[ "$schema_version" != "2" ]]; then
+        if [[ -z "$schema_version" ]]; then
+            echo "❌ Quickstart file is missing schema_version (or has malformed JSON): $json_file" >&2
+            echo "   This file may be in legacy v1 format. Re-run install.sh to fetch v2 files." >&2
+        else
+            echo "❌ Unsupported schema_version '$schema_version' in $json_file (expected '2')." >&2
+        fi
+        return 1
+    fi
+
+    local vendor_short api_key_var signup_url endpoints_obj
+    vendor_short="$(_qs_json_string "$json" "vendor_short")"
+    api_key_var="$(_qs_json_string "$json" "api_key_var")"
+    signup_url="$(_qs_json_string "$json" "signup_url")"
+    endpoints_obj="$(_qs_json_object "$json" "endpoints")"
+
+    if [[ -z "$vendor_short" || -z "$api_key_var" || -z "$endpoints_obj" ]]; then
+        echo "❌ Quickstart file missing required top-level fields (vendor_short, api_key_var, endpoints): $json_file" >&2
+        return 1
+    fi
+
+    local endpoint_openai endpoint_anthropic
+    endpoint_openai="$(_qs_json_string "$endpoints_obj" "openai")"
+    endpoint_anthropic="$(_qs_json_string "$endpoints_obj" "anthropic")"
+
+    local models_body family_latest_obj
+    models_body="$(_qs_json_array_body "$json" "models")"
+    family_latest_obj="$(_qs_json_object "$json" "family_latest")"
+
+    # Map model id -> "openai,anthropic" of available protocols, used to
+    # decide whether family_latest entries get groups vs single-member aliases.
+    local -a model_ids=()
+    local -a model_protocols=()  # parallel array, "openai,anthropic" form
+
+    # Parse models[] block by block. Objects are NUL-delimited to survive
+    # multi-line content.
+    local model_obj id family version description upstream_id protocols_body
+    while IFS= read -r -d '' model_obj; do
+        [[ -z "$model_obj" ]] && continue
+        id="$(_qs_json_string "$model_obj" "id")"
+        family="$(_qs_json_string "$model_obj" "family")"
+        version="$(_qs_json_string "$model_obj" "version")"
+        description="$(_qs_json_string "$model_obj" "description")"
+        upstream_id="$(_qs_json_string "$model_obj" "upstream_id")"
+        protocols_body="$(_qs_json_array_body "$model_obj" "protocols")"
+
+        if [[ -z "$id" ]]; then
+            echo "  ⚠️  Skipping model with no id" >&2
+            continue
+        fi
+        if ! _qs_id_is_safe "$id"; then
+            echo "  ⚠️  Skipping model '$id' - id contains characters unsafe for config sections" >&2
+            continue
+        fi
+
+        # Compute available protocols intersecting model.protocols with what
+        # the file's endpoints declare.
+        local proto have_openai=false have_anthropic=false
+        while IFS= read -r proto; do
+            [[ -z "$proto" ]] && continue
+            case "$proto" in
+                openai)    [[ -n "$endpoint_openai" ]]    && have_openai=true ;;
+                anthropic) [[ -n "$endpoint_anthropic" ]] && have_anthropic=true ;;
+            esac
+        done < <(_qs_extract_string_array "$protocols_body")
+
+        # Track for family_latest emission.
+        local proto_csv=""
+        [[ "$have_openai"    == true ]] && proto_csv="openai"
+        if [[ "$have_anthropic" == true ]]; then
+            [[ -n "$proto_csv" ]] && proto_csv+=","
+            proto_csv+="anthropic"
+        fi
+        model_ids+=("$id")
+        model_protocols+=("$proto_csv")
+
+        local default_model="${upstream_id:-$id}"
+
+        if [[ "$have_openai" == true ]]; then
+            local pname="openai_${vendor_short}_${id}"
+            _qs_emit_provider "$user_config" "$pname" "$endpoint_openai" \
+                "$api_key_var" "$default_model" "$description" "openai" "$signup_url"
+        fi
+        if [[ "$have_anthropic" == true ]]; then
+            local pname="anth_${vendor_short}_${id}"
+            _qs_emit_provider "$user_config" "$pname" "$endpoint_anthropic" \
+                "$api_key_var" "$default_model" "$description" "anthropic" "$signup_url"
+        fi
+
+        # Per-model group only when both protocols available.
+        if [[ "$have_openai" == true && "$have_anthropic" == true ]]; then
+            _qs_emit_group "$user_config" \
+                "${vendor_short}_${id}" \
+                "openai_${vendor_short}_${id},anth_${vendor_short}_${id}"
+        fi
+    done < <(_qs_split_object_array "$models_body")
+
+    # Family-latest groups.
+    if [[ -n "$family_latest_obj" ]]; then
+        local pair fam fam_id idx j providers_csv
+        while IFS= read -r pair; do
+            [[ -z "$pair" ]] && continue
+            fam="${pair%%=*}"
+            fam_id="${pair#*=}"
+            if ! _qs_id_is_safe "$fam"; then
+                echo "  ⚠️  Skipping family_latest entry '$fam' - unsafe family name" >&2
+                continue
+            fi
+            if ! _qs_id_is_safe "$fam_id"; then
+                continue
+            fi
+            # Look up protocols for this model id from the parallel arrays.
+            idx=-1
+            for j in "${!model_ids[@]}"; do
+                if [[ "${model_ids[$j]}" == "$fam_id" ]]; then
+                    idx="$j"; break
+                fi
+            done
+            if [[ "$idx" -lt 0 ]]; then
+                echo "  ⚠️  family_latest references unknown model id '$fam_id'" >&2
+                continue
+            fi
+            providers_csv=""
+            case "${model_protocols[$idx]}" in
+                "openai,anthropic")
+                    providers_csv="openai_${vendor_short}_${fam_id},anth_${vendor_short}_${fam_id}" ;;
+                "openai")
+                    providers_csv="openai_${vendor_short}_${fam_id}" ;;
+                "anthropic")
+                    providers_csv="anth_${vendor_short}_${fam_id}" ;;
+            esac
+            [[ -z "$providers_csv" ]] && continue
+            _qs_emit_group "$user_config" "${vendor_short}_${fam}" "$providers_csv"
+        done < <(_qs_extract_string_pairs "$family_latest_obj")
+    fi
+
+    return 0
+}
+
+# Append a provider section to the user config if not already present.
+_qs_emit_provider() {
+    local user_config="$1" name="$2" base_url="$3" api_key_var="$4"
+    local default_model="$5" description="$6" protocol="$7" signup_url="$8"
+
+    if grep -q "^\[$name\]$" "$user_config" 2>/dev/null; then
+        echo "  ⚠️  Skipping provider '$name' - already exists in config"
+        return 0
+    fi
+    echo "  ➕ Adding provider: $name"
+    {
+        echo ""
+        [[ -n "$description" ]] && echo "# $description"
+        echo "[$name]"
+        echo "base_url=$base_url"
+        echo "api_key_var=$api_key_var"
+        echo "default_model=$default_model"
+        if [[ -n "$protocol" && "$protocol" != "openai" ]]; then
+            echo "protocol=$protocol"
+        fi
+        [[ -n "$description" ]] && echo "description=$description"
+        echo "enabled=true"
+        if [[ -n "$signup_url" ]]; then
+            echo "signup_url=$signup_url"
+        fi
+        echo ""
+    } >> "$user_config"
+    _qs_added_names+=("$name")
+}
+
+# Append a [group:NAME] section to the user config if not already present.
+_qs_emit_group() {
+    local user_config="$1" group_name="$2" providers_csv="$3"
+    if grep -q "^\[group:$group_name\]$" "$user_config" 2>/dev/null; then
+        echo "  ⚠️  Skipping group '$group_name' - already exists in config"
+        return 0
+    fi
+    echo "  ➕ Adding group: $group_name"
+    {
+        echo ""
+        echo "[group:$group_name]"
+        echo "providers=$providers_csv"
+        echo ""
+    } >> "$user_config"
+    _qs_added_names+=("group:$group_name")
+}
+
+cmd_quickstart() {
+    echo "🚀 Quickstart - Adding provider definitions from quickstart JSON files"
+    echo
+
+    # Locate quickstart JSON files. LLM_ENV_QUICKSTART_DIR overrides the
+    # script directory (used by tests and advanced setups).
+    local quickstart_dir="${LLM_ENV_QUICKSTART_DIR:-$(get_script_dir)}"
+    local synthetic_json="$quickstart_dir/quickstart-synthetic.json"
+    local alibaba_json="$quickstart_dir/quickstart-alibaba.json"
+
+    local json_files=()
+    [[ -f "$synthetic_json" ]] && json_files+=("$synthetic_json")
+    [[ -f "$alibaba_json" ]] && json_files+=("$alibaba_json")
+
+    if [[ ${#json_files[@]} -eq 0 ]]; then
+        echo "❌ No quickstart JSON files found in: $quickstart_dir" >&2
+        echo "💡 Expected: quickstart-synthetic.json and/or quickstart-alibaba.json" >&2
+        return 1
+    fi
+
     local user_config
     user_config="$(get_user_config_path)"
-
-    # Create directory if it doesn't exist
     mkdir -p "$(dirname "$user_config")"
-
-    # Check if config file exists, create if it doesn't
     if [[ ! -f "$user_config" ]]; then
         echo "📝 Creating user configuration file: $user_config"
         touch "$user_config"
@@ -1748,184 +2135,42 @@ cmd_quickstart() {
         echo "📝 Using existing user configuration: $user_config"
     fi
 
-    # Process each JSON file
-    local added_providers=()
+    _qs_added_names=()
+    local rc=0
+    local json_file
     for json_file in "${json_files[@]}"; do
         echo "🔍 Processing: $json_file"
-
-        # Parse the JSON file and extract providers
-        local provider_start_found=false
-        local in_providers_array=false
-        local provider_block=""
-        local current_line=""
-        local brace_level=0
-        local in_provider_block=false
-
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            # Remove leading/trailing whitespace and commas
-            local clean_line
-            clean_line="$(echo "$line" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*,[[:space:]]*$//' | sed 's/[[:space:]]*$//')"
-
-            # Check if we're in the providers array
-            if [[ "$clean_line" == '"providers"'* ]] || [[ "$clean_line" == "'providers'"* ]]; then
-                in_providers_array=true
-                # Handle "providers": [ on same line
-                if [[ "$clean_line" == *"["* ]]; then
-                    brace_level=1
-                fi
-                continue
-            fi
-
-            # Start counting braces to find individual provider objects
-            if [[ "$in_providers_array" == true ]] && [[ "$clean_line" == "["* ]]; then
-                brace_level=1
-                continue
-            fi
-
-            # Process braces to track object boundaries
-            if [[ "$in_providers_array" == true ]] && [[ "$brace_level" -gt 0 ]]; then
-                local open_braces close_braces
-                open_braces=$(echo "$clean_line" | grep -o '{' | wc -l)
-                close_braces=$(echo "$clean_line" | grep -o '}' | wc -l)
-
-                if [[ "$open_braces" -gt 0 ]]; then
-                    # Start a new provider block if not already in one
-                    if [[ "$brace_level" -eq 1 ]] && [[ "$in_provider_block" == false ]]; then
-                        in_provider_block=true
-                        provider_block="{"
-                        current_line=""
-                    else
-                        # Add to current block
-                        if [[ "$in_provider_block" == true ]]; then
-                            provider_block="$provider_block$clean_line"$'\n'
-                        fi
-                    fi
-                    ((brace_level += open_braces))
-                fi
-
-                if [[ "$close_braces" -gt 0 ]]; then
-                    ((brace_level -= close_braces))
-
-                    if [[ "$in_provider_block" == true ]]; then
-                        provider_block="$provider_block$clean_line"$'\n'
-
-                        # If we've closed the provider object (back to array level)
-                        if [[ "$brace_level" -le 1 ]]; then
-
-                            # Extract provider fields from the block
-                            local name base_url api_key_var default_model description protocol enabled
-                            name=$(echo "$provider_block" | grep -o '"name":[[:space:]]*"[^"]*"' | head -1 | sed 's/"name":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
-                            base_url=$(echo "$provider_block" | grep -o '"base_url":[[:space:]]*"[^"]*"' | head -1 | sed 's/"base_url":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
-                            api_key_var=$(echo "$provider_block" | grep -o '"api_key_var":[[:space:]]*"[^"]*"' | head -1 | sed 's/"api_key_var":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
-                            default_model=$(echo "$provider_block" | grep -o '"default_model":[[:space:]]*"[^"]*"' | head -1 | sed 's/"default_model":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
-
-                            # Handle special case where default_model might need adjustment
-                            # If model has format like "hf:Vendor/ModelName", use just the model name part
-                            if [[ "$default_model" == hf:*/* ]]; then
-                                # Extract just the model name part after the last "/"
-                                default_model="${default_model##*/}"
-                            fi
-                            description=$(echo "$provider_block" | grep -o '"description":[[:space:]]*"[^"]*"' | head -1 | sed 's/"description":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
-                            protocol=$(echo "$provider_block" | grep -o '"protocol":[[:space:]]*"[^"]*"' | head -1 | sed 's/"protocol":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g' | sed 's/^$/openai/')
-                            enabled=$(echo "$provider_block" | grep -o '"enabled":[[:space:]]*[a-zA-Z]*' | head -1 | sed 's/"enabled":[[:space:]]*//' | sed 's/[",]//g' | sed 's/^$/true/')
-                            local signup_url
-                            signup_url=$(echo "$provider_block" | grep -o '"signup_url":[[:space:]]*"[^"]*"' | head -1 | sed 's/"signup_url":[[:space:]]*"//' | sed 's/"$//' | sed 's/[",]//g')
-
-                            # Write provider to user config if not already present
-                            if [[ -n "$name" ]] && [[ -n "$base_url" ]] && [[ -n "$api_key_var" ]]; then
-                                # Check if provider already exists in config
-                                if ! grep -q "^\[$name\]$" "$user_config" 2>/dev/null; then
-                                    echo "  ➕ Adding provider: $name"
-
-                                    {
-                                        echo ""
-                                        echo "# $description"
-                                        echo "[$name]"
-                                        echo "base_url=$base_url"
-                                        echo "api_key_var=$api_key_var"
-                                        echo "default_model=$default_model"
-                                        if [[ -n "$protocol" ]] && [[ "$protocol" != "openai" ]]; then
-                                            echo "protocol=$protocol"
-                                        fi
-                                        echo "description=$description"
-                                        echo "enabled=$enabled"
-                                        if [[ -n "$signup_url" ]]; then
-                                            echo "signup_url=$signup_url"
-                                        fi
-                                        echo ""
-                                    } >> "$user_config"
-
-                                    added_providers+=("$name")
-                                else
-                                    echo "  ⚠️  Skipping provider '$name' - already exists in config"
-                                fi
-                            fi
-
-                            # Reset for next provider
-                            provider_block=""
-                            in_provider_block=false
-                        else
-                            # Still in provider block, add the line
-                            provider_block="$provider_block$clean_line"$'\n'
-                        fi
-                    fi
-                elif [[ "$in_provider_block" == true ]]; then
-                    # Inside provider block, add the line
-                    provider_block="$provider_block$clean_line"$'\n'
-                fi
-            fi
-        done < "$json_file"
-
+        if ! _qs_process_v2_file "$json_file" "$user_config"; then
+            rc=1
+        fi
         echo
     done
 
-    if [[ ${#added_providers[@]} -gt 0 ]]; then
-        echo "🎉 Successfully added ${#added_providers[@]} new provider(s) to your configuration:"
-        for provider in "${added_providers[@]}"; do
-            echo "  - $provider"
+    if [[ ${#_qs_added_names[@]} -gt 0 ]]; then
+        echo "🎉 Added ${#_qs_added_names[@]} new entr$([[ ${#_qs_added_names[@]} -eq 1 ]] && echo y || echo ies) to your configuration:"
+        local n
+        for n in "${_qs_added_names[@]}"; do
+            echo "  - $n"
         done
         echo
         echo "💡 Next steps:"
-        echo "   1. Get your API keys:"
-        local shown_keys=""
-        for provider in "${added_providers[@]}"; do
-            local api_key_var signup_url
-            api_key_var=$(grep -A 10 "^\[$provider\]$" "$user_config" | grep "^api_key_var=" | cut -d'=' -f2)
-            signup_url=$(grep -A 10 "^\[$provider\]$" "$user_config" | grep "^signup_url=" | cut -d'=' -f2-)
-            # Only show each unique key var once
-            if [[ "$shown_keys" != *"|$api_key_var|"* ]]; then
-                if [[ -n "$signup_url" ]]; then
-                    printf '      🔑 %s → Sign up: %s\n' "$api_key_var" "$(link "$signup_url" "$signup_url")"
-                else
-                    echo "      🔑 $api_key_var"
-                fi
-                shown_keys="${shown_keys}|$api_key_var|"
-            fi
-        done
-        echo
-        echo "   2. Add your keys to your shell profile:"
-        shown_keys=""
-        for provider in "${added_providers[@]}"; do
-            local api_key_var
-            api_key_var=$(grep -A 10 "^\[$provider\]$" "$user_config" | grep "^api_key_var=" | cut -d'=' -f2)
-            if [[ "$shown_keys" != *"|$api_key_var|"* ]]; then
-                echo "      export $api_key_var='your-key-here'"
-                shown_keys="${shown_keys}|$api_key_var|"
-            fi
-        done
-        echo "   3. Reload your shell: source ~/.bashrc or source ~/.zshrc"
-        echo "   4. Test the new providers: source llm-env test <provider-name>"
-        echo "   5. Use a provider: source llm-env set <provider-name>"
+        echo "   1. Set your API keys in your shell profile, e.g.:"
+        echo "      export LLM_SYNTHETIC_API_KEY='your-key-here'"
+        echo "      export LLM_ALIBABA_API_KEY='your-key-here'"
+        echo "   2. Reload your shell: source ~/.bashrc or source ~/.zshrc"
+        echo "   3. List providers/groups: llm-env list"
+        echo "   4. Activate one: source llm-env set <name>"
     else
-        echo "ℹ️  No new providers were added (they may already exist in your configuration)"
+        echo "ℹ️  No new providers or groups were added (they may already exist)."
     fi
 
-    # Display sign-up links
     echo
     echo "🔗 Sign up for API access:"
     printf '   Synthetic: %s\n' "$(link "https://synthetic.new/?referral=ugceNlJ08A3Eeww" "https://synthetic.new")"
     printf '   Alibaba Cloud Coding Plan: %s\n' "$(link "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX" "https://alibabacloud.com/campaign/benefits")"
     echo
+
+    return $rc
 }
 
 cmd_help() {
