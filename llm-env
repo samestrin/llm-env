@@ -859,13 +859,15 @@ host_from_url() {
     awk -F/ '{print $3}' <<<"$1"
 }
 
-# Validate provider name format
+# Validate provider name format. Allows letters, digits, underscore, hyphen,
+# and dot. Dots are required to express version-bearing model ids like
+# `kimi-k2.5` and `glm-5.1` introduced by quickstart schema v2.
 validate_provider_name() {
     local name="$1"
-    local valid_name_pattern="^[a-zA-Z0-9_-]+$"
+    local valid_name_pattern="^[a-zA-Z0-9._-]+$"
     # Use C locale for consistent ASCII-only character class matching
     if LC_ALL=C; [[ ! "$name" =~ $valid_name_pattern ]]; then
-        echo "Error: Invalid provider name '$name'. Only letters, numbers, underscores, and hyphens are allowed." >&2
+        echo "Error: Invalid provider name '$name'. Only letters, numbers, dots, underscores, and hyphens are allowed." >&2
         return 1
     fi
     return 0
