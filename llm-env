@@ -1735,7 +1735,7 @@ _qs_json_object() {
     local json="$1" key="$2"
     # Find the index of "key" in the document.
     local prefix rest depth=0 i ch out=""
-    rest="${json#*\"$key\"}"
+    rest="${json#*\""$key"\"}"
     if [[ "$rest" == "$json" ]]; then
         # Key not present
         return 0
@@ -1782,7 +1782,7 @@ _qs_json_object() {
 _qs_json_array_body() {
     local json="$1" key="$2"
     local rest depth=0 i ch out="" in_string=false esc=false
-    rest="${json#*\"$key\"}"
+    rest="${json#*\""$key"\"}"
     if [[ "$rest" == "$json" ]]; then
         return 0
     fi
