@@ -1,0 +1,25 @@
+{
+  "schema_version": "2",
+  "generated_at": "2026-04-30T06:00:00Z",
+  "source": "alibaba",
+  "vendor_short": "alibaba",
+  "endpoints": {
+    "openai": "https://coding-intl.dashscope.aliyuncs.com/v1",
+    "anthropic": "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic"
+  },
+  "api_key_var": "LLM_ALIBABA_API_KEY",
+  "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX",
+  "models": [
+    {
+      "id": "qwen3.5-plus",
+      "family": "qwen",
+      "version": "3.5",
+      "description": "Qwen3.5 Plus from Alibaba Cloud Coding Plan",
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "qwen3.5-plus"
+    }
+  ],
+  "family_latest": {
+    "qwen": "qwen3.5-plus"
+  }
+}
