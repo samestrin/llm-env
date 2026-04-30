@@ -177,6 +177,25 @@ jobs:
     - name: Run ShellCheck on test runner
       run: shellcheck tests/run_tests.sh
 
+  scraper-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r scripts/requirements.txt
+
+    - name: Run scraper unit tests
+      run: python -m pytest scripts/tests/ -v --cov=scripts.lib --cov=scripts.update_quickstart --cov-report=term
+
   security:
     runs-on: [self-hosted, linux]
     steps:
