@@ -1939,6 +1939,14 @@ _qs_process_v2_file() {
         echo "❌ Quickstart file missing required top-level fields (vendor_short, api_key_var, endpoints): $json_file" >&2
         return 1
     fi
+    if ! _qs_id_is_safe "$vendor_short"; then
+        echo "❌ Quickstart file vendor_short '$vendor_short' contains characters unsafe for config sections: $json_file" >&2
+        return 1
+    fi
+    if ! _qs_id_is_safe "$api_key_var"; then
+        echo "❌ Quickstart file api_key_var '$api_key_var' contains characters unsafe for config: $json_file" >&2
+        return 1
+    fi
 
     local endpoint_openai endpoint_anthropic
     endpoint_openai="$(_qs_json_string "$endpoints_obj" "openai")"

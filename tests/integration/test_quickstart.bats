@@ -292,3 +292,210 @@ EOF
     [ "$status" -ne 0 ]
     [[ "$output" == *"quickstart-synthetic.json"* ]] || [[ "$output" == *"No quickstart"* ]]
 }
+
+# --- Adversarial -----------------------------------------------------------
+
+@test "adversarial: description containing braces and quotes parses correctly" {
+    cat > "$LLM_ENV_QUICKSTART_DIR/quickstart-synthetic.json" <<'EOF'
+{
+  "schema_version": "2",
+  "generated_at": "2026-04-30T06:00:00Z",
+  "source": "synthetic",
+  "vendor_short": "synth",
+  "endpoints": {
+    "openai": "https://api.synthetic.new/openai/v1",
+    "anthropic": "https://api.synthetic.new/anthropic/v1"
+  },
+  "api_key_var": "LLM_SYNTHETIC_API_KEY",
+  "signup_url": "https://synthetic.new/",
+  "models": [
+    {
+      "id": "kimi-k2.5",
+      "family": "kimi",
+      "version": "2.5",
+      "description": "Kimi (with } and {braces})",
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "hf:moonshotai/Kimi-K2.5"
+    }
+  ],
+  "family_latest": { "kimi": "kimi-k2.5" }
+}
+EOF
+
+    run cmd_quickstart
+    [ "$status" -eq 0 ]
+    grep -q '^\[openai_synth_kimi-k2.5\]$' "$(user_config)"
+    grep -q '^\[anth_synth_kimi-k2.5\]$' "$(user_config)"
+    grep -q '^\[group:synth_kimi\]$' "$(user_config)"
+}
+
+@test "adversarial: empty endpoints object emits nothing" {
+    cat > "$LLM_ENV_QUICKSTART_DIR/quickstart-synthetic.json" <<'EOF'
+{
+  "schema_version": "2",
+  "generated_at": "2026-04-30T06:00:00Z",
+  "source": "synthetic",
+  "vendor_short": "synth",
+  "endpoints": {},
+  "api_key_var": "LLM_SYNTHETIC_API_KEY",
+  "signup_url": "https://synthetic.new/",
+  "models": [
+    {
+      "id": "kimi-k2.5",
+      "family": "kimi",
+      "version": "2.5",
+      "description": "Kimi K2.5",
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "hf:moonshotai/Kimi-K2.5"
+    }
+  ],
+  "family_latest": { "kimi": "kimi-k2.5" }
+}
+EOF
+
+    run cmd_quickstart
+    [ "$status" -eq 0 ]
+    run grep -c '^\[openai_synth_' "$(user_config)"
+    [ "$output" = "0" ]
+    run grep -c '^\[anth_synth_' "$(user_config)"
+    [ "$output" = "0" ]
+}
+
+@test "adversarial: schema_version as a number (not string) is rejected" {
+    cat > "$LLM_ENV_QUICKSTART_DIR/quickstart-synthetic.json" <<'EOF'
+{
+  "schema_version": 2,
+  "endpoints": { "openai": "https://example/" },
+  "vendor_short": "synth",
+  "api_key_var": "LLM_SYNTHETIC_API_KEY",
+  "signup_url": "https://synthetic.new/",
+  "models": [],
+  "family_latest": {}
+}
+EOF
+    run cmd_quickstart
+    [ "$status" -ne 0 ]
+}
+
+@test "adversarial: missing required top-level fields rejected" {
+    cat > "$LLM_ENV_QUICKSTART_DIR/quickstart-synthetic.json" <<'EOF'
+{
+  "schema_version": "2",
+  "vendor_short": "synth",
+  "models": [],
+  "family_latest": {}
+}
+EOF
+    run cmd_quickstart
+    [ "$status" -ne 0 ]
+}
+
+@test "adversarial: family_latest pointing at unknown model id is skipped, not fatal" {
+    cat > "$LLM_ENV_QUICKSTART_DIR/quickstart-synthetic.json" <<'EOF'
+{
+  "schema_version": "2",
+  "generated_at": "2026-04-30T06:00:00Z",
+  "source": "synthetic",
+  "vendor_short": "synth",
+  "endpoints": {
+    "openai": "https://api.synthetic.new/openai/v1",
+    "anthropic": "https://api.synthetic.new/anthropic/v1"
+  },
+  "api_key_var": "LLM_SYNTHETIC_API_KEY",
+  "signup_url": "https://synthetic.new/",
+  "models": [
+    {
+      "id": "kimi-k2.5",
+      "family": "kimi",
+      "version": "2.5",
+      "description": "Kimi",
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "hf:moonshotai/Kimi-K2.5"
+    }
+  ],
+  "family_latest": {
+    "kimi": "kimi-k2.5",
+    "ghost": "does-not-exist"
+  }
+}
+EOF
+    run cmd_quickstart
+    [ "$status" -eq 0 ]
+    grep -q '^\[group:synth_kimi\]$' "$(user_config)"
+    run grep -c '^\[group:synth_ghost\]$' "$(user_config)"
+    [ "$output" = "0" ]
+}
+
+@test "adversarial: vendor_short with INI-breaking chars is rejected" {
+    cat > "$LLM_ENV_QUICKSTART_DIR/quickstart-synthetic.json" <<'EOF'
+{
+  "schema_version": "2",
+  "generated_at": "2026-04-30T06:00:00Z",
+  "source": "synthetic",
+  "vendor_short": "bad[short",
+  "endpoints": { "openai": "https://example/" },
+  "api_key_var": "LLM_SYNTHETIC_API_KEY",
+  "signup_url": "https://synthetic.new/",
+  "models": [
+    {
+      "id": "x",
+      "family": "x",
+      "version": "1",
+      "description": "x",
+      "protocols": ["openai"],
+      "upstream_id": "x"
+    }
+  ],
+  "family_latest": {}
+}
+EOF
+    run cmd_quickstart
+    [ "$status" -ne 0 ]
+}
+
+@test "adversarial: duplicate model ids in models[] don't produce duplicate config sections" {
+    cat > "$LLM_ENV_QUICKSTART_DIR/quickstart-synthetic.json" <<'EOF'
+{
+  "schema_version": "2",
+  "generated_at": "2026-04-30T06:00:00Z",
+  "source": "synthetic",
+  "vendor_short": "synth",
+  "endpoints": {
+    "openai": "https://api.synthetic.new/openai/v1",
+    "anthropic": "https://api.synthetic.new/anthropic/v1"
+  },
+  "api_key_var": "LLM_SYNTHETIC_API_KEY",
+  "signup_url": "https://synthetic.new/",
+  "models": [
+    {
+      "id": "kimi-k2.5",
+      "family": "kimi",
+      "version": "2.5",
+      "description": "Kimi",
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "hf:moonshotai/Kimi-K2.5"
+    },
+    {
+      "id": "kimi-k2.5",
+      "family": "kimi",
+      "version": "2.5",
+      "description": "Kimi dup",
+      "protocols": ["openai", "anthropic"],
+      "upstream_id": "hf:moonshotai/Kimi-K2.5"
+    }
+  ],
+  "family_latest": { "kimi": "kimi-k2.5" }
+}
+EOF
+    run cmd_quickstart
+    [ "$status" -eq 0 ]
+    local cfg
+    cfg="$(user_config)"
+    # Each section should appear exactly once.
+    run grep -c '^\[openai_synth_kimi-k2.5\]$' "$cfg"
+    [ "$output" = "1" ]
+    run grep -c '^\[anth_synth_kimi-k2.5\]$' "$cfg"
+    [ "$output" = "1" ]
+    run grep -c '^\[group:synth_kimi-k2.5\]$' "$cfg"
+    [ "$output" = "1" ]
+}
