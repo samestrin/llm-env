@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-05-01
+
+### Added
+- **Interactive Quickstart**: `llm-env quickstart` now walks you through provider setup interactively — pick which catalog(s) to add (Synthetic, Alibaba, or both), get the signup URL with our referral code, paste your API key (input hidden), and the key gets appended to your shell rc file (`~/.bashrc` or `~/.zshrc`) and verified with a tiny test call. Skips the prompt automatically if a key is already configured.
+- **Positional Source Selection**: `llm-env quickstart synthetic`, `llm-env quickstart alibaba`, `llm-env quickstart synthetic,alibaba`, and `llm-env quickstart all` for scripted use.
+- **Shell-rc Auto-Append**: New helpers (`_qs_detect_shell_rc`, `_qs_append_export_to_rc`) detect bash/zsh and append `export LLM_<vendor>_API_KEY='...'` lines safely (single-quote escaping for keys with `$`, `'`, `\`, `` ` ``, etc.; idempotent — won't duplicate). Fish/csh/tcsh users get a "add this manually" message instead.
+- **Auto-Verification**: After key entry, runs `cmd_test` against `anth_<vendor>_kimi-k2.5` to confirm the key works. Failures print a warning but never abort quickstart.
+
+### Changed
+- **README + docs**: Quickstart section reframed around the new interactive flow. `docs/claude-code-quickstart.md` walkthrough shortened from 8 steps to 6 since the previous "sign up + paste key + test" steps now happen inside `quickstart` itself.
+
+### Preserved
+- Non-TTY behavior is unchanged: when stdin isn't a terminal (CI, scripts, piped install), `quickstart` falls back to the original "provision every available catalog, no prompts" behavior. The existing 21 BATS tests continue to pass unmodified.
+
 ## [1.5.2] - 2026-04-30
 
 ### Changed
