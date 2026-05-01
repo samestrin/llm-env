@@ -99,7 +99,7 @@ pause
 
 banner "Step 2: Run Quickstart"
 
-step "Running: source llm-env quickstart"
+step "Running: llm-env quickstart"
 echo -e "${YELLOW}--- quickstart output ---${NC}"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/llm-env" quickstart
@@ -111,7 +111,7 @@ pause
 
 banner "Step 3: List Available Providers"
 
-step "Running: source llm-env list"
+step "Running: llm-env list"
 echo -e "${YELLOW}--- list output ---${NC}"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/llm-env" list
@@ -123,27 +123,27 @@ pause
 
 banner "Step 4: Set Provider & Test Connectivity"
 
-# Pick a provider based on available keys
+# Pick a provider based on available keys (schema v2 names)
 DEMO_PROVIDER=""
 if [[ -n "${LLM_ALIBABA_API_KEY:-}" ]]; then
-    DEMO_PROVIDER="alibaba-qwen3-5-plus"
+    DEMO_PROVIDER="openai_alibaba_qwen3.6-plus"
 elif [[ -n "${LLM_SYNTHETIC_API_KEY:-}" ]]; then
-    DEMO_PROVIDER="synthetic-minimax-m2-5"
+    DEMO_PROVIDER="openai_synth_minimax-m2.5"
 fi
 
 if [[ -n "$DEMO_PROVIDER" ]]; then
-    step "Running: source llm-env set $DEMO_PROVIDER"
+    step "Running: llm-env set $DEMO_PROVIDER"
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/llm-env" set "$DEMO_PROVIDER"
 
     echo
-    step "Running: source llm-env show"
+    step "Running: llm-env show"
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/llm-env" show
 
     pause
 
-    step "Running: source llm-env test $DEMO_PROVIDER"
+    step "Running: llm-env test $DEMO_PROVIDER"
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/llm-env" test "$DEMO_PROVIDER" || true
 
