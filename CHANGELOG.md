@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-04-30
+
+### Changed
+- **Anthropic Provider Enabled by Default**: The bundled `[anthropic]` provider in `config/llm-env.conf` now ships with `enabled=true`. Anyone running Claude Code already has an Anthropic account, and disabling it by default forced an extra hand-edit to use the most-asked-for endpoint. Set `LLM_ANTHROPIC_API_KEY` and run `llm-env set anthropic` — no further setup needed.
+
 ## [1.5.1] - 2026-04-30
 
 ### Fixed
