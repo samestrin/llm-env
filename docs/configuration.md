@@ -159,6 +159,62 @@ Provider groups:
    dev           → groq,anthropic
 ```
 
+### Quickstart JSON Schema (v2)
+
+The `llm-env quickstart` command reads two curated JSON files at the top of the repository — `quickstart-synthetic.json` and `quickstart-alibaba.json` — and emits provider and group sections into your user config. The files follow schema v2; the parser refuses anything missing `schema_version: "2"`.
+
+#### What gets emitted
+
+For each model in the JSON, the parser writes up to two provider sections plus a group binding them, using the naming scheme `<protocol>_<vendor-short>_<model>`:
+
+```ini
+[openai_synth_kimi-k2.5]
+base_url=https://api.synthetic.new/openai/v1
+api_key_var=LLM_SYNTHETIC_API_KEY
+default_model=hf:moonshotai/Kimi-K2.5
+description=Kimi K2.5 from synthetic.new
+enabled=true
+
+[anth_synth_kimi-k2.5]
+base_url=https://api.synthetic.new/anthropic/v1
+api_key_var=LLM_SYNTHETIC_API_KEY
+default_model=hf:moonshotai/Kimi-K2.5
+protocol=anthropic
+description=Kimi K2.5 from synthetic.new
+enabled=true
+
+[group:synth_kimi-k2.5]
+providers=openai_synth_kimi-k2.5,anth_synth_kimi-k2.5
+```
+
+A model only gets a per-model group if both protocols are available for it. Where only one protocol is exposed, only that protocol's provider is emitted (no group).
+
+#### Family-latest aliases
+
+The JSON also carries a `family_latest` map, keyed by *effective family*. An effective family is the family name plus an optional subtype (e.g., `glm`, `glm-flash`, `qwen-coder`, `qwen-thinking`, `deepseek-r`). Each entry produces a group section that resolves to whichever model is currently latest in that family:
+
+```ini
+[group:synth_glm]
+providers=openai_synth_glm-5.1,anth_synth_glm-5.1
+
+[group:synth_qwen-coder]
+providers=openai_synth_qwen3-coder-480b-a35b-instruct,anth_synth_qwen3-coder-480b-a35b-instruct
+```
+
+So `llm-env set synth_glm` always points at the newest GLM, even when the daily refresh promotes a new version.
+
+#### Where the JSONs come from
+
+The files are produced by `scripts/update_quickstart.py`, which runs daily via `.github/workflows/update-quickstart.yml`. It:
+
+1. Fetches the synthetic `/openai/v1/models` endpoint and the Alibaba Coding Plan docs page (the latter via a reader proxy, since Alibaba's CDN aggressively caches stale content).
+2. Classifies each model by family / version / subtype.
+3. Suppresses quantization variants (e.g., `-NVFP4`, `-FP8`) so each base model appears once.
+4. Probes each Synthetic model against the anthropic endpoint to determine real protocol availability.
+5. Validates the output and opens a PR if anything changed.
+
+Manual edits to the JSONs are fine but will be overwritten by the next daily refresh; permanent customizations belong in your user config (`~/.config/llm-env/config.conf`).
+
 ### Claude Code Specific Configuration
 
 For enhanced Claude Code compatibility during Anthropic outages, you can override the Claude-specific model variables by setting them as environment variables before running `llm-env set anthropic`:
