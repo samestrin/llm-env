@@ -25,10 +25,10 @@ Configuration files are loaded in this order of precedence (first found wins):
 
 ```bash
 # Create a user configuration file
-source llm-env config init
+llm-env config init
 
 # Edit your configuration
-source llm-env config edit
+llm-env config edit
 ```
 
 ### Manual Configuration
@@ -143,10 +143,10 @@ providers=groq,anthropic
 Usage:
 ```bash
 # Set all providers in the "default" group
-source llm-env set default
+llm-env set default
 
 # Or use comma-separated providers directly (no config needed)
-source llm-env set cerebras,anthropic
+llm-env set cerebras,anthropic
 ```
 
 Each provider in the group sets its own protocol's variables. For example, if `cerebras` uses `openai` protocol and `anthropic` uses `anthropic` protocol, both `OPENAI_*` and `ANTHROPIC_*` variables are set.
@@ -255,7 +255,7 @@ export LLM_OLLAMA_API_KEY="not_required_for_local"
 
 ```bash
 # Add a provider interactively
-source llm-env config add my-provider
+llm-env config add my-provider
 ```
 
 This will prompt you for:
@@ -268,14 +268,14 @@ This will prompt you for:
 
 ```bash
 # Remove a provider
-source llm-env config remove old-provider
+llm-env config remove old-provider
 ```
 
 ### Validating Configuration
 
 ```bash
 # Validate your configuration
-source llm-env config validate
+llm-env config validate
 ```
 
 This checks for:
@@ -288,34 +288,34 @@ This checks for:
 
 ```bash
 # Open configuration in your default editor
-source llm-env config edit
+llm-env config edit
 ```
 
 ### Backup and Restore
 
 ```bash
 # Create a backup of your configuration
-source llm-env config backup
+llm-env config backup
 
 # Restore from a backup file
-source llm-env config restore /path/to/backup.conf
+llm-env config restore /path/to/backup.conf
 
 # List available backups
-source llm-env config restore  # Shows available backups
+llm-env config restore  # Shows available backups
 ```
 
 ### Bulk Operations
 
 ```bash
 # Enable multiple providers at once
-source llm-env config bulk enable cerebras openai groq
+llm-env config bulk enable cerebras openai groq
 
 # Disable multiple providers at once
-source llm-env config bulk disable openrouter anthropic
+llm-env config bulk disable openrouter anthropic
 
 # Example: Enable only production providers
-source llm-env config bulk disable openrouter openrouter2 openrouter3
-source llm-env config bulk enable cerebras openai
+llm-env config bulk disable openrouter openrouter2 openrouter3
+llm-env config bulk enable cerebras openai
 ```
 
 ## Default Provider Configurations
@@ -403,7 +403,7 @@ enabled=true
    ls -la ~/.config/llm-env/config.conf
    
    # Validate configuration syntax
-   source llm-env config validate
+   llm-env config validate
    ```
 
 2. **Provider not appearing**

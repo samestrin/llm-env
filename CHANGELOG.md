@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Quickstart Schema v2**: New `quickstart-{synthetic,alibaba}.json` schema with top-level `endpoints.openai` and `endpoints.anthropic`, per-model `protocols[]` array, and `family_latest{}` map
 - **Anthropic Protocol Quickstart**: Synthetic and Alibaba quickstart files now provision both `openai_*` and `anth_*` providers, automatically configuring `protocol=anthropic` for the latter
-- **Per-Model Groups**: Each model with both protocols available gets a `[group:<vendor>_<id>]` binding, so `source llm-env set synth_kimi-k2.5` activates both `OPENAI_*` and `ANTHROPIC_*` env vars in one shot
+- **Per-Model Groups**: Each model with both protocols available gets a `[group:<vendor>_<id>]` binding, so `llm-env set synth_kimi-k2.5` activates both `OPENAI_*` and `ANTHROPIC_*` env vars in one shot
 - **Family-Latest Aliases**: `[group:synth_kimi]`, `[group:synth_glm]`, `[group:alibaba_qwen]`, etc., resolve to whichever model is currently latest in that effective family (subtype-aware: `qwen-coder` and `qwen-thinking` track separately from `qwen`)
 - **`LLM_ENV_QUICKSTART_DIR` env var**: Override the directory where `cmd_quickstart` looks for JSON files (used by integration tests and advanced setups)
 

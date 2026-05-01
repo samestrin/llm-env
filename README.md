@@ -14,11 +14,9 @@
 * **🔌 Universal Adapter:** Aliases provider-specific keys (e.g., `GEMINI_API_KEY`) to `OPENAI_API_KEY`, making almost *any* tool work with *any* provider.
 * **🛠️ Tech Stack Agnostic:** Works with `curl` (or `wget` for testing), Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
 
-**New in v1.2.0:** Native Anthropic protocol support - exports `ANTHROPIC_*` environment variables with proper authentication headers for direct Claude API integration.
+**New in v1.5.x:** Schema v2 quickstart files with native Anthropic protocol support, daily auto-refresh of supported models from Synthetic and Alibaba Cloud Coding Plan, and group bindings that activate `OPENAI_*` and `ANTHROPIC_*` together with one command. See [CHANGELOG.md](CHANGELOG.md) for details.
 
-**v1.2.1:** Added `wget` fallback for connectivity testing and improved cross-platform reliability for provider validation.
-
-**v1.1.0:** Enhanced with a comprehensive help system, API connectivity testing, configuration backup/restore, bulk operations, and debug mode for easier troubleshooting.
+**v1.2.0:** Native Anthropic protocol support - exports `ANTHROPIC_*` environment variables (including the `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` variables that Claude Code reads) for direct Claude API integration.
 
 ## Overview
 
@@ -63,24 +61,62 @@ For each model the command emits up to two provider sections plus a group bindin
 There are also family-latest aliases that always resolve to whichever model is currently the newest in that effective family:
 
 ```bash
-source llm-env set synth_kimi          # latest Kimi (both protocols)
-source llm-env set synth_glm           # latest GLM base
-source llm-env set synth_glm-flash     # latest GLM Flash
-source llm-env set synth_qwen-coder    # latest Qwen Coder
-source llm-env set alibaba_qwen        # latest Alibaba Qwen
+llm-env set synth_kimi          # latest Kimi (both protocols)
+llm-env set synth_glm           # latest GLM base
+llm-env set synth_glm-flash     # latest GLM Flash
+llm-env set synth_qwen-coder    # latest Qwen Coder
+llm-env set alibaba_qwen        # latest Alibaba Qwen
 ```
 
 A specific model is also addressable directly:
 
 ```bash
-source llm-env set synth_kimi-k2.5            # both protocols, this exact version
-source llm-env set openai_synth_kimi-k2.5     # only the OpenAI side
-source llm-env set anth_alibaba_qwen3.5-plus  # only the Anthropic side
+llm-env set synth_kimi-k2.5            # both protocols, this exact version
+llm-env set openai_synth_kimi-k2.5     # only the OpenAI side
+llm-env set anth_alibaba_qwen3.5-plus  # only the Anthropic side
 ```
 
 The JSON files live at the top of the repository and follow schema v2 (see `quickstart-synthetic.json` and `quickstart-alibaba.json`). They are refreshed daily by a scheduled GitHub Actions job (see `.github/workflows/update-quickstart.yml`, available after PR2 lands).
 
 Learn more about synthetic models at: https://synthetic.new
+
+### Use with Claude Code
+
+`llm-env` exports the exact environment variables Claude Code reads to choose its endpoint and model: `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, plus the `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` family. So switching the model Claude Code is talking to is a single `llm-env set` command in the same shell you'll run `claude` from.
+
+**Point Claude Code at a Claude-compatible model on Synthetic:**
+
+```bash
+llm-env set anth_synth_kimi-k2.5
+claude  # now uses Kimi K2.5 via synthetic.new's Anthropic-compatible endpoint
+```
+
+**Point Claude Code at the official Anthropic API** (use this to flip back to real Claude):
+
+```bash
+# First-time setup: enable the bundled [anthropic] provider and set your key
+sed -i '' 's/^enabled=false$/enabled=true/' ~/.config/llm-env/config.conf  # only the [anthropic] block; or edit by hand
+export LLM_ANTHROPIC_API_KEY="sk-ant-..."
+
+llm-env set anthropic
+claude  # now uses the real claude-sonnet-4 against api.anthropic.com
+```
+
+**Mix and match providers:** if you want OpenAI tools (e.g., aichat) AND Claude Code in the same shell, use a group:
+
+```bash
+llm-env set synth_kimi-k2.5
+# Now both OPENAI_* and ANTHROPIC_* point at synthetic — OpenAI-compatible
+# tools and Claude Code both work, both pointing at Kimi K2.5.
+```
+
+To swap models mid-session, just re-run `llm-env set`:
+
+```bash
+llm-env set anth_synth_glm-5.1   # Claude Code now talks to GLM 5.1
+llm-env set anthropic            # back to real Claude
+llm-env set anth_alibaba_qwen3.6-plus  # Claude Code via Alibaba
+```
 
 ### Installation Integration
 
@@ -267,29 +303,29 @@ The script uses a flexible configuration system that allows you to customize pro
 ### Quick Setup
 ```bash
 # Create a user configuration file
-source llm-env config init
+llm-env config init
 
 # Edit your configuration
-source llm-env config edit
+llm-env config edit
 ```
 
 ### Configuration Management
 ```bash
 # Add a new provider
-source llm-env config add my-provider
+llm-env config add my-provider
 
 # Validate configuration
-source llm-env config validate
+llm-env config validate
 
 # Backup configuration
-source llm-env config backup
+llm-env config backup
 
 # Restore from backup
-source llm-env config restore /path/to/backup.conf
+llm-env config restore /path/to/backup.conf
 
 # Bulk operations
-source llm-env config bulk enable cerebras openai
-source llm-env config bulk disable groq openrouter
+llm-env config bulk enable cerebras openai
+llm-env config bulk disable groq openrouter
 ```
 
 ### Provider Groups
@@ -304,10 +340,10 @@ providers=cerebras,anthropic
 
 ```bash
 # Sets both cerebras (OPENAI_*) and anthropic (ANTHROPIC_*) at once
-source llm-env set default
+llm-env set default
 
 # Or use comma-separated providers directly (no config needed)
-source llm-env set cerebras,anthropic
+llm-env set cerebras,anthropic
 ```
 
 **For detailed configuration options, examples, and advanced setup, see the [Configuration Guide](docs/configuration.md)**

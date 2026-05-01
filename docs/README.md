@@ -48,8 +48,8 @@ llm-env set cerebras
 llm-env show
 
 # Configuration management
-source llm-env config init
-source llm-env config edit
+llm-env config init
+llm-env config edit
 ```
 
 ### Environment Variables

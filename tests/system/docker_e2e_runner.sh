@@ -142,7 +142,7 @@ grep -q 'anth_synth_kimi-k2.5' /tmp/list.log || {
     exit 1
 }
 
-echo "::: source set synth_kimi-k2.5 activates both protocols :::"
+echo "::: llm-env set synth_kimi-k2.5 activates both protocols :::"
 # Use a fake key for the offline check; live API call comes later.
 export LLM_SYNTHETIC_API_KEY="${LLM_SYNTHETIC_API_KEY:-test-fake-key}"
 

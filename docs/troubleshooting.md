@@ -107,7 +107,7 @@ llm-env list
 3. **Add missing provider to configuration:**
    ```bash
    # Add provider interactively
-   source llm-env config add provider_name
+   llm-env config add provider_name
    ```
 
 ### 3. "Command not found: llm-env"
@@ -162,7 +162,7 @@ llm-env list
 
 3. **Validate configuration syntax:**
    ```bash
-   source llm-env config validate
+   llm-env config validate
    ```
 
 ### 5. API Requests Failing
