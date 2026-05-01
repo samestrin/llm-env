@@ -192,6 +192,37 @@ stage_fixture() {
     grep -q "^export LLM_TEST_FAKE_KEY='value'$" "$TEST_RC_FILE"
 }
 
+@test "append_export: rc path is a directory → returns nonzero, does not crash" {
+    local dir_path="$BATS_TEST_TMPDIR/some-dir"
+    mkdir -p "$dir_path"
+    run _qs_append_export_to_rc "LLM_TEST_FAKE_KEY" "value" "$dir_path"
+    [ "$status" -ne 0 ]
+}
+
+@test "append_export: rc path unwritable → returns nonzero gracefully" {
+    : > "$TEST_RC_FILE"
+    chmod 000 "$TEST_RC_FILE"
+    run _qs_append_export_to_rc "LLM_TEST_FAKE_KEY" "value" "$TEST_RC_FILE"
+    chmod 644 "$TEST_RC_FILE"
+    [ "$status" -ne 0 ]
+}
+
+@test "append_export: value with embedded newline is rejected/truncated, no rc corruption" {
+    : > "$TEST_RC_FILE"
+    # A multi-line value would corrupt the rc file. Verify behavior:
+    # either the helper rejects it, or it embeds it safely inside the
+    # single-quoted form (which is also valid because single-quoted
+    # bash strings preserve newlines).
+    local raw=$'line1\nline2'
+    run _qs_append_export_to_rc "LLM_TEST_FAKE_KEY" "$raw" "$TEST_RC_FILE"
+    [ "$status" -eq 0 ]
+    # shellcheck source=/dev/null
+    (
+        source "$TEST_RC_FILE"
+        [[ "$LLM_TEST_FAKE_KEY" == "$raw" ]]
+    )
+}
+
 # --- _qs_prompt_api_key -------------------------------------------------------
 
 @test "prompt_api_key: empty input → skip (returns 1)" {
