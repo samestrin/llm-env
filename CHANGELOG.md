@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-04-30
+
+### Fixed
+- **Alibaba Scraper**: Routes `coding-plan` docs fetch through the Jina reader proxy (`https://r.jina.ai/`) so the daily refresh sees current "Recommended models" content. Direct fetches were hitting Tengine's US-West edge cache which served days-old content (e.g. `qwen3.5-plus` while the page actually showed `qwen3.6-plus`). Tested cache-bust headers, query params, UAs, DNS resolvers, and direct IPs — none defeat the edge cache, so we egress through a different region. Direct HTML fetch is retained as a fallback.
+- **Markdown Parser**: New parser path for the proxy-returned markdown alongside the existing HTML parser. Both tolerate the new "Recommended models:" phrasing and the legacy "Recommended:" form.
+
+## [1.5.0] - 2026-04-30
+
+### Added
+- **Daily Quickstart Scraper** (`scripts/update_quickstart.py`): Python scraper that fetches synthetic's `/openai/v1/models` and the Alibaba Cloud Coding Plan docs page, classifies each model, and writes refreshed `quickstart-{synthetic,alibaba}.json` files. Suppresses quantization variants, applies a chat-only filter, and uses an AI-disambiguation fallback (synthetic GLM-4.7-Flash → GLM-4.7) for low-confidence classifications.
+- **Anthropic Protocol Probe**: For each synthetic model, the scraper sends a 1-token probe to the anthropic endpoint to determine availability rather than assuming it.
+- **GitHub Actions Workflow** (`.github/workflows/update-quickstart.yml`): Daily cron at 06:00 UTC (plus `workflow_dispatch`) runs the scraper and opens a PR via `peter-evans/create-pull-request` if anything changed. Validation gate refuses to write malformed payloads, preserving last-known-good on partial failure.
+- **API Key Gate**: Scraper refuses to run without `LLM_SYNTHETIC_API_KEY` (without it the anthropic probe silently degrades to openai-only). Override available via `LLM_ENV_SCRAPER_ALLOW_NO_KEY=1` for tests.
+- **Docker End-to-End Test** (`tests/system/test_docker_e2e.bats` + `docker_e2e_runner.sh`): Spins up a fresh `ubuntu:22.04` container, runs `install.sh --offline`, exercises `quickstart`/`list`/`set`, and verifies provider/group counts computed dynamically from the source JSONs. Optional live-API sub-test gated on `LLM_ENV_RUN_DOCKER_LIVE_TESTS=1`.
+
 ## [1.4.0] - 2026-04-30
 
 ### Added
