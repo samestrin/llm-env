@@ -44,7 +44,7 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 
 ### Quickstart: Recommended Coding Models
 
-`llm-env quickstart` populates your config with the "Recommended" coding models from two providers in one shot:
+`llm-env quickstart` is an interactive setup command that adds the "Recommended" coding models from two providers to your config and walks you through getting an API key:
 
 - **[Synthetic](https://synthetic.new)** — Kimi, GLM, MiniMax, DeepSeek, Qwen, Llama, GPT-OSS, and more, all hosted behind one subscription.
 - **[Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan)** — the four models Alibaba currently recommends for coding (today: `qwen3.6-plus`, `kimi-k2.5`, `glm-5`, `MiniMax-M2.5`).
@@ -55,7 +55,20 @@ Both providers serve the same models on **OpenAI-compatible** *and* **Anthropic-
 llm-env quickstart
 ```
 
-Then pick a model. The most useful shortcuts:
+You'll be asked which catalog(s) to add (Synthetic, Alibaba, or both). For each one you pick, you'll get the signup URL with the embedded referral code, then a hidden prompt for your API key — which gets appended to your shell rc file (`~/.bashrc` or `~/.zshrc`) so it persists across shells. Each key is then verified with a tiny test call to confirm it works.
+
+If you'd rather script it, pass the source(s) as a positional arg:
+
+```bash
+llm-env quickstart synthetic            # only Synthetic
+llm-env quickstart alibaba              # only Alibaba
+llm-env quickstart synthetic,alibaba    # both (same as `all`)
+llm-env quickstart all                  # everything available
+```
+
+When stdin isn't a TTY (CI, scripts, piped install), `quickstart` skips all prompts and just provisions every available catalog — same behavior as before this feature landed.
+
+Once your config is populated, pick a model:
 
 ```bash
 llm-env set synth_kimi              # latest Kimi on Synthetic, both protocols
