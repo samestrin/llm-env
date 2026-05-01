@@ -2171,6 +2171,140 @@ _qs_resolve_selection() {
     return 0
 }
 
+# Returns true when stdin is a TTY (interactive shell). Centralized so
+# tests can stub it via function override.
+_qs_is_interactive() {
+    [[ -t 0 ]]
+}
+
+# Detect the user's shell rc file. Echoes the path, or empty for shells
+# we don't auto-write to. Mirrors install.sh:307–315.
+#
+# bash → ~/.bashrc, falling back to ~/.bash_profile if .bashrc is
+# missing AND .bash_profile exists. ~/.bashrc otherwise (created on
+# write).
+# zsh → ~/.zshrc.
+# fish/csh/tcsh/other → empty (caller prints the export line manually).
+_qs_detect_shell_rc() {
+    local current_shell="${SHELL:-/bin/bash}"
+    case "$current_shell" in
+        */zsh)
+            printf '%s' "$HOME/.zshrc"
+            ;;
+        */bash)
+            if [[ ! -f "$HOME/.bashrc" && -f "$HOME/.bash_profile" ]]; then
+                printf '%s' "$HOME/.bash_profile"
+            else
+                printf '%s' "$HOME/.bashrc"
+            fi
+            ;;
+        *)
+            # fish, csh, tcsh, sh, or anything unrecognized.
+            printf ''
+            ;;
+    esac
+}
+
+# True (return 0) when the named env var is already set in the current
+# environment, OR when the rc file contains an `export VAR=...` line
+# (any leading whitespace, any quoting).
+#
+# Args: $1 = var name, $2 = rc file path (may be empty).
+_qs_key_already_set() {
+    local var="$1" rc_file="$2"
+    [[ -z "$var" ]] && return 1
+    # Env check.
+    if [[ -n "${!var:-}" ]]; then
+        return 0
+    fi
+    # rc-file check.
+    if [[ -n "$rc_file" && -f "$rc_file" ]]; then
+        if grep -qE "^[[:space:]]*export[[:space:]]+${var}=" "$rc_file"; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Prompt for an API key, masked. Treats empty input, 's', or
+# whitespace-only as skip. On a real key, echoes the (trimmed) key on
+# stdout and returns 0. On skip, returns 1.
+#
+# Args: $1 = var name (only used in the prompt label).
+_qs_prompt_api_key() {
+    local var="$1"
+    local key=""
+    # -s: don't echo input. -r: don't process backslashes. -p prompt
+    # writes to stderr to keep stdout clean for the caller.
+    printf '   Paste your %s (input hidden, blank or '\''s'\'' to skip): ' "$var" >&2
+    IFS= read -r -s key
+    printf '\n' >&2
+    # Trim whitespace.
+    local trimmed
+    trimmed="$(printf '%s' "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    if [[ -z "$trimmed" || "$trimmed" == "s" || "$trimmed" == "S" ]]; then
+        return 1
+    fi
+    printf '%s' "$trimmed"
+    return 0
+}
+
+# Append `export VAR='value'` to the given rc file. Idempotent: if a
+# matching `export VAR=` line already exists, leaves the file alone
+# and returns 1 (caller knows nothing was written).
+#
+# Args: $1 = var, $2 = value, $3 = rc file path (must be non-empty).
+# Single-quote escaping uses the standard close-escape-reopen pattern
+# so values containing apostrophes round-trip correctly.
+_qs_append_export_to_rc() {
+    local var="$1" value="$2" rc_file="$3"
+    if [[ -z "$rc_file" ]]; then
+        return 1
+    fi
+    # Don't duplicate.
+    if [[ -f "$rc_file" ]] && grep -qE "^[[:space:]]*export[[:space:]]+${var}=" "$rc_file"; then
+        return 1
+    fi
+    # Ensure the file exists and ends with a newline before appending.
+    if [[ ! -f "$rc_file" ]]; then
+        : > "$rc_file" || return 1
+    elif [[ -s "$rc_file" ]]; then
+        # If file is non-empty and lacks trailing newline, add one.
+        local last
+        last=$(tail -c 1 "$rc_file" 2>/dev/null || true)
+        if [[ "$last" != $'\n' ]]; then
+            printf '\n' >> "$rc_file" || return 1
+        fi
+    fi
+    # Single-quote-escape the value: every ' becomes '"'"'.
+    local escaped="${value//\'/\'\"\'\"\'}"
+    printf "export %s='%s'\n" "$var" "$escaped" >> "$rc_file" || return 1
+    return 0
+}
+
+# Run cmd_test against a provider, capture its output, and print a
+# single-line ✅/❌ summary. Always returns 0 — verification is
+# informational and must not abort quickstart.
+#
+# Args: $1 = provider name to test.
+_qs_verify_key() {
+    local provider="$1"
+    local out rc
+    out="$(cmd_test "$provider" 2>&1)"
+    rc=$?
+    if [[ $rc -eq 0 ]]; then
+        echo "   ✅ Verified: $provider"
+    else
+        # Print warning but never propagate failure to caller.
+        echo "   ⚠️  Warning: verification of $provider failed (exit $rc). Set the key manually if needed."
+        # Also surface the last line of the cmd_test output for context.
+        local tail_line
+        tail_line="$(printf '%s' "$out" | tail -n 1)"
+        [[ -n "$tail_line" ]] && echo "      $tail_line"
+    fi
+    return 0
+}
+
 cmd_quickstart() {
     echo "🚀 Quickstart - Adding provider definitions from quickstart JSON files"
     echo
@@ -2205,19 +2339,6 @@ cmd_quickstart() {
         return 0
     fi
 
-    # Build the json_files list from the resolved selection.
-    local json_files=()
-    local src
-    local IFS_old="$IFS"
-    IFS=','
-    for src in $selection; do
-        case "$src" in
-            synthetic) json_files+=("$synthetic_json") ;;
-            alibaba)   json_files+=("$alibaba_json") ;;
-        esac
-    done
-    IFS="$IFS_old"
-
     local user_config
     user_config="$(get_user_config_path)"
     mkdir -p "$(dirname "$user_config")"
@@ -2228,39 +2349,105 @@ cmd_quickstart() {
         echo "📝 Using existing user configuration: $user_config"
     fi
 
+    # Detect shell rc once up-front (empty for unsupported shells).
+    local rc_file
+    rc_file="$(_qs_detect_shell_rc)"
+
     _qs_added_names=()
     local rc=0
-    local json_file
-    for json_file in "${json_files[@]}"; do
+    local interactive=false
+    if _qs_is_interactive; then
+        interactive=true
+    fi
+
+    local src
+    local IFS_old="$IFS"
+    IFS=','
+    for src in $selection; do
+        IFS="$IFS_old"
+        local json_file="" api_key_var="" signup_url="" verify_provider=""
+        case "$src" in
+            synthetic)
+                json_file="$synthetic_json"
+                api_key_var="LLM_SYNTHETIC_API_KEY"
+                signup_url="https://synthetic.new/?referral=ugceNlJ08A3Eeww"
+                verify_provider="anth_synth_kimi-k2.5"
+                ;;
+            alibaba)
+                json_file="$alibaba_json"
+                api_key_var="LLM_ALIBABA_API_KEY"
+                signup_url="https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
+                verify_provider="anth_alibaba_kimi-k2.5"
+                ;;
+        esac
+
         echo "🔍 Processing: $json_file"
         if ! _qs_process_v2_file "$json_file" "$user_config"; then
             rc=1
+            IFS=','
+            continue
         fi
         echo
+
+        if [[ "$interactive" == true ]]; then
+            if _qs_key_already_set "$api_key_var" "$rc_file"; then
+                echo "✅ $api_key_var is already configured — skipping prompt."
+                echo
+            else
+                echo "🔑 Sign up for $src to get your API key:"
+                printf '   %s\n' "$(link "$signup_url" "$signup_url")"
+                echo
+                printf '   Press Enter once you have your key (or '\''s'\'' + Enter to skip): '
+                read -r _   # discard; just a pause
+                local key
+                if key="$(_qs_prompt_api_key "$api_key_var")"; then
+                    if [[ -n "$rc_file" ]]; then
+                        if _qs_append_export_to_rc "$api_key_var" "$key" "$rc_file"; then
+                            echo "   ✓ Appended $api_key_var to $rc_file"
+                        else
+                            # rc_file write failed or duplicate — print fallback.
+                            echo "   ⚠️  Could not write to $rc_file. Add this line manually:"
+                            echo "      export $api_key_var='<your key>'"
+                        fi
+                    else
+                        echo "   ℹ️  Your shell isn't auto-supported. Add this to your shell config:"
+                        echo "      export $api_key_var='<your key>'"
+                    fi
+                    # Make the key visible to cmd_test in this session for verification.
+                    export "$api_key_var=$key"
+                    _qs_verify_key "$verify_provider"
+                else
+                    echo "   ⏭️  Skipped — set $api_key_var manually when you're ready."
+                fi
+                echo
+            fi
+        fi
+        IFS=','
     done
+    IFS="$IFS_old"
 
     if [[ ${#_qs_added_names[@]} -gt 0 ]]; then
-        echo "🎉 Added ${#_qs_added_names[@]} new entr$([[ ${#_qs_added_names[@]} -eq 1 ]] && echo y || echo ies) to your configuration:"
-        local n
-        for n in "${_qs_added_names[@]}"; do
-            echo "  - $n"
-        done
-        echo
-        echo "💡 Next steps:"
-        echo "   1. Set your API keys in your shell profile, e.g.:"
-        echo "      export LLM_SYNTHETIC_API_KEY='your-key-here'"
-        echo "      export LLM_ALIBABA_API_KEY='your-key-here'"
-        echo "   2. Reload your shell: source ~/.bashrc or source ~/.zshrc"
-        echo "   3. List providers/groups: llm-env list"
-        echo "   4. Activate one: source llm-env set <name>"
+        echo "🎉 Added ${#_qs_added_names[@]} new entr$([[ ${#_qs_added_names[@]} -eq 1 ]] && echo y || echo ies) to your configuration."
     else
         echo "ℹ️  No new providers or groups were added (they may already exist)."
     fi
 
+    if [[ "$interactive" != true ]]; then
+        # Non-interactive path: print signup links footer for the user
+        # to follow up on manually.
+        echo
+        echo "🔗 Sign up for API access:"
+        printf '   Synthetic: %s\n' "$(link "https://synthetic.new/?referral=ugceNlJ08A3Eeww" "https://synthetic.new")"
+        printf '   Alibaba Cloud Coding Plan: %s\n' "$(link "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX" "https://alibabacloud.com/campaign/benefits")"
+    fi
+
     echo
-    echo "🔗 Sign up for API access:"
-    printf '   Synthetic: %s\n' "$(link "https://synthetic.new/?referral=ugceNlJ08A3Eeww" "https://synthetic.new")"
-    printf '   Alibaba Cloud Coding Plan: %s\n' "$(link "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX" "https://alibabacloud.com/campaign/benefits")"
+    echo "💡 Next steps:"
+    echo "   llm-env list                       # see what's available"
+    echo "   llm-env set anth_synth_kimi-k2.5   # activate a provider"
+    if [[ "$interactive" == true && -n "$rc_file" ]]; then
+        echo "   source $rc_file                    # reload shell so new keys are active"
+    fi
     echo
 
     return $rc
