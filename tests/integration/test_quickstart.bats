@@ -605,3 +605,23 @@ EOF
     grep -q '^\[openai_synth_kimi-k2.5\]$' "$cfg"
     grep -q '^\[openai_alibaba_qwen3.5-plus\]$' "$cfg"
 }
+
+@test "selection: CLI dispatcher forwards positional arg (regression guard)" {
+    # Top-level case "$1" in...quickstart)...esac must `shift` and pass
+    # remaining args to cmd_quickstart. A previous version of this code
+    # called cmd_quickstart with no args, silently ignoring the user's
+    # selection. This test invokes the script as a binary (not via
+    # `run cmd_quickstart`) to exercise the real dispatch path.
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+    stage_fixture quickstart-alibaba-v2.json   quickstart-alibaba.json
+
+    run "$BATS_TEST_DIRNAME/../../llm-env" quickstart synthetic
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -q '^\[openai_synth_kimi-k2.5\]$' "$cfg"
+    # Alibaba sections must NOT be present.
+    run grep -c '^\[openai_alibaba_' "$cfg"
+    [ "$output" = "0" ]
+}

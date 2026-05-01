@@ -2890,7 +2890,8 @@ case "$1" in
         cmd_config "$@"
         ;;
     quickstart)
-        cmd_quickstart
+        shift
+        cmd_quickstart "$@"
         ;;
     *)
         echo "Unknown command: $1" >&2
