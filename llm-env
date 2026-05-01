@@ -2118,6 +2118,59 @@ _qs_emit_group() {
     _qs_added_names+=("group:$group_name")
 }
 
+# Resolve the user's selection of catalog sources for cmd_quickstart.
+# Inputs:
+#   $1 = positional argument from CLI (may be empty, "all", "synthetic",
+#        "alibaba", or a comma-separated list).
+#   $2 = comma-separated list of *available* sources (those whose JSON
+#        files were found, in order: synthetic,alibaba).
+# Output (echoed): a comma-separated subset of the available sources.
+# Return code: 0 on valid selection, non-zero on invalid input. Caller
+# uses the return code to decide whether to abort.
+_qs_resolve_selection() {
+    local arg="${1:-}"
+    local available="${2:-}"
+
+    # Normalize: trim whitespace around commas, lowercase.
+    arg="$(printf '%s' "$arg" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]*,[[:space:]]*/,/g; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+
+    # Empty arg → caller decides (interactive prompt or "all" fallback).
+    if [[ -z "$arg" ]]; then
+        printf '%s' "$available"
+        return 0
+    fi
+
+    if [[ "$arg" == "all" ]]; then
+        printf '%s' "$available"
+        return 0
+    fi
+
+    # Validate every comma-separated token is a known source AND is
+    # currently available. Build the result preserving caller's order.
+    local IFS=','
+    local -a tokens
+    read -r -a tokens <<< "$arg"
+    local out=""
+    local tok
+    for tok in "${tokens[@]}"; do
+        if [[ "$tok" != "synthetic" && "$tok" != "alibaba" ]]; then
+            echo "❌ Unknown quickstart source: '$tok'. Valid: synthetic, alibaba, all (or comma-separated combinations)." >&2
+            return 1
+        fi
+        # Must be in available list.
+        if [[ ",$available," != *",$tok,"* ]]; then
+            echo "❌ Quickstart source '$tok' selected but its JSON file is not available." >&2
+            return 1
+        fi
+        if [[ -n "$out" ]]; then
+            out+=","
+        fi
+        out+="$tok"
+    done
+    printf '%s' "$out"
+    return 0
+}
+
 cmd_quickstart() {
     echo "🚀 Quickstart - Adding provider definitions from quickstart JSON files"
     echo
@@ -2128,15 +2181,42 @@ cmd_quickstart() {
     local synthetic_json="$quickstart_dir/quickstart-synthetic.json"
     local alibaba_json="$quickstart_dir/quickstart-alibaba.json"
 
-    local json_files=()
-    [[ -f "$synthetic_json" ]] && json_files+=("$synthetic_json")
-    [[ -f "$alibaba_json" ]] && json_files+=("$alibaba_json")
+    # Track which sources are available (in deterministic order).
+    local available=""
+    [[ -f "$synthetic_json" ]] && available="${available:+$available,}synthetic"
+    [[ -f "$alibaba_json" ]] && available="${available:+$available,}alibaba"
 
-    if [[ ${#json_files[@]} -eq 0 ]]; then
+    if [[ -z "$available" ]]; then
         echo "❌ No quickstart JSON files found in: $quickstart_dir" >&2
         echo "💡 Expected: quickstart-synthetic.json and/or quickstart-alibaba.json" >&2
         return 1
     fi
+
+    # Resolve which sources to process. Empty arg + non-TTY → all available.
+    # Empty arg + TTY → currently still all (interactive prompt arrives in
+    # Phase 2 of the interactive-quickstart feature).
+    local selection
+    if ! selection="$(_qs_resolve_selection "${1:-}" "$available")"; then
+        return 1
+    fi
+
+    if [[ -z "$selection" ]]; then
+        echo "ℹ️  No sources selected — exiting."
+        return 0
+    fi
+
+    # Build the json_files list from the resolved selection.
+    local json_files=()
+    local src
+    local IFS_old="$IFS"
+    IFS=','
+    for src in $selection; do
+        case "$src" in
+            synthetic) json_files+=("$synthetic_json") ;;
+            alibaba)   json_files+=("$alibaba_json") ;;
+        esac
+    done
+    IFS="$IFS_old"
 
     local user_config
     user_config="$(get_user_config_path)"
