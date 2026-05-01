@@ -14,9 +14,9 @@
 * **🔌 Universal Adapter:** Aliases provider-specific keys (e.g., `GEMINI_API_KEY`) to `OPENAI_API_KEY`, making almost *any* tool work with *any* provider.
 * **🛠️ Tech Stack Agnostic:** Works with `curl` (or `wget` for testing), Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
 
-**New in v1.5.x:** Schema v2 quickstart files with native Anthropic protocol support, daily auto-refresh of supported models from Synthetic and Alibaba Cloud Coding Plan, and group bindings that activate `OPENAI_*` and `ANTHROPIC_*` together with one command. See [CHANGELOG.md](CHANGELOG.md) for details.
+**New in v1.5:** `llm-env quickstart` — one command adds the current "Recommended" coding models from [Synthetic](https://synthetic.new) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan) to your config, on both OpenAI and Anthropic protocols. The list is refreshed daily, so `llm-env list` always reflects what those providers actually recommend right now. See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
 
-**v1.2.0:** Native Anthropic protocol support - exports `ANTHROPIC_*` environment variables (including the `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` variables that Claude Code reads) for direct Claude API integration.
+**v1.2.0:** Native Anthropic protocol support — exports `ANTHROPIC_*` environment variables (including the `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` variables that Claude Code reads) for direct Claude API integration.
 
 ## Overview
 
@@ -42,43 +42,30 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 
 ![llm-env --help](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/ylderczpgbos0fdzfn02.png)
 
-### Quickstart - Synthetic & Alibaba Coding Plan
+### Quickstart: Recommended Coding Models
 
-The `llm-env quickstart` command provisions provider definitions for both Synthetic and Alibaba Cloud Coding Plan from curated JSON files:
+`llm-env quickstart` populates your config with the "Recommended" coding models from two providers in one shot:
+
+- **[Synthetic](https://synthetic.new)** — Kimi, GLM, MiniMax, DeepSeek, Qwen, Llama, GPT-OSS, and more, all hosted behind one subscription.
+- **[Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan)** — the four models Alibaba currently recommends for coding (today: `qwen3.6-plus`, `kimi-k2.5`, `glm-5`, `MiniMax-M2.5`).
+
+Both providers serve the same models on **OpenAI-compatible** *and* **Anthropic-compatible** endpoints, so each model becomes addressable from any tool you already use — including Claude Code.
 
 ```bash
 llm-env quickstart
 ```
 
-For each model the command emits up to two provider sections plus a group binding them, using the naming scheme `<protocol>_<vendor-short>_<model>`:
-
-```ini
-[openai_synth_kimi-k2.5]    # OpenAI-compatible endpoint
-[anth_synth_kimi-k2.5]      # Anthropic-compatible endpoint (protocol=anthropic)
-[group:synth_kimi-k2.5]     # Activates both at once
-```
-
-There are also family-latest aliases that always resolve to whichever model is currently the newest in that effective family:
+Then pick a model. The most useful shortcuts:
 
 ```bash
-llm-env set synth_kimi          # latest Kimi (both protocols)
-llm-env set synth_glm           # latest GLM base
-llm-env set synth_glm-flash     # latest GLM Flash
-llm-env set synth_qwen-coder    # latest Qwen Coder
-llm-env set alibaba_qwen        # latest Alibaba Qwen
+llm-env set synth_kimi              # latest Kimi on Synthetic, both protocols
+llm-env set synth_qwen-coder        # latest Qwen Coder on Synthetic
+llm-env set synth_glm-flash         # latest GLM Flash (the speed-tuned variant)
+llm-env set alibaba_qwen            # latest Qwen on Alibaba's Coding Plan
+llm-env set anth_synth_kimi-k2.5    # specific model, Anthropic protocol only
 ```
 
-A specific model is also addressable directly:
-
-```bash
-llm-env set synth_kimi-k2.5            # both protocols, this exact version
-llm-env set openai_synth_kimi-k2.5     # only the OpenAI side
-llm-env set anth_alibaba_qwen3.5-plus  # only the Anthropic side
-```
-
-The JSON files live at the top of the repository and follow schema v2 (see `quickstart-synthetic.json` and `quickstart-alibaba.json`). They are refreshed daily by a scheduled GitHub Actions job (see `.github/workflows/update-quickstart.yml`, available after PR2 lands).
-
-Learn more about synthetic models at: https://synthetic.new
+The full set, naming scheme, and how `family-latest` aliases work is documented in [docs/configuration.md](docs/configuration.md#quickstart-json-schema-v2). The model lists themselves are refreshed daily by an automated job, so the recommended models you see are always the ones the upstream providers currently endorse.
 
 ### Use with Claude Code
 
