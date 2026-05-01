@@ -8,7 +8,7 @@
 #   source ./llm-env config <command>
 
 # Version information
-VERSION="1.5.1"
+VERSION="1.5.2"
 
 # ---------- Shell Detection and Version ----------
 

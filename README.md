@@ -94,10 +94,7 @@ claude  # now uses Kimi K2.5 via synthetic.new's Anthropic-compatible endpoint
 **Point Claude Code at the official Anthropic API** (use this to flip back to real Claude):
 
 ```bash
-# First-time setup: enable the bundled [anthropic] provider and set your key
-sed -i '' 's/^enabled=false$/enabled=true/' ~/.config/llm-env/config.conf  # only the [anthropic] block; or edit by hand
-export LLM_ANTHROPIC_API_KEY="sk-ant-..."
-
+export LLM_ANTHROPIC_API_KEY="sk-ant-..."  # one-time, in your shell profile
 llm-env set anthropic
 claude  # now uses the real claude-sonnet-4 against api.anthropic.com
 ```
