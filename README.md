@@ -2,7 +2,7 @@
 
 **Force any OpenAI-compatible tool to use Gemini, Groq, Ollama, or DeepSeek instantly.**
 
-`llm-env` creates a unified interface for your AI development. It automatically maps provider-specific keys (like `GEMINI_API_KEY`) to the standard `OPENAI_API_KEY` and `OPENAI_BASE_URL` in your current shell session. 
+`llm-env` creates a unified interface for your AI development. It automatically maps provider-specific keys (like `GEMINI_API_KEY`) to the standard `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY` for Anthropic-protocol providers) in your current shell session, and sets the matching base URL and default model alongside it.
 
 **Stop editing `.env` files. Stop hardcoding providers. Just switch.**
 
@@ -14,7 +14,7 @@
 * **🔌 Universal Adapter:** Aliases provider-specific keys (e.g., `GEMINI_API_KEY`) to `OPENAI_API_KEY`, making almost *any* tool work with *any* provider.
 * **🛠️ Tech Stack Agnostic:** Works with `curl` (or `wget` for testing), Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
 
-**New in v1.5:** `llm-env quickstart` — one command adds the current "Recommended" coding models from [Synthetic](https://synthetic.new) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan) to your config, on both OpenAI and Anthropic protocols. The list is refreshed daily, so `llm-env list` always reflects what those providers actually recommend right now. See [CHANGELOG.md](CHANGELOG.md) for the full release notes.
+**New in v1.5:** `llm-env quickstart` — a one-time setup command that adds the current "Recommended" coding models from [Synthetic](https://synthetic.new) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan) to your config, on both OpenAI and Anthropic protocols. Pair with [Claude Code](docs/claude-code-quickstart.md) to get a Claude-Code-compatible workflow on Kimi, GLM, MiniMax, Qwen, DeepSeek, and more — without needing an Anthropic API key. The model lists in this repo are refreshed daily; re-run `quickstart` after a fresh `git pull` to pick up new entries. See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
 **v1.2.0:** Native Anthropic protocol support — exports `ANTHROPIC_*` environment variables (including the `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` variables that Claude Code reads) for direct Claude API integration.
 
@@ -65,42 +65,28 @@ llm-env set alibaba_qwen            # latest Qwen on Alibaba's Coding Plan
 llm-env set anth_synth_kimi-k2.5    # specific model, Anthropic protocol only
 ```
 
-The full set, naming scheme, and how `family-latest` aliases work is documented in [docs/configuration.md](docs/configuration.md#quickstart-json-schema-v2). The model lists themselves are refreshed daily by an automated job, so the recommended models you see are always the ones the upstream providers currently endorse.
+The full set, naming scheme, and how `family-latest` aliases work is documented in [docs/configuration.md](docs/configuration.md#quickstart-json-schema-v2). The model lists in this repo are refreshed daily by an automated job; once you've run `quickstart`, your config stays as-is unless you re-run it after a `git pull`. (The parser skips providers that already exist, so re-running is safe and won't touch any sections you've added or edited.)
 
-### Use with Claude Code
+### Use Claude Code with non-Anthropic models
 
-`llm-env` exports the exact environment variables Claude Code reads to choose its endpoint and model: `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, plus the `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` family. So switching the model Claude Code is talking to is a single `llm-env set` command in the same shell you'll run `claude` from.
+The headline use case for v1.5: **run Claude Code against Kimi, GLM, MiniMax, Qwen, DeepSeek, Llama, and more** — through Synthetic or Alibaba's Coding Plan, without an Anthropic API key.
 
-**Point Claude Code at a Claude-compatible model on Synthetic:**
-
-```bash
-llm-env set anth_synth_kimi-k2.5
-claude  # now uses Kimi K2.5 via synthetic.new's Anthropic-compatible endpoint
-```
-
-**Point Claude Code at the official Anthropic API** (use this to flip back to real Claude):
+Both providers expose Anthropic-compatible endpoints, and `llm-env` exports the exact environment variables Claude Code reads to choose its endpoint and model (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` / `SONNET` / `HAIKU`, `CLAUDE_CODE_SUBAGENT_MODEL`). So switching is a single command in the same shell you'll run `claude` from:
 
 ```bash
-export LLM_ANTHROPIC_API_KEY="sk-ant-..."  # one-time, in your shell profile
-llm-env set anthropic
-claude  # now uses the real claude-sonnet-4 against api.anthropic.com
+llm-env set anth_synth_kimi-k2.5     # Claude Code talks to Kimi K2.5 via Synthetic
+claude
+
+llm-env set anth_alibaba_qwen3.6-plus # …or Qwen 3.6 via Alibaba Coding Plan
+claude
+
+llm-env unset                         # clear all overrides — Claude Code falls back
+claude                                # to its own native login (real Claude)
 ```
 
-**Mix and match providers:** if you want OpenAI tools (e.g., aichat) AND Claude Code in the same shell, use a group:
+**Full walkthrough:** [docs/claude-code-quickstart.md](docs/claude-code-quickstart.md) covers install → `quickstart` → sign up for Synthetic or Alibaba → set provider → run `claude`. Eight steps, ~5 minutes.
 
-```bash
-llm-env set synth_kimi-k2.5
-# Now both OPENAI_* and ANTHROPIC_* point at synthetic — OpenAI-compatible
-# tools and Claude Code both work, both pointing at Kimi K2.5.
-```
-
-To swap models mid-session, just re-run `llm-env set`:
-
-```bash
-llm-env set anth_synth_glm-5.1   # Claude Code now talks to GLM 5.1
-llm-env set anthropic            # back to real Claude
-llm-env set anth_alibaba_qwen3.6-plus  # Claude Code via Alibaba
-```
+> **Power users:** if you want to drive Claude Code against the real Anthropic API directly (with your own `LLM_ANTHROPIC_API_KEY`), the bundled `[anthropic]` provider supports that — `llm-env set anthropic`. But for most users, `llm-env unset` plus Claude Code's native login is simpler.
 
 ### Installation Integration
 
