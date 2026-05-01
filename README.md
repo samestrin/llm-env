@@ -103,8 +103,13 @@ This tool supports any OpenAI API compatible provider, including:
 
 - **OpenAI**: Industry standard GPT models
 - **Anthropic**: Native Claude API support with `ANTHROPIC_*` variables
-- **Cerebras**: Fast inference with competitive pricing
-- **Groq**: Lightning-fast inference
+- **Cerebras**: Lightning-fast inference with competitive pricing
+- **Groq**: Very-fast inference
+- **Gemini**: Google Gemini models with native OpenAI compatibility
+- **Synthetic**: Flat-rate subscription for Kimi, GLM, MiniMax, Qwen, DeepSeek, Llama, and more
+- **Alibaba Cloud Coding Plan**: Flat-rate coding subscription for Qwen, Kimi, GLM, MiniMax
+- **Chutes**: Flat-rate access to a broad open-model catalog
+- **Featherless**: Flat-rate unlimited inference across thousands of HuggingFace models
 - **OpenRouter**: Access to multiple models through one API
 - **xAI Grok**: Advanced reasoning and coding capabilities
 - **DeepSeek**: Excellent coding and reasoning models
