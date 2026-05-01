@@ -499,3 +499,129 @@ EOF
     run grep -c '^\[group:synth_kimi-k2.5\]$' "$cfg"
     [ "$output" = "1" ]
 }
+
+# --- Source selection by positional arg --------------------------------------
+
+@test "selection: 'synthetic' arg adds only synthetic providers" {
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+    stage_fixture quickstart-alibaba-v2.json   quickstart-alibaba.json
+
+    run cmd_quickstart synthetic
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -q '^\[openai_synth_kimi-k2.5\]$' "$cfg"
+    # No alibaba sections should be present.
+    run grep -c '^\[openai_alibaba_' "$cfg"
+    [ "$output" = "0" ]
+    run grep -c '^\[anth_alibaba_' "$cfg"
+    [ "$output" = "0" ]
+}
+
+@test "selection: 'alibaba' arg adds only alibaba providers" {
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+    stage_fixture quickstart-alibaba-v2.json   quickstart-alibaba.json
+
+    run cmd_quickstart alibaba
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -q '^\[openai_alibaba_qwen3.5-plus\]$' "$cfg"
+    run grep -c '^\[openai_synth_' "$cfg"
+    [ "$output" = "0" ]
+    run grep -c '^\[anth_synth_' "$cfg"
+    [ "$output" = "0" ]
+}
+
+@test "selection: 'all' arg matches today's behavior (back-compat)" {
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+    stage_fixture quickstart-alibaba-v2.json   quickstart-alibaba.json
+
+    run cmd_quickstart all
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -q '^\[openai_synth_kimi-k2.5\]$' "$cfg"
+    grep -q '^\[openai_alibaba_qwen3.5-plus\]$' "$cfg"
+}
+
+@test "selection: comma-separated 'synthetic,alibaba' arg matches 'all'" {
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+    stage_fixture quickstart-alibaba-v2.json   quickstart-alibaba.json
+
+    run cmd_quickstart synthetic,alibaba
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -q '^\[openai_synth_kimi-k2.5\]$' "$cfg"
+    grep -q '^\[openai_alibaba_qwen3.5-plus\]$' "$cfg"
+}
+
+@test "selection: bare cmd_quickstart in BATS (non-TTY) still adds all" {
+    # BATS' `run` doesn't allocate a TTY, so [[ -t 0 ]] is false and
+    # cmd_quickstart should fall back to processing every available
+    # JSON. This is the behavior the existing 21 tests rely on.
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+    stage_fixture quickstart-alibaba-v2.json   quickstart-alibaba.json
+
+    run cmd_quickstart
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -q '^\[openai_synth_kimi-k2.5\]$' "$cfg"
+    grep -q '^\[openai_alibaba_qwen3.5-plus\]$' "$cfg"
+}
+
+@test "selection: unknown arg returns nonzero with helpful error" {
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+
+    run cmd_quickstart bogus-source
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"bogus-source"* ]] || [[ "$output" == *"unknown"* ]] || [[ "$output" == *"valid"* ]]
+}
+
+@test "selection: 'synthetic' arg when only alibaba JSON present errors out" {
+    stage_fixture quickstart-alibaba-v2.json quickstart-alibaba.json
+    # No synthetic JSON available; explicit selection of synthetic must fail.
+
+    run cmd_quickstart synthetic
+    [ "$status" -ne 0 ]
+}
+
+@test "selection: comma-separated whitespace tolerated ('synthetic, alibaba')" {
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+    stage_fixture quickstart-alibaba-v2.json   quickstart-alibaba.json
+
+    run cmd_quickstart "synthetic, alibaba"
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -q '^\[openai_synth_kimi-k2.5\]$' "$cfg"
+    grep -q '^\[openai_alibaba_qwen3.5-plus\]$' "$cfg"
+}
+
+@test "selection: CLI dispatcher forwards positional arg (regression guard)" {
+    # Top-level case "$1" in...quickstart)...esac must `shift` and pass
+    # remaining args to cmd_quickstart. A previous version of this code
+    # called cmd_quickstart with no args, silently ignoring the user's
+    # selection. This test invokes the script as a binary (not via
+    # `run cmd_quickstart`) to exercise the real dispatch path.
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+    stage_fixture quickstart-alibaba-v2.json   quickstart-alibaba.json
+
+    run "$BATS_TEST_DIRNAME/../../llm-env" quickstart synthetic
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -q '^\[openai_synth_kimi-k2.5\]$' "$cfg"
+    # Alibaba sections must NOT be present.
+    run grep -c '^\[openai_alibaba_' "$cfg"
+    [ "$output" = "0" ]
+}

@@ -28,61 +28,69 @@ llm-env --version
 # llm-env - LLM Environment Manager v1.5.2
 ```
 
-## Step 2 — Run quickstart
-
-If you didn't accept during install:
+## Step 2 — Run quickstart (interactive)
 
 ```bash
 llm-env quickstart
 ```
 
-This adds ~36 provider entries plus group bindings to `~/.config/llm-env/config.conf`, covering every model Synthetic and Alibaba currently expose on both their OpenAI- and Anthropic-compatible endpoints. The command prints sign-up links for both providers when it finishes.
+You'll see a menu like this:
 
-## Step 3 — Sign up for Synthetic, Alibaba, or both
-
-You only need one. Pick based on what models you want:
-
-**Synthetic** — broad catalog (Kimi, GLM family, MiniMax, DeepSeek V/R, Qwen base/Coder/Thinking, GPT-OSS, Llama, Nemotron). Flat-rate subscription.
-
-→ <https://synthetic.new/?referral=ugceNlJ08A3Eeww>
-
-**Alibaba Cloud Coding Plan** — curated coding-focused list (today: qwen3.6-plus, kimi-k2.5, glm-5, MiniMax-M2.5). Subscription tiers (Lite, Pro).
-
-→ <https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX>
-
-Both signup links above include referral codes that benefit this project — using them is the easiest way to support `llm-env` development.
-
-## Step 4 — Add your API key to your shell profile
-
-After signing up, copy your API key from the provider's dashboard. Then add the matching environment variable to `~/.bashrc` or `~/.zshrc`:
-
-```bash
-# For Synthetic:
-export LLM_SYNTHETIC_API_KEY="your-synthetic-key-here"
-
-# For Alibaba (if you signed up there):
-export LLM_ALIBABA_API_KEY="your-alibaba-key-here"
+```
+Which catalogs would you like to add?
+  1) Synthetic — Kimi, GLM, MiniMax, Qwen, DeepSeek, Llama, GPT-OSS, Nemotron
+  2) Alibaba Cloud Coding Plan — Qwen, Kimi, GLM, MiniMax
+  a) all
+  q) quit
+Choose [1/2/a/q]:
 ```
 
-Reload your shell:
+Pick **1**, **2**, or **a**. For each catalog you choose, the command:
+
+1. Adds the provider definitions to `~/.config/llm-env/config.conf` (~28 entries for Synthetic, ~12 for Alibaba, in both `openai_*` and `anth_*` forms with group bindings).
+2. Prints the signup URL with our referral code embedded.
+3. Pauses while you sign up and copy your API key.
+4. Prompts for the key (input is hidden, like a password).
+5. Appends `export LLM_<vendor>_API_KEY='<your-key>'` to your shell rc file (`~/.bashrc` or `~/.zshrc`) so it persists.
+6. Verifies the key with a tiny test call to the provider's API.
+
+Just press Enter (or type `s`) at the key prompt if you'd rather sign up later — your config is still populated, you just won't have a working key yet.
+
+If a key for that provider is already configured (set in your environment or already exported in your shell rc), the prompt is skipped automatically and the existing key is preserved.
+
+### Skipping the menu
+
+If you'd rather not see the menu (say you're scripting an install or already know which one you want):
+
+```bash
+llm-env quickstart synthetic            # only Synthetic
+llm-env quickstart alibaba              # only Alibaba
+llm-env quickstart synthetic,alibaba    # both
+llm-env quickstart all                  # both (alias for synthetic,alibaba)
+```
+
+When stdin isn't a TTY (CI, piped install scripts), `quickstart` skips the menu *and* the key prompts and just provisions every available catalog — same behavior as `llm-env quickstart all`.
+
+### About the referral links
+
+The signup URLs printed by quickstart embed referral codes that support this project:
+
+- Synthetic: <https://synthetic.new/?referral=ugceNlJ08A3Eeww>
+- Alibaba Cloud Coding Plan: <https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX>
+
+Using them is the easiest way to support `llm-env` development.
+
+## Step 3 — Reload your shell
+
+`quickstart` writes your API key to your shell rc file but the export takes effect on next shell load:
 
 ```bash
 source ~/.bashrc   # or source ~/.zshrc
 ```
 
-## Step 5 — Test the connection
+(Or just open a new terminal.)
 
-```bash
-llm-env test anth_synth_kimi-k2.5
-# 🧪 Testing provider: anth_synth_kimi-k2.5 (protocol: anthropic)
-# ✅ API key found: ••••••••••••8d62
-# 🔗 Base URL: https://api.synthetic.new/anthropic/v1
-# ✅ anth_synth_kimi-k2.5: Connected successfully
-```
-
-(If you signed up for Alibaba, swap in `anth_alibaba_kimi-k2.5` or `anth_alibaba_qwen3.6-plus`.)
-
-## Step 6 — Point Claude Code at your model of choice
+## Step 4 — Point Claude Code at your model of choice
 
 ```bash
 llm-env set anth_synth_kimi-k2.5
@@ -98,7 +106,7 @@ You should see:
 
 This is using the per-model **group** — it activates both the OpenAI-compatible and Anthropic-compatible variants of the same model in one shot, so any tool you run in this shell (Claude Code, aichat, your own scripts) all use the same backend.
 
-## Step 7 — Run Claude Code
+## Step 5 — Run Claude Code
 
 ```bash
 claude
@@ -106,7 +114,7 @@ claude
 
 Claude Code now talks to Kimi K2.5 via Synthetic. Use it exactly like you would against real Claude — the protocol is identical.
 
-## Step 8 — Switch models any time
+## Step 6 — Switch models any time
 
 ```bash
 llm-env set anth_synth_glm-5.1            # GLM 5.1
