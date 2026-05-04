@@ -19,7 +19,7 @@ Real-world reasons to do this:
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | bash
 ```
 
-When prompted, accept the offer to add synthetic providers. (Or skip and run `llm-env quickstart` manually later.)
+The installer falls back to `~/.local/bin` if `/usr/local/bin` isn't writable. If `~/.local/bin` isn't on your `PATH` yet, the installer's next-steps output prints the exact `export PATH=...` line to add. (Use `sudo bash` instead if you want a system-wide install.)
 
 Verify:
 

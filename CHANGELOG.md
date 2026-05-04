@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Installer no longer prompts for synthetic providers.** The interactive `Add synthetic providers? (y/N)` prompt and the `add_synthetic_providers` helper are removed from `install.sh`. Install now just installs. To add Synthetic / Alibaba Coding Plan models, run `llm-env quickstart` after install — the post-install next-steps output now points at it.
+- **Installer auto-falls-back to `~/.local/bin`.** When `/usr/local/bin` isn't writable AND the user isn't root AND `--install-dir` was not passed, the installer now installs to `$HOME/.local/bin` instead of hard-failing with "please run with sudo". Explicit `--install-dir` choices are still respected (and still hard-fail on unwritable explicit targets). When fallback is used and the directory isn't on `PATH`, the installer prints a clear `export PATH="$HOME/.local/bin:$PATH"` instruction.
+- **README install docs** updated to reflect both behaviors. The `curl ... | bash` one-liner now works for non-root users on the first try.
+
+### Added
+- **`tests/integration/test_install.bats`**: 11 BATS tests covering the synthetic-prompt removal, the fallback path, the explicit-dir hard-fail behavior, the PATH warning, and the shell-function rc snippet.
+
 ## [1.6.0] - 2026-05-01
 
 ### Added

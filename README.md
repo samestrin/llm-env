@@ -101,14 +101,15 @@ claude                                # to its own native login (real Claude)
 
 > **Power users:** if you want to drive Claude Code against the real Anthropic API directly (with your own `LLM_ANTHROPIC_API_KEY`), the bundled `[anthropic]` provider supports that — `llm-env set anthropic`. But for most users, `llm-env unset` plus Claude Code's native login is simpler.
 
-### Installation Integration
+### Optional: add Synthetic / Alibaba Coding Plan models after install
 
-During installation, you'll be prompted to add synthetic providers to expand your model selection immediately after installation:
+The installer just installs. Once `llm-env` is on your `PATH`, you can optionally run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | bash
-# You'll be asked: "Add synthetic providers? (y/N):"
+llm-env quickstart
 ```
+
+to add the Claude-compatible models from [Synthetic](https://synthetic.new) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan). This is opt-in — if you already have your own provider keys (OpenAI, Cerebras, Groq, etc.), you can skip it and just `llm-env list`.
 
 ## Supported Providers
 
@@ -136,9 +137,14 @@ This tool supports any OpenAI API compatible provider, including:
 ### Quick Install
 
 ```bash
-# Download and install (recommended) - _may need sudo_
+# Default: user install. Falls back to ~/.local/bin if /usr/local/bin isn't writable.
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | bash
+
+# System-wide install (writes to /usr/local/bin):
+curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | sudo bash
 ```
+
+If the installer falls back to `~/.local/bin` and that directory isn't on your `PATH`, the next-steps output will tell you the exact `export PATH=...` line to add to your shell rc file.
 
 ### Manual Install
 
