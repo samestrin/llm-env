@@ -11,7 +11,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-INSTALL_DIR="/usr/local/bin"
+# LLM_ENV_DEFAULT_INSTALL_DIR is a testability hook: when set, it replaces
+# the hardcoded /usr/local/bin default. Users can also pass --install-dir.
+INSTALL_DIR="${LLM_ENV_DEFAULT_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR_EXPLICIT=0  # set to 1 when --install-dir is passed on the CLI
+FALLBACK_USED=0         # set to 1 when we auto-fall-back to ~/.local/bin
 SCRIPT_NAME="llm-env"
 GITHUB_REPO="samestrin/llm-env"  # Update this with your actual repo
 VERSION="main"  # Default to main branch, can be overridden with --version
@@ -57,23 +61,45 @@ print_error() {
 
 check_requirements() {
     print_step "Checking requirements..."
-    
+
     # Check if curl is available
     if ! command -v curl &> /dev/null; then
         print_error "curl is required but not installed. Please install curl first."
         exit 1
     fi
-    
-    # Check if we can write to install directory
-    if [[ ! -w "$INSTALL_DIR" ]]; then
-        print_warning "Cannot write to $INSTALL_DIR. You may need to run with sudo."
-        if [[ "${EUID:-0}" -ne 0 ]]; then
-            print_error "Please run with sudo: sudo $0"
-            exit 1
+
+    # Resolve install directory. If the default isn't writable and the user
+    # is non-root and didn't pass --install-dir, fall back to ~/.local/bin.
+    # Explicit --install-dir choices are always respected (and hard-fail on
+    # unwritable dirs, preserving prior behavior).
+    if [[ ! -d "$INSTALL_DIR" ]] || [[ ! -w "$INSTALL_DIR" ]]; then
+        if [[ "$INSTALL_DIR_EXPLICIT" -eq 1 ]]; then
+            print_warning "Cannot write to $INSTALL_DIR. You may need to run with sudo."
+            if [[ "${EUID:-0}" -ne 0 ]]; then
+                print_error "Please run with sudo: sudo $0"
+                exit 1
+            fi
+        elif [[ "${EUID:-0}" -ne 0 ]]; then
+            local fallback_dir="$HOME/.local/bin"
+            print_warning "Cannot write to $INSTALL_DIR (running as non-root)."
+            print_step "Falling back to user install at $fallback_dir"
+            if ! mkdir -p "$fallback_dir"; then
+                print_error "Failed to create $fallback_dir"
+                exit 1
+            fi
+            INSTALL_DIR="$fallback_dir"
+            FALLBACK_USED=1
+        else
+            # Running as root but the dir somehow isn't writable: try to
+            # create it; if that fails, surface the original message.
+            if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+                print_error "Cannot write to $INSTALL_DIR"
+                exit 1
+            fi
         fi
     fi
-    
-    print_success "Requirements check passed"
+
+    print_success "Requirements check passed (installing to $INSTALL_DIR)"
 }
 
 download_script() {
@@ -156,20 +182,6 @@ install_config_files() {
     # Check if config already exists
     if [[ -f "$config_file" ]]; then
         print_warning "Configuration file already exists: $config_file"
-
-        # Ask if user wants to add synthetic providers (interactive shells only)
-        if [[ -t 0 ]]; then
-            echo
-            echo -e "${YELLOW}Would you like to add synthetic model providers now?${NC}"
-            echo "These are Claude-compatible models from synthetic.new and Alibaba Cloud."
-            echo -e "${BLUE}This will download quickstart JSON files and add the providers to your config.${NC}"
-            echo
-            read -p "Add synthetic providers? (y/N): " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                add_synthetic_providers
-            fi
-        fi
         return 0
     fi
 
@@ -230,70 +242,9 @@ EOF
         fi
 
         print_success "Created default configuration: $config_file"
-
-        # Ask if user wants to add synthetic providers (interactive shells only)
-        if [[ -t 0 ]]; then
-            echo
-            echo -e "${GREEN}Great! Would you like to add synthetic model providers now?${NC}"
-            echo "These are Claude-compatible models from synthetic.new and Alibaba Cloud."
-            echo -e "${BLUE}This will download quickstart JSON files and add the providers to your config.${NC}"
-            echo
-            read -p "Add synthetic providers? (y/N): " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                add_synthetic_providers
-            fi
-        fi
     else
         print_error "Failed to create configuration file"
         return 1
-    fi
-}
-
-# Function to add synthetic providers from JSON files
-add_synthetic_providers() {
-    print_step "Adding synthetic model providers..."
-
-    # Get the llm-env script path
-    local llm_env_script="$INSTALL_DIR/$SCRIPT_NAME"
-
-    if [[ -f "$llm_env_script" ]]; then
-        print_step "Running quickstart command to add synthetic providers..."
-
-        # Download quickstart JSON files to the same directory as llm-env
-        local script_dir
-        script_dir="$(dirname "$llm_env_script")"
-
-        # Try to download the quickstart files from the repository
-        local synthetic_url="https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/quickstart-synthetic.json"
-        local alibaba_url="https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/quickstart-alibaba.json"
-
-        # Download JSON files
-        if curl -fsSL "$synthetic_url" -o "$script_dir/quickstart-synthetic.json" 2>/dev/null; then
-            print_success "Downloaded quickstart-synthetic.json"
-        else
-            print_warning "Could not download quickstart-synthetic.json from $synthetic_url"
-        fi
-
-        if curl -fsSL "$alibaba_url" -o "$script_dir/quickstart-alibaba.json" 2>/dev/null; then
-            print_success "Downloaded quickstart-alibaba.json"
-        else
-            print_warning "Could not download quickstart-alibaba.json from $alibaba_url"
-        fi
-
-        # Run the quickstart command to add providers
-        # shellcheck source=/dev/null
-        if source "$llm_env_script" quickstart 2>/dev/null; then
-            print_success "Synthetic providers added successfully"
-        else
-            print_error "Failed to add synthetic providers"
-        fi
-
-        # Clean up downloaded JSON files
-        rm -f "$script_dir/quickstart-synthetic.json" 2>/dev/null || true
-        rm -f "$script_dir/quickstart-alibaba.json" 2>/dev/null || true
-    else
-        print_error "llm-env script not found at $llm_env_script"
     fi
 }
 
@@ -436,6 +387,23 @@ show_next_steps() {
     echo -e "║                     Installation Complete!                   ║"
     echo -e "╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
+
+    # When we fell back to ~/.local/bin, surface a PATH warning if it's
+    # not already on the user's PATH.
+    if [[ "$FALLBACK_USED" -eq 1 ]]; then
+        case ":$PATH:" in
+            *":$INSTALL_DIR:"*)
+                : # already on PATH
+                ;;
+            *)
+                echo -e "${YELLOW}Add $INSTALL_DIR to your PATH so llm-env is found:${NC}"
+                echo -e "   ${BLUE}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
+                echo -e "   ${BLUE}# (add the line above to ~/.bashrc or ~/.zshrc)${NC}"
+                echo
+                ;;
+        esac
+    fi
+
     echo -e "${YELLOW}Next steps:${NC}"
     echo
     echo "1. Reload your shell configuration:"
@@ -456,7 +424,8 @@ show_next_steps() {
     echo "4. Set your first provider:"
     echo -e "   ${BLUE}llm-env set openai${NC}"
     echo
-    echo -e "${GREEN}Happy LLM switching! 🚀${NC}"
+    echo -e "${YELLOW}Optional:${NC} run ${BLUE}llm-env quickstart${NC} to add Synthetic"
+    echo "or Alibaba Coding Plan models (Claude-compatible)."
     echo
     echo "For more information, visit: https://github.com/$GITHUB_REPO"
 }
@@ -470,6 +439,7 @@ main() {
         case $1 in
             --install-dir)
                 INSTALL_DIR="$2"
+                INSTALL_DIR_EXPLICIT=1
                 shift 2
                 ;;
             --version)
