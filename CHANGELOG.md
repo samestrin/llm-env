@@ -5,15 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.1] - 2026-05-04
+
+### Fixed
+- **`curl … | bash` install now works without sudo.** When `/usr/local/bin` isn't writable AND the user isn't root AND `--install-dir` was not passed, the installer falls back to `$HOME/.local/bin` instead of hard-failing with "please run with sudo". Explicit `--install-dir` choices are still respected (and still hard-fail on unwritable targets). When fallback is used and the directory isn't on `PATH`, the installer prints the exact `export PATH="$HOME/.local/bin:$PATH"` line to add to your shell rc file.
+- **`--uninstall` now finds fallback installs.** Previously `uninstall_llm_env` only looked in the default `INSTALL_DIR`, so users who installed via the new `~/.local/bin` fallback couldn't uninstall. The uninstaller now auto-detects.
+- **`--uninstall --install-dir <dir>` flag order works.** The arg parser used to handle `--uninstall` inline and exit before reading later flags; flags after `--uninstall` are now respected.
+- **`--install-dir <new-dir>` auto-creates the directory.** Previously hard-failed with a misleading sudo error if the parent was writable but the dir didn't exist yet. Common case: passing `--install-dir ~/.local/bin` on a fresh macOS account.
 
 ### Changed
-- **Installer no longer prompts for synthetic providers.** The interactive `Add synthetic providers? (y/N)` prompt and the `add_synthetic_providers` helper are removed from `install.sh`. Install now just installs. To add Synthetic / Alibaba Coding Plan models, run `llm-env quickstart` after install — the post-install next-steps output now points at it.
-- **Installer auto-falls-back to `~/.local/bin`.** When `/usr/local/bin` isn't writable AND the user isn't root AND `--install-dir` was not passed, the installer now installs to `$HOME/.local/bin` instead of hard-failing with "please run with sudo". Explicit `--install-dir` choices are still respected (and still hard-fail on unwritable explicit targets). When fallback is used and the directory isn't on `PATH`, the installer prints a clear `export PATH="$HOME/.local/bin:$PATH"` instruction.
-- **README install docs** updated to reflect both behaviors. The `curl ... | bash` one-liner now works for non-root users on the first try.
+- **Installer no longer prompts for synthetic providers.** The interactive `Add synthetic providers? (y/N)` prompt and the `add_synthetic_providers` helper are removed from `install.sh`. Install just installs. To add Synthetic / Alibaba Coding Plan models, run `llm-env quickstart` after install — the post-install next-steps output points at it. Non-interactive installs (CI, piped bash) are unaffected; the prompt only ever fired on a TTY.
+- **README install docs** updated to reflect the new behavior. The `curl … | bash` one-liner now works for non-root users on the first try; a `sudo bash` form is documented for users who want a system-wide install.
 
 ### Added
-- **`tests/integration/test_install.bats`**: 11 BATS tests covering the synthetic-prompt removal, the fallback path, the explicit-dir hard-fail behavior, the PATH warning, and the shell-function rc snippet.
+- **`tests/integration/test_install.bats`**: 14 new BATS tests covering the synthetic-prompt removal, the fallback path, the explicit-dir hard-fail behavior, the PATH warning, the shell-function rc snippet, and the uninstall fallback discovery.
 
 ## [1.6.0] - 2026-05-01
 
