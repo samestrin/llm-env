@@ -167,6 +167,16 @@ teardown() {
     ! echo "$output" | grep -qi "Add .* to your PATH"
 }
 
+@test "install --install-dir <new-dir>: creates the dir if its parent is writable" {
+    # Don't pre-create the target — the installer should mkdir -p for us.
+    local target="$TEST_TMPDIR/created-bin"
+    [ ! -e "$target" ]
+
+    run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
+    [ "$status" -eq 0 ]
+    [ -x "$target/llm-env" ]
+}
+
 @test "uninstall finds llm-env at ~/.local/bin when default is unwritable" {
     # Simulate prior install at ~/.local/bin
     mkdir -p "$HOME/.local/bin"

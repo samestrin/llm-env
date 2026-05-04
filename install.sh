@@ -75,10 +75,16 @@ check_requirements() {
     # unwritable dirs, preserving prior behavior).
     if [[ ! -d "$INSTALL_DIR" ]] || [[ ! -w "$INSTALL_DIR" ]]; then
         if [[ "$INSTALL_DIR_EXPLICIT" -eq 1 ]]; then
-            print_warning "Cannot write to $INSTALL_DIR. You may need to run with sudo."
-            if [[ "${EUID:-0}" -ne 0 ]]; then
-                print_error "Please run with sudo: sudo $0"
-                exit 1
+            # If the explicit dir simply doesn't exist yet but we can create
+            # it, do so (mkdir -p semantics — most users expect this).
+            if [[ ! -e "$INSTALL_DIR" ]] && mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+                : # created successfully
+            else
+                print_warning "Cannot write to $INSTALL_DIR. You may need to run with sudo."
+                if [[ "${EUID:-0}" -ne 0 ]]; then
+                    print_error "Please run with sudo: sudo $0"
+                    exit 1
+                fi
             fi
         elif [[ "${EUID:-0}" -ne 0 ]]; then
             local fallback_dir="$HOME/.local/bin"
