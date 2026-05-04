@@ -167,6 +167,41 @@ teardown() {
     ! echo "$output" | grep -qi "Add .* to your PATH"
 }
 
+@test "uninstall finds llm-env at ~/.local/bin when default is unwritable" {
+    # Simulate prior install at ~/.local/bin
+    mkdir -p "$HOME/.local/bin"
+    cp "$LLM_ENV_SCRIPT" "$HOME/.local/bin/llm-env"
+    chmod 755 "$HOME/.local/bin/llm-env"
+
+    # Make the default install dir unwritable so the uninstaller can't reach it
+    local unwritable="$TEST_TMPDIR/sysdir"
+    mkdir -p "$unwritable"
+    chmod 555 "$unwritable"
+    export LLM_ENV_DEFAULT_INSTALL_DIR="$unwritable"
+
+    if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+        skip "Cannot simulate non-root from a root user"
+    fi
+
+    # Pipe 'n' so the "Remove configuration files?" prompt gets a definitive answer.
+    run bash -c "echo n | bash '$INSTALL_SH' --uninstall"
+    chmod 755 "$unwritable" || true
+
+    [ "$status" -eq 0 ]
+    [ ! -e "$HOME/.local/bin/llm-env" ]
+}
+
+@test "uninstall respects --install-dir even when passed after --uninstall" {
+    local target="$TEST_TMPDIR/explicit-bin"
+    mkdir -p "$target"
+    cp "$LLM_ENV_SCRIPT" "$target/llm-env"
+    chmod 755 "$target/llm-env"
+
+    run bash -c "echo n | bash '$INSTALL_SH' --uninstall --install-dir '$target'"
+    [ "$status" -eq 0 ]
+    [ ! -e "$target/llm-env" ]
+}
+
 @test "install --offline --install-dir embeds dir in shell function literal" {
     local target="$TEST_TMPDIR/explicit-bin"
     mkdir -p "$target"

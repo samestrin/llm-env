@@ -16,6 +16,7 @@ NC='\033[0m' # No Color
 INSTALL_DIR="${LLM_ENV_DEFAULT_INSTALL_DIR:-/usr/local/bin}"
 INSTALL_DIR_EXPLICIT=0  # set to 1 when --install-dir is passed on the CLI
 FALLBACK_USED=0         # set to 1 when we auto-fall-back to ~/.local/bin
+UNINSTALL_REQUESTED=0   # set to 1 when --uninstall is passed
 SCRIPT_NAME="llm-env"
 GITHUB_REPO="samestrin/llm-env"  # Update this with your actual repo
 VERSION="main"  # Default to main branch, can be overridden with --version
@@ -317,7 +318,16 @@ alias llm-env 'source $INSTALL_DIR/$SCRIPT_NAME'"
 
 uninstall_llm_env() {
     print_step "Uninstalling LLM Environment Manager..."
-    
+
+    # If the configured INSTALL_DIR doesn't have llm-env but ~/.local/bin
+    # does, redirect there. Covers users who installed via the auto-fallback
+    # path. An explicit --install-dir still wins.
+    if [[ "$INSTALL_DIR_EXPLICIT" -ne 1 ]] && [[ ! -f "$INSTALL_DIR/$SCRIPT_NAME" ]] \
+        && [[ -f "$HOME/.local/bin/$SCRIPT_NAME" ]]; then
+        print_step "Found install at $HOME/.local/bin (auto-detected)"
+        INSTALL_DIR="$HOME/.local/bin"
+    fi
+
     # Remove main script
     if [[ -f "$INSTALL_DIR/$SCRIPT_NAME" ]]; then
         if rm -f "$INSTALL_DIR/$SCRIPT_NAME"; then
@@ -451,8 +461,8 @@ main() {
                 shift 2
                 ;;
             --uninstall)
-                uninstall_llm_env
-                exit 0
+                UNINSTALL_REQUESTED=1
+                shift
                 ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
@@ -478,6 +488,11 @@ main() {
         esac
     done
     
+    if [[ "$UNINSTALL_REQUESTED" -eq 1 ]]; then
+        uninstall_llm_env
+        exit 0
+    fi
+
     check_requirements
     download_script
     install_config_files
