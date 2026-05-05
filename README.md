@@ -435,9 +435,19 @@ bats tests/integration/test_providers.bats
 
 ## 🤝 Verified Integrations & Ecosystem
 
-`llm-env` is the missing bridge for tools that default to OpenAI. It has been verified to work instantly with:
+**For Anthropic-protocol tools:** `llm-env` exports the `ANTHROPIC_*` environment variables that Anthropic-protocol tools read, so you can point them at non-Anthropic models — no Anthropic API key required.
 
-### 1. [Aider](https://github.com/paul-gauthier/aider) (AI Pair Programmer)
+### 1. [Claude Code](https://docs.claude.com/en/docs/claude-code)
+Run Claude Code against **any Anthropic-compatible endpoint** — no Anthropic API key required. The `quickstart` command sets you up on [Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww) and [Alibaba Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX), which between them give you Kimi, GLM, Qwen, DeepSeek, MiniMax, and more behind one subscription each. Provider-direct APIs (e.g. [Kimi](https://www.kimi.com/code/en), [MiniMax](https://platform.minimax.io/subscribe/token-plan)) also work.
+```bash
+llm-env set anth_synth_kimi-k2.5    # Claude Code now talks to Kimi via Synthetic
+claude
+```
+Full walkthrough: [docs/claude-code-quickstart.md](docs/claude-code-quickstart.md).
+
+**For OpenAI-protocol tools:** `llm-env` is the missing bridge for tools that default to OpenAI. It has been verified to work instantly with:
+
+### 2. [Aider](https://github.com/paul-gauthier/aider) (AI Pair Programmer)
 Force Aider to use cheaper/faster models via the generic OpenAI interface without complex flags.
 ```bash
 llm-env set groq
@@ -445,14 +455,14 @@ llm-env set groq
 aider --model openai/llama3-70b-8192
 ```
 
-### 2. [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter)
+### 3. [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter)
 Stop manually passing `--api_base` and `--api_key` arguments.
 ```bash
 llm-env set cerebras
 interpreter -y  # Runs at lightning speed
 ```
 
-### 3. [Fabric](https://github.com/danielmiessler/fabric)
+### 4. [Fabric](https://github.com/danielmiessler/fabric)
 Use Fabric patterns with any provider without editing configuration files.
 ```bash
 llm-env set gemini
