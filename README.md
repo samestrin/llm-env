@@ -492,7 +492,7 @@ Contributions are welcome! See the [Development Guide](docs/development.md) for 
 
 ## Version
 
-**Current Version: 1.2.1**
+**Current Version: 1.6.0**
 
 For detailed version history, feature updates, and breaking changes, see [CHANGELOG.md](CHANGELOG.md).
 
