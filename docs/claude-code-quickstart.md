@@ -1,6 +1,6 @@
 # Claude Code Quickstart with llm-env
 
-This walkthrough gets you running [Claude Code](https://docs.claude.com/en/docs/claude-code) against models hosted on **[Synthetic](https://synthetic.new)** or **[Alibaba Cloud's Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan)** — Kimi, GLM, MiniMax, Qwen, DeepSeek, Llama, and more. No Anthropic API key required.
+This walkthrough gets you running [Claude Code](https://docs.claude.com/en/docs/claude-code) against models hosted on **[Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww)** or **[Alibaba Cloud's Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX)** — Kimi, GLM, MiniMax, Qwen, DeepSeek, Llama, and more. No Anthropic API key required.
 
 The whole flow takes about five minutes if you don't already have an account.
 

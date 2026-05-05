@@ -14,7 +14,7 @@
 * **🔌 Universal Adapter:** Aliases provider-specific keys (e.g., `GEMINI_API_KEY`) to `OPENAI_API_KEY`, making almost *any* tool work with *any* provider.
 * **🛠️ Tech Stack Agnostic:** Works with `curl` (or `wget` for testing), Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
 
-**New in v1.5:** `llm-env quickstart` — a one-time setup command that adds the current "Recommended" coding models from [Synthetic](https://synthetic.new) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan) to your config, on both OpenAI and Anthropic protocols. Pair with [Claude Code](docs/claude-code-quickstart.md) to get a Claude-Code-compatible workflow on Kimi, GLM, MiniMax, Qwen, DeepSeek, and more — without needing an Anthropic API key. The model lists in this repo are refreshed daily; re-run `quickstart` after a fresh `git pull` to pick up new entries. See [CHANGELOG.md](CHANGELOG.md) for full release notes.
+**New in v1.5:** `llm-env quickstart` — a one-time setup command that adds the current "Recommended" coding models from [Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX) to your config, on both OpenAI and Anthropic protocols. Pair with [Claude Code](docs/claude-code-quickstart.md) to get a Claude-Code-compatible workflow on Kimi, GLM, MiniMax, Qwen, DeepSeek, and more — without needing an Anthropic API key. The model lists in this repo are refreshed daily; re-run `quickstart` after a fresh `git pull` to pick up new entries. See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
 **v1.2.0:** Native Anthropic protocol support — exports `ANTHROPIC_*` environment variables (including the `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` variables that Claude Code reads) for direct Claude API integration.
 
@@ -46,8 +46,8 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 
 `llm-env quickstart` is an interactive setup command that adds the "Recommended" coding models from two providers to your config and walks you through getting an API key:
 
-- **[Synthetic](https://synthetic.new)** — Kimi, GLM, MiniMax, DeepSeek, Qwen, Llama, GPT-OSS, and more, all hosted behind one subscription.
-- **[Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan)** — the four models Alibaba currently recommends for coding (today: `qwen3.6-plus`, `kimi-k2.5`, `glm-5`, `MiniMax-M2.5`).
+- **[Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww)** — Kimi, GLM, MiniMax, DeepSeek, Qwen, Llama, GPT-OSS, and more, all hosted behind one subscription.
+- **[Alibaba Cloud Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX)** — the four models Alibaba currently recommends for coding (today: `qwen3.6-plus`, `kimi-k2.5`, `glm-5`, `MiniMax-M2.5`).
 
 Both providers serve the same models on **OpenAI-compatible** *and* **Anthropic-compatible** endpoints, so each model becomes addressable from any tool you already use — including Claude Code.
 
@@ -109,7 +109,7 @@ The installer just installs. Once `llm-env` is on your `PATH`, you can optionall
 llm-env quickstart
 ```
 
-to add the Claude-compatible models from [Synthetic](https://synthetic.new) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan). This is opt-in — if you already have your own provider keys (OpenAI, Cerebras, Groq, etc.), you can skip it and just `llm-env list`.
+to add the Claude-compatible models from [Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX). This is opt-in — if you already have your own provider keys (OpenAI, Cerebras, Groq, etc.), you can skip it and just `llm-env list`.
 
 ## Supported Providers
 
@@ -435,9 +435,19 @@ bats tests/integration/test_providers.bats
 
 ## 🤝 Verified Integrations & Ecosystem
 
-`llm-env` is the missing bridge for tools that default to OpenAI. It has been verified to work instantly with:
+**For Anthropic-protocol tools:** `llm-env` exports the `ANTHROPIC_*` environment variables that Anthropic-protocol tools read, so you can point them at non-Anthropic models — no Anthropic API key required.
 
-### 1. [Aider](https://github.com/paul-gauthier/aider) (AI Pair Programmer)
+### 1. [Claude Code](https://docs.claude.com/en/docs/claude-code)
+Run Claude Code against **any Anthropic-compatible endpoint** — no Anthropic API key required. The `quickstart` command sets you up on [Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww) and [Alibaba Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX), which between them give you Kimi, GLM, Qwen, DeepSeek, MiniMax, and more behind one subscription each. Provider-direct APIs (e.g. [Kimi](https://www.kimi.com/code/en), [MiniMax](https://platform.minimax.io/subscribe/token-plan)) also work.
+```bash
+llm-env set anth_synth_kimi-k2.5    # Claude Code now talks to Kimi via Synthetic
+claude
+```
+Full walkthrough: [docs/claude-code-quickstart.md](docs/claude-code-quickstart.md).
+
+**For OpenAI-protocol tools:** `llm-env` is the missing bridge for tools that default to OpenAI. It has been verified to work instantly with:
+
+### 2. [Aider](https://github.com/paul-gauthier/aider) (AI Pair Programmer)
 Force Aider to use cheaper/faster models via the generic OpenAI interface without complex flags.
 ```bash
 llm-env set groq
@@ -445,14 +455,14 @@ llm-env set groq
 aider --model openai/llama3-70b-8192
 ```
 
-### 2. [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter)
+### 3. [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter)
 Stop manually passing `--api_base` and `--api_key` arguments.
 ```bash
 llm-env set cerebras
 interpreter -y  # Runs at lightning speed
 ```
 
-### 3. [Fabric](https://github.com/danielmiessler/fabric)
+### 4. [Fabric](https://github.com/danielmiessler/fabric)
 Use Fabric patterns with any provider without editing configuration files.
 ```bash
 llm-env set gemini
