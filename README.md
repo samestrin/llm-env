@@ -14,7 +14,7 @@
 * **🔌 Universal Adapter:** Aliases provider-specific keys (e.g., `GEMINI_API_KEY`) to `OPENAI_API_KEY`, making almost *any* tool work with *any* provider.
 * **🛠️ Tech Stack Agnostic:** Works with `curl` (or `wget` for testing), Python `openai` library, LangChain, Node.js, and CLI tools like `aichat` or `fabric`.
 
-**New in v1.5:** `llm-env quickstart` — a one-time setup command that adds the current "Recommended" coding models from [Synthetic](https://synthetic.new) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan) to your config, on both OpenAI and Anthropic protocols. Pair with [Claude Code](docs/claude-code-quickstart.md) to get a Claude-Code-compatible workflow on Kimi, GLM, MiniMax, Qwen, DeepSeek, and more — without needing an Anthropic API key. The model lists in this repo are refreshed daily; re-run `quickstart` after a fresh `git pull` to pick up new entries. See [CHANGELOG.md](CHANGELOG.md) for full release notes.
+**New in v1.5:** `llm-env quickstart` — a one-time setup command that adds the current "Recommended" coding models from [Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX) to your config, on both OpenAI and Anthropic protocols. Pair with [Claude Code](docs/claude-code-quickstart.md) to get a Claude-Code-compatible workflow on Kimi, GLM, MiniMax, Qwen, DeepSeek, and more — without needing an Anthropic API key. The model lists in this repo are refreshed daily; re-run `quickstart` after a fresh `git pull` to pick up new entries. See [CHANGELOG.md](CHANGELOG.md) for full release notes.
 
 **v1.2.0:** Native Anthropic protocol support — exports `ANTHROPIC_*` environment variables (including the `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` variables that Claude Code reads) for direct Claude API integration.
 
@@ -46,8 +46,8 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 
 `llm-env quickstart` is an interactive setup command that adds the "Recommended" coding models from two providers to your config and walks you through getting an API key:
 
-- **[Synthetic](https://synthetic.new)** — Kimi, GLM, MiniMax, DeepSeek, Qwen, Llama, GPT-OSS, and more, all hosted behind one subscription.
-- **[Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan)** — the four models Alibaba currently recommends for coding (today: `qwen3.6-plus`, `kimi-k2.5`, `glm-5`, `MiniMax-M2.5`).
+- **[Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww)** — Kimi, GLM, MiniMax, DeepSeek, Qwen, Llama, GPT-OSS, and more, all hosted behind one subscription.
+- **[Alibaba Cloud Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX)** — the four models Alibaba currently recommends for coding (today: `qwen3.6-plus`, `kimi-k2.5`, `glm-5`, `MiniMax-M2.5`).
 
 Both providers serve the same models on **OpenAI-compatible** *and* **Anthropic-compatible** endpoints, so each model becomes addressable from any tool you already use — including Claude Code.
 
@@ -109,7 +109,7 @@ The installer just installs. Once `llm-env` is on your `PATH`, you can optionall
 llm-env quickstart
 ```
 
-to add the Claude-compatible models from [Synthetic](https://synthetic.new) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/help/en/model-studio/coding-plan). This is opt-in — if you already have your own provider keys (OpenAI, Cerebras, Groq, etc.), you can skip it and just `llm-env list`.
+to add the Claude-compatible models from [Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww) and [Alibaba Cloud Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX). This is opt-in — if you already have your own provider keys (OpenAI, Cerebras, Groq, etc.), you can skip it and just `llm-env list`.
 
 ## Supported Providers
 
