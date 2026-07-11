@@ -194,30 +194,26 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
             eval "${values_array}=()"
         fi
 
-        # Get current arrays
+        # Read the current keys to locate an existing entry (scan only; we no
+        # longer copy+rewrite the whole array, which was the O(N^2) hot spot).
         local -a keys
-        local -a values
         eval "keys=(\"\${${keys_array}[@]}\")" 2>/dev/null || keys=()
-        eval "values=(\"\${${values_array}[@]}\")" 2>/dev/null || values=()
 
-        # Look for existing key
-        local i
-        for ((i=0; i<${#keys[@]}; i++)); do
+        # Look for existing key -> update that element in place (O(1)).
+        # eval assigns a single element with a double-quoted expansion, so the
+        # value's content is never re-parsed (safe for spaces, $ & | ; ' " \ etc).
+        # bash 3.2's `printf -v arr[i]` is unsupported, so eval is required here.
+        local i n="${#keys[@]}"
+        for ((i=0; i<n; i++)); do
             if [[ "${keys[i]}" == "$key" ]]; then
-                # Update existing key
-                values[i]="$value"
-                # Use printf to avoid word splitting issues
-                eval "${keys_array}=($(printf '%q ' "${keys[@]}"))"
-                eval "${values_array}=($(printf '%q ' "${values[@]}"))"
+                eval "${values_array}[$i]=\"\$value\""
                 return 0
             fi
         done
 
-        # Add new key-value pair
-        keys+=("$key")
-        values+=("$value")
-        eval "${keys_array}=($(printf '%q ' "${keys[@]}"))"
-        eval "${values_array}=($(printf '%q ' "${values[@]}"))"
+        # Not found: append key/value at the tail index (O(1) each, no rewrite).
+        eval "${keys_array}[$n]=\"\$key\""
+        eval "${values_array}[$n]=\"\$value\""
     }
 
     # Get a value from a compatibility associative array
@@ -295,21 +291,6 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
         done
 
         return 1
-    }
-
-    # Get the number of key-value pairs in a compatibility associative array
-    compat_assoc_size() {
-        local array_name="$1"
-
-        if [[ -z "$array_name" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-
-        # Get keys and count them
-        eval "local -a keys=(\"\${${keys_array}[@]}\")"
-        echo "${#keys[@]}"
     }
 fi
 
