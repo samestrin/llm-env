@@ -125,29 +125,41 @@ get_script_dir() {
 parse_bash_version
 
 # Helper function to get regex match at index (works in both bash and zsh)
-# Usage: result=$(get_match 1) to get first capture group
+# Sets the global REPLY to the capture group (no stdout, no subshell fork).
+# Usage: get_match 1; result=$REPLY   # first capture group
+# Call immediately after the matching [[ =~ ]] so BASH_REMATCH is still current.
 # In bash: BASH_REMATCH is 0-indexed, so capture group 1 is at index 1
 # In zsh with BASH_REMATCH option: array is 1-indexed, so capture group 1 is at index 2
 get_match() {
     local index="$1"
     if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
         # Zsh arrays are 1-indexed, so add 1 to get equivalent position
-        echo "${BASH_REMATCH[$((index + 1))]}"
+        REPLY="${BASH_REMATCH[$((index + 1))]}"
     else
-        echo "${BASH_REMATCH[$index]}"
+        REPLY="${BASH_REMATCH[$index]}"
     fi
 }
 
 # Helper function for indirect variable expansion (works in both bash and zsh)
-# Usage: result=$(get_var_value "SOME_VAR_NAME")
+# Sets the global REPLY to the named variable's value (empty if unset).
+# Usage: get_var_value "SOME_VAR_NAME"; result=$REPLY
 get_var_value() {
     local var_name="$1"
     if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
         # shellcheck disable=SC2296 # zsh-specific indirect expansion syntax
-        echo "${(P)var_name}"
+        REPLY="${(P)var_name-}"
     else
-        echo "${!var_name}"
+        REPLY="${!var_name-}"
     fi
+}
+
+# Trim leading/trailing whitespace using parameter expansion (no subshell fork).
+# Sets the global REPLY. Works in both bash and zsh. Usage: trim "$s"; s=$REPLY
+trim() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"   # strip leading whitespace
+    s="${s%"${s##*[![:space:]]}"}"   # strip trailing whitespace
+    REPLY="$s"
 }
 
 # Configuration state variables
@@ -209,9 +221,12 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
     }
 
     # Get a value from a compatibility associative array
+    # Sets the global REPLY (empty for a missing OR empty key); no stdout.
     compat_assoc_get() {
         local array_name="$1"
         local key="$2"
+
+        REPLY=""
 
         if [[ -z "$array_name" || -z "$key" ]]; then
             return 1
@@ -230,19 +245,22 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
         local i
         for ((i=0; i<${#keys[@]}; i++)); do
             if [[ "${keys[i]}" == "$key" ]]; then
-                echo "${values[i]}"
+                REPLY="${values[i]}"
                 return 0
             fi
         done
 
-        # Key not found - return 0 (success) with empty output
-        # Caller should check for empty string if needed
+        # Key not found - REPLY already empty. Caller uses has_provider_key for
+        # existence; empty REPLY means missing OR empty (documented invariant).
         return 0
     }
 
     # Get all keys from a compatibility associative array
+    # Populates the global REPLY_KEYS array; no stdout.
     compat_assoc_keys() {
         local array_name="$1"
+
+        REPLY_KEYS=()
 
         if [[ -z "$array_name" ]]; then
             return 1
@@ -250,9 +268,7 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
 
         local keys_array="${array_name}_KEYS"
 
-        # Get and output keys
-        eval "local -a keys=(\"\${${keys_array}[@]}\")"
-        printf '%s\n' "${keys[@]}"
+        eval "REPLY_KEYS=(\"\${${keys_array}[@]}\")" 2>/dev/null || REPLY_KEYS=()
     }
 
     # Check if a key exists in a compatibility associative array
@@ -390,6 +406,9 @@ else
 fi
 declare -a AVAILABLE_PROVIDERS
 declare -a AVAILABLE_GROUPS
+# Output array for get_provider_keys (avoids a subshell per key enumeration)
+# shellcheck disable=SC2034  # populated by get_provider_keys, consumed by callers
+declare -a REPLY_KEYS
 
 # ---------- Array Access Wrappers ----------
 
@@ -415,6 +434,9 @@ set_provider_value() {
 }
 
 # Get a value from a provider array
+# Sets the global REPLY to the value (empty for a missing OR empty key); no
+# stdout, no subshell fork. Usage: get_provider_value ARR KEY; val=$REPLY
+# Existence is decided only by has_provider_key (empty REPLY == missing OR empty).
 get_provider_value() {
     local array_name="$1"
     local key="$2"
@@ -422,10 +444,10 @@ get_provider_value() {
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
         if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
             # Zsh associative array access
-            eval "echo \"\${${array_name}[${key}]}\""
+            eval "REPLY=\"\${${array_name}[${key}]-}\""
         else
             # Bash associative array access
-            eval "echo \"\${${array_name}[\"${key}\"]}\""
+            eval "REPLY=\"\${${array_name}[\"${key}\"]-}\""
         fi
     else
         compat_assoc_get "${array_name}" "${key}"
@@ -433,17 +455,18 @@ get_provider_value() {
 }
 
 # Get all keys from a provider array
+# Populates the global REPLY_KEYS array; no stdout, no subshell fork.
+# Usage: get_provider_keys ARR; for k in "${REPLY_KEYS[@]}"; do ...; done
 get_provider_keys() {
     local array_name="$1"
 
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
         if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
             # Zsh uses ${(k)array} for keys
-            eval "printf '%s\n' \"\${(@k)${array_name}}\""
+            eval "REPLY_KEYS=(\"\${(@k)${array_name}}\")"
         else
             # Bash uses ${!array[@]} for keys
-            eval "local -a keys=(\"\${!${array_name}[@]}\")"
-            printf '%s\n' "${keys[@]}"
+            eval "REPLY_KEYS=(\"\${!${array_name}[@]}\")"
         fi
     else
         compat_assoc_keys "${array_name}"
@@ -503,7 +526,7 @@ load_config() {
 
         # Section header
         if [[ "$line" =~ $section_pattern ]]; then
-            section_name="$(get_match 1)"
+            get_match 1; section_name="$REPLY"
             if [[ "$section_name" =~ $group_prefix_pattern ]]; then
                 # Group section: [group:name]
                 current_group="${section_name#group:}"
@@ -521,10 +544,10 @@ load_config() {
         # Handle group key=value (only "providers" key supported)
         if [[ -n "$current_group" ]]; then
             if [[ "$line" =~ $keyval_pattern ]]; then
-                key="$(get_match 1)"
-                value="$(get_match 2)"
-                key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-                value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                get_match 1; key="$REPLY"
+                get_match 2; value="$REPLY"
+                trim "$key"; key="$REPLY"
+                trim "$value"; value="$REPLY"
                 if [[ "$key" == "providers" ]]; then
                     set_provider_value "PROVIDER_GROUPS" "$current_group" "$value"
                     debug "PROVIDER_GROUPS[$current_group] = $value"
@@ -538,19 +561,19 @@ load_config() {
 
         # Parse key=value pairs
         if [[ "$line" =~ $keyval_pattern ]]; then
-            key="$(get_match 1)"
-            value="$(get_match 2)"
-            
-            # Trim whitespace
-            key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-            value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-            
+            get_match 1; key="$REPLY"
+            get_match 2; value="$REPLY"
+
+            # Trim whitespace (fork-free)
+            trim "$key"; key="$REPLY"
+            trim "$value"; value="$REPLY"
+
             debug "Setting $current_provider.$key = $value"
 
             case "$key" in
                 base_url)
                     set_provider_value "PROVIDER_BASE_URLS" "$current_provider" "$value"
-                    debug "PROVIDER_BASE_URLS[$current_provider] = $(get_provider_value "PROVIDER_BASE_URLS" "$current_provider")"
+                    debug "PROVIDER_BASE_URLS[$current_provider] = $value"
                     ;;
                 api_key_var)
                     set_provider_value "PROVIDER_API_KEY_VARS" "$current_provider" "$value"
@@ -648,25 +671,25 @@ init_config() {
     
     # Build list of available providers
     debug "Building available providers list"
-    debug "PROVIDER_BASE_URLS keys: $(get_provider_keys "PROVIDER_BASE_URLS" | tr '\n' ' ')"
     AVAILABLE_PROVIDERS=()
     # Get all provider keys using wrapper function
     local -a provider_keys
-    while IFS= read -r key; do
-        [[ -n "$key" ]] && provider_keys+=("$key")
-    done < <(get_provider_keys "PROVIDER_BASE_URLS")
-    
+    get_provider_keys "PROVIDER_BASE_URLS"
+    provider_keys=("${REPLY_KEYS[@]}")
+    debug "PROVIDER_BASE_URLS keys: ${provider_keys[*]}"
+
     # Declare loop variables outside the loop for zsh compatibility
     local provider_enabled has_base_url has_api_key_var has_model has_protocol has_auth_token_var
     for provider in "${provider_keys[@]}"; do
-        provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+        [[ -n "$provider" ]] || continue
+        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
         debug "Checking provider: $provider, enabled: ${provider_enabled:-true}"
 
         # Check if provider has all required fields
-        has_base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
-        has_api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
-        has_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
-        has_protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; has_base_url="$REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; has_api_key_var="$REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; has_model="$REPLY"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; has_protocol="$REPLY"
         has_protocol="${has_protocol:-openai}"
 
         # base_url and model are always required
@@ -677,7 +700,7 @@ init_config() {
 
         # Credential validation: anthropic protocol accepts api_key_var or auth_token_var
         if [[ "$has_protocol" == "anthropic" ]]; then
-            has_auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
+            get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; has_auth_token_var="$REPLY"
             if [[ -z "$has_api_key_var" && -z "$has_auth_token_var" ]]; then
                 debug "Skipping incomplete anthropic provider $provider: no api_key_var or auth_token_var"
                 continue
@@ -706,11 +729,11 @@ init_config() {
     # Build list of available groups
     AVAILABLE_GROUPS=()
     local -a group_keys
-    while IFS= read -r key; do
-        [[ -n "$key" ]] && group_keys+=("$key")
-    done < <(get_provider_keys "PROVIDER_GROUPS")
+    get_provider_keys "PROVIDER_GROUPS"
+    group_keys=("${REPLY_KEYS[@]}")
     local group_name
     for group_name in "${group_keys[@]}"; do
+        [[ -n "$group_name" ]] || continue
         AVAILABLE_GROUPS+=("$group_name")
         debug "Added group: $group_name"
     done
@@ -811,17 +834,22 @@ apply_default_protocols() {
     local provider
     local existing_protocol
     local provider_enabled
+    local -a base_url_keys
 
-    while IFS= read -r provider; do
+    get_provider_keys "PROVIDER_BASE_URLS"
+    base_url_keys=("${REPLY_KEYS[@]}")
+    for provider in "${base_url_keys[@]}"; do
         [[ -z "$provider" ]] && continue
 
         # Check if provider has a protocol set
-        existing_protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider" 2>/dev/null || echo "")"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; existing_protocol="$REPLY"
 
         # Only set default if protocol is empty and provider is enabled
         # Check if provider is enabled (defaults to true if not set)
         if [[ -z "$existing_protocol" ]]; then
-            provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider" 2>/dev/null || echo "true")"
+            # Preserve original semantics: the old `|| echo "true"` fired only on a
+            # nonzero exit (which never occurred here), so an unset enabled -> empty.
+            get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
 
             # Only set default for enabled providers
             if [[ "$provider_enabled" == "true" ]]; then
@@ -831,7 +859,7 @@ apply_default_protocols() {
                 debug "PROVIDER_PROTOCOLS[$provider] not defaulted (provider disabled)"
             fi
         fi
-    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+    done
 }
 
 mask() {
@@ -897,7 +925,7 @@ validate_provider() {
     
     # Check if provider is enabled
     local provider_enabled
-    provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+    get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
     if [[ "${provider_enabled:-true}" != "true" ]]; then
         debug "Provider disabled: $provider"
         return 2
@@ -932,35 +960,37 @@ set_single_provider() {
 
     # Get protocol for this provider (defaults to "openai")
     local protocol
-    protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
-    protocol="${protocol:-openai}"
+    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
 
     local key_var model base key auth_token_var auth_token
-    key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
-    base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
-    model="${OPENAI_MODEL_OVERRIDE:-$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")}"
+    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
+    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$REPLY"
+    get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="${OPENAI_MODEL_OVERRIDE:-$REPLY}"
     if [[ -n "$key_var" ]]; then
-        key="$(get_var_value "$key_var")"
+        get_var_value "$key_var"; key="$REPLY"
     else
         key=""
     fi
 
     # Get auth token for Anthropic protocol
     if [[ "$protocol" == "anthropic" ]]; then
-        auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
+        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$REPLY"
         if [[ -n "$auth_token_var" ]]; then
-            auth_token="$(get_var_value "$auth_token_var")"
+            get_var_value "$auth_token_var"; auth_token="$REPLY"
         fi
     fi
 
+    local key_set="no" auth_token_set="no"
+    [[ -n "$key" ]] && key_set="yes"
+    [[ -n "$auth_token" ]] && auth_token_set="yes"
     debug "Resolving environment for provider $provider:"
     debug "  protocol=$protocol"
     debug "  key_var=$key_var"
     debug "  auth_token_var=$auth_token_var"
     debug "  base=$base"
     debug "  model=$model"
-    debug "  key_set=$([ -n "$key" ] && echo "yes" || echo "no")"
-    debug "  auth_token_set=$([ -n "$auth_token" ] && echo "yes" || echo "no")"
+    debug "  key_set=$key_set"
+    debug "  auth_token_set=$auth_token_set"
 
     # For anthropic protocol, either api_key_var or auth_token_var is sufficient
     if [[ "$protocol" == "anthropic" ]]; then
@@ -978,7 +1008,7 @@ set_single_provider() {
             }
             echo "⚠️  No credentials found for $provider. Set $missing_vars in your shell profile."
             local signup_url
-            signup_url="$(get_provider_value "PROVIDER_SIGNUP_URLS" "$provider")"
+            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$REPLY"
             if [[ -n "$signup_url" ]]; then
                 printf '   🔑 Get an API key: %s\n' "$(link "$signup_url" "$signup_url")"
             fi
@@ -994,7 +1024,7 @@ set_single_provider() {
         elif [[ -z "$key" ]]; then
             echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
             local signup_url
-            signup_url="$(get_provider_value "PROVIDER_SIGNUP_URLS" "$provider")"
+            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$REPLY"
             if [[ -n "$signup_url" ]]; then
                 printf '   🔑 Get an API key: %s\n' "$(link "$signup_url" "$signup_url")"
             fi
@@ -1097,7 +1127,7 @@ cmd_set() {
 
     # Check if input is a group name
     local group_providers
-    group_providers="$(get_provider_value "PROVIDER_GROUPS" "$input")"
+    get_provider_value "PROVIDER_GROUPS" "$input"; group_providers="$REPLY"
     if [[ -n "$group_providers" ]]; then
         debug "Setting group '$input' with providers: $group_providers"
         set_multiple_providers "$group_providers"
@@ -1173,36 +1203,37 @@ cmd_list() {
     local providers_to_show=()
     if $show_all; then
         # Show all providers (enabled and disabled)
-        while IFS= read -r provider; do
-            [[ -n "$provider" ]] && providers_to_show+=("$provider")
-        done < <(get_provider_keys "PROVIDER_BASE_URLS")
+        get_provider_keys "PROVIDER_BASE_URLS"
+        local _p
+        for _p in "${REPLY_KEYS[@]}"; do
+            [[ -n "$_p" ]] && providers_to_show+=("$_p")
+        done
     else
         # Show only enabled providers
         providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
     fi
 
     # Declare loop variables outside the loop for zsh compatibility
-    local mark base model key_var have_key description enabled_status provider_enabled protocol
+    local mark base model key_var have_key description enabled_status provider_enabled protocol key_val
     for provider in "${providers_to_show[@]}"; do
         mark=" "
         [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
 
-        base="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
-        model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
-        key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
-        description="$(get_provider_value "PROVIDER_DESCRIPTIONS" "$provider")"
-        protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
-        protocol="${protocol:-openai}"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="$REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
+        get_provider_value "PROVIDER_DESCRIPTIONS" "$provider"; description="$REPLY"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
 
-        if [[ -n "$key_var" ]] && [[ -n "$(get_var_value "$key_var")" ]]; then
-            have_key="yes"
-        else
-            have_key="no"
+        have_key="no"
+        if [[ -n "$key_var" ]]; then
+            get_var_value "$key_var"; key_val="$REPLY"
+            [[ -n "$key_val" ]] && have_key="yes"
         fi
 
         # Show disabled status if showing all providers
         enabled_status=""
-        provider_enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
+        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
         if $show_all && [[ "${provider_enabled:-true}" != "true" ]]; then
             enabled_status=" (disabled)"
         fi
@@ -1219,7 +1250,7 @@ cmd_list() {
         echo
         local group_name group_providers
         for group_name in "${AVAILABLE_GROUPS[@]}"; do
-            group_providers="$(get_provider_value "PROVIDER_GROUPS" "$group_name")"
+            get_provider_value "PROVIDER_GROUPS" "$group_name"; group_providers="$REPLY"
             printf "   %-12s  → %s\n" "$group_name" "$group_providers"
         done
     fi
@@ -1531,15 +1562,14 @@ cmd_test() {
 
     # Get protocol for this provider (defaults to "openai")
     local protocol
-    protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
-    protocol="${protocol:-openai}"
+    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
 
     echo "🧪 Testing provider: $provider (protocol: $protocol)"
 
     local key_var base_url api_key
-    key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
-    base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
-    api_key="$(get_var_value "$key_var")"
+    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
+    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$REPLY"
+    get_var_value "$key_var"; api_key="$REPLY"
 
     # Check if API key is available
     if [[ -z "$api_key" ]]; then
@@ -1967,20 +1997,20 @@ cmd_config_validate() {
     init_config
 
     # Declare loop variables outside loop for zsh compatibility
-    local base_url api_key_var auth_token_var default_model enabled protocol
+    local provider base_url api_key_var auth_token_var default_model enabled protocol cred_val
     local url_pattern="^https?://"
 
     # Check each provider
-    while IFS= read -r provider; do
+    get_provider_keys "PROVIDER_BASE_URLS"
+    local -a validate_keys=("${REPLY_KEYS[@]}")
+    for provider in "${validate_keys[@]}"; do
         [[ -z "$provider" ]] && continue
-        base_url="$(get_provider_value "PROVIDER_BASE_URLS" "$provider")"
-        api_key_var="$(get_provider_value "PROVIDER_API_KEY_VARS" "$provider")"
-        auth_token_var="$(get_provider_value "PROVIDER_AUTH_TOKENS" "$provider")"
-        default_model="$(get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider")"
-        enabled="$(get_provider_value "PROVIDER_ENABLED" "$provider")"
-        enabled="${enabled:-true}"
-        protocol="$(get_provider_value "PROVIDER_PROTOCOLS" "$provider")"
-        protocol="${protocol:-openai}"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; api_key_var="$REPLY"
+        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; default_model="$REPLY"
+        get_provider_value "PROVIDER_ENABLED" "$provider"; enabled="${REPLY:-true}"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
 
         echo "Checking provider: $provider"
 
@@ -2003,7 +2033,8 @@ cmd_config_validate() {
             else
                 if [[ -n "$api_key_var" ]]; then
                     echo "  ✅ api_key_var: $api_key_var"
-                    if [[ -z "$(get_var_value "$api_key_var")" ]]; then
+                    get_var_value "$api_key_var"; cred_val="$REPLY"
+                    if [[ -z "$cred_val" ]]; then
                         echo "  ⚠️  API key not set: $api_key_var"
                         ((warnings++))
                     else
@@ -2012,7 +2043,8 @@ cmd_config_validate() {
                 fi
                 if [[ -n "$auth_token_var" ]]; then
                     echo "  ✅ auth_token_var: $auth_token_var"
-                    if [[ -z "$(get_var_value "$auth_token_var")" ]]; then
+                    get_var_value "$auth_token_var"; cred_val="$REPLY"
+                    if [[ -z "$cred_val" ]]; then
                         echo "  ⚠️  Auth token not set: $auth_token_var"
                         ((warnings++))
                     else
@@ -2027,7 +2059,8 @@ cmd_config_validate() {
             echo "  ✅ api_key_var: $api_key_var"
 
             # Check if API key is set
-            if [[ -z "$(get_var_value "$api_key_var")" ]]; then
+            get_var_value "$api_key_var"; cred_val="$REPLY"
+            if [[ -z "$cred_val" ]]; then
                 echo "  ⚠️  API key not set: $api_key_var"
                 ((warnings++))
             else
@@ -2048,10 +2081,11 @@ cmd_config_validate() {
         fi
         
         echo
-    done < <(get_provider_keys "PROVIDER_BASE_URLS")
+    done
 
+    get_provider_keys "PROVIDER_BASE_URLS"
     echo "Validation complete:"
-    echo "  Providers: $(get_provider_keys "PROVIDER_BASE_URLS" | wc -l | tr -d ' ')"
+    echo "  Providers: ${#REPLY_KEYS[@]}"
     echo "  Enabled: ${#AVAILABLE_PROVIDERS[@]}"
     echo "  Errors: $errors"
     echo "  Warnings: $warnings"
@@ -2188,7 +2222,8 @@ cmd_config_bulk() {
     
     if [[ ${#providers[@]} -eq 0 ]]; then
         echo "❌ No providers specified"
-        echo "Available providers: $(get_provider_keys "PROVIDER_BASE_URLS" | tr '\n' ' ')"
+        get_provider_keys "PROVIDER_BASE_URLS"
+        echo "Available providers: ${REPLY_KEYS[*]}"
         return 1
     fi
     
