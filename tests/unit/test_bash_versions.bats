@@ -92,7 +92,7 @@ EOF
         export BASH_ASSOC_ARRAY_SUPPORT='true'
         export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env
-        get_provider_value 'PROVIDER_BASE_URLS' 'openai'
+        get_provider_value 'PROVIDER_BASE_URLS' 'openai'; printf '%s\n' \"\$REPLY\"
     "
 
     # Clean up
@@ -120,7 +120,7 @@ EOF
         export BASH_ASSOC_ARRAY_SUPPORT='false'
         export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env
-        get_provider_value 'PROVIDER_BASE_URLS' 'openai'
+        get_provider_value 'PROVIDER_BASE_URLS' 'openai'; printf '%s\n' \"\$REPLY\"
     "
 
     # Clean up
