@@ -197,7 +197,7 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
         # Read the current keys to locate an existing entry (scan only; we no
         # longer copy+rewrite the whole array, which was the O(N^2) hot spot).
         local -a keys
-        eval "keys=(\"\${${keys_array}[@]}\")" 2>/dev/null || keys=()
+        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || keys=()
 
         # Look for existing key -> update that element in place (O(1)).
         # eval assigns a single element with a double-quoted expansion, so the
@@ -234,8 +234,8 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
         # Get current arrays
         local -a keys
         local -a values
-        eval "keys=(\"\${${keys_array}[@]}\")" 2>/dev/null || keys=()
-        eval "values=(\"\${${values_array}[@]}\")" 2>/dev/null || values=()
+        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || keys=()
+        eval "values=(\${${values_array}[@]+\"\${${values_array}[@]}\"})" 2>/dev/null || values=()
 
         # Look for key
         local i
@@ -264,7 +264,7 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
 
         local keys_array="${array_name}_KEYS"
 
-        eval "REPLY_KEYS=(\"\${${keys_array}[@]}\")" 2>/dev/null || REPLY_KEYS=()
+        eval "REPLY_KEYS=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || REPLY_KEYS=()
     }
 
     # Check if a key exists in a compatibility associative array
@@ -280,7 +280,7 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
 
         # Get current keys
         local -a keys
-        eval "keys=(\"\${${keys_array}[@]}\")"
+        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})"
 
         # Look for key
         local i
@@ -308,7 +308,7 @@ get_config_locations() {
         "/usr/local/etc/llm-env/config.conf"
         "$(get_script_dir)/config/llm-env.conf"
     )
-    printf '%s\n' "${locations[@]}"
+    printf '%s\n' ${locations[@]+"${locations[@]}"}
 }
 
 # Global arrays for configuration (conditional based on bash version)
@@ -437,7 +437,7 @@ get_provider_value() {
 
 # Get all keys from a provider array
 # Populates the global REPLY_KEYS array; no stdout, no subshell fork.
-# Usage: get_provider_keys ARR; for k in "${REPLY_KEYS[@]}"; do ...; done
+# Usage: get_provider_keys ARR; for k in ${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"}; do ...; done
 get_provider_keys() {
     local array_name="$1"
 
@@ -447,7 +447,7 @@ get_provider_keys() {
             eval "REPLY_KEYS=(\"\${(@k)${array_name}}\")"
         else
             # Bash uses ${!array[@]} for keys
-            eval "REPLY_KEYS=(\"\${!${array_name}[@]}\")"
+            eval "REPLY_KEYS=(\${${array_name}[@]+\"\${!${array_name}[@]}\"})"
         fi
     else
         compat_assoc_keys "${array_name}"
@@ -656,12 +656,12 @@ init_config() {
     # Get all provider keys using wrapper function
     local -a provider_keys
     get_provider_keys "PROVIDER_BASE_URLS"
-    provider_keys=("${REPLY_KEYS[@]}")
-    debug "PROVIDER_BASE_URLS keys: ${provider_keys[*]}"
+    provider_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    debug "PROVIDER_BASE_URLS keys: ${provider_keys[*]-}"
 
     # Declare loop variables outside the loop for zsh compatibility
     local provider_enabled has_base_url has_api_key_var has_model has_protocol has_auth_token_var
-    for provider in "${provider_keys[@]}"; do
+    for provider in ${provider_keys[@]+"${provider_keys[@]}"}; do
         [[ -n "$provider" ]] || continue
         get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
         debug "Checking provider: $provider, enabled: ${provider_enabled:-true}"
@@ -697,11 +697,11 @@ init_config() {
             debug "Added $provider to AVAILABLE_PROVIDERS"
         fi
     done
-    debug "Final AVAILABLE_PROVIDERS: ${AVAILABLE_PROVIDERS[*]}"
+    debug "Final AVAILABLE_PROVIDERS: ${AVAILABLE_PROVIDERS[*]-}"
     
     # Sort providers alphabetically (bash 3.2 compatible - no mapfile)
     local sorted_providers
-    sorted_providers=$(printf '%s\n' "${AVAILABLE_PROVIDERS[@]}" | sort)
+    sorted_providers=$(printf '%s\n' ${AVAILABLE_PROVIDERS[@]+"${AVAILABLE_PROVIDERS[@]}"} | sort)
     AVAILABLE_PROVIDERS=()
     while IFS= read -r provider; do
         [[ -n "$provider" ]] && AVAILABLE_PROVIDERS+=("$provider")
@@ -711,14 +711,14 @@ init_config() {
     AVAILABLE_GROUPS=()
     local -a group_keys
     get_provider_keys "PROVIDER_GROUPS"
-    group_keys=("${REPLY_KEYS[@]}")
+    group_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
     local group_name
-    for group_name in "${group_keys[@]}"; do
+    for group_name in ${group_keys[@]+"${group_keys[@]}"}; do
         [[ -n "$group_name" ]] || continue
         AVAILABLE_GROUPS+=("$group_name")
         debug "Added group: $group_name"
     done
-    debug "Final AVAILABLE_GROUPS: ${AVAILABLE_GROUPS[*]}"
+    debug "Final AVAILABLE_GROUPS: ${AVAILABLE_GROUPS[*]-}"
 
     return 0
 }
@@ -821,8 +821,8 @@ apply_default_protocols() {
 
     local -a base_url_keys
     get_provider_keys "PROVIDER_BASE_URLS"
-    base_url_keys=("${REPLY_KEYS[@]}")
-    for provider in "${base_url_keys[@]}"; do
+    base_url_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    for provider in ${base_url_keys[@]+"${base_url_keys[@]}"}; do
         [[ -z "$provider" ]] && continue
 
         # Check if provider has a protocol set
@@ -939,7 +939,7 @@ set_single_provider() {
             1) echo "❌ Unknown provider: $provider" ;;
             2) echo "❌ Provider disabled: $provider" ;;
         esac
-        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]-}"
         echo
         return 1
     fi
@@ -1103,9 +1103,9 @@ cmd_set() {
     local input="$1"
     if [[ -z "$input" ]]; then
         echo "Usage: source llm-env set <provider|group|provider1,provider2>"
-        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]-}"
         if [[ ${#AVAILABLE_GROUPS[@]} -gt 0 ]]; then
-            echo "Available groups: ${AVAILABLE_GROUPS[*]}"
+            echo "Available groups: ${AVAILABLE_GROUPS[*]-}"
         fi
         echo
         return 1
@@ -1191,17 +1191,17 @@ cmd_list() {
         # Show all providers (enabled and disabled)
         get_provider_keys "PROVIDER_BASE_URLS"
         local _p
-        for _p in "${REPLY_KEYS[@]}"; do
+        for _p in ${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"}; do
             [[ -n "$_p" ]] && providers_to_show+=("$_p")
         done
     else
         # Show only enabled providers
-        providers_to_show=("${AVAILABLE_PROVIDERS[@]}")
+        providers_to_show=(${AVAILABLE_PROVIDERS[@]+"${AVAILABLE_PROVIDERS[@]}"})
     fi
 
     # Declare loop variables outside the loop for zsh compatibility
     local mark base model key_var have_key description enabled_status provider_enabled protocol key_val
-    for provider in "${providers_to_show[@]}"; do
+    for provider in ${providers_to_show[@]+"${providers_to_show[@]}"}; do
         mark=" "
         [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
 
@@ -1235,7 +1235,7 @@ cmd_list() {
         echo "Provider groups:"
         echo
         local group_name group_providers
-        for group_name in "${AVAILABLE_GROUPS[@]}"; do
+        for group_name in ${AVAILABLE_GROUPS[@]+"${AVAILABLE_GROUPS[@]}"}; do
             get_provider_value "PROVIDER_GROUPS" "$group_name"; group_providers="$REPLY"
             printf "   %-12s  → %s\n" "$group_name" "$group_providers"
         done
@@ -1525,7 +1525,7 @@ cmd_test() {
     local provider="$1"
     if [[ -z "$provider" ]]; then
         echo "Usage: source llm-env test <provider>"
-        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]-}"
         return 1
     fi
 
@@ -1542,7 +1542,7 @@ cmd_test() {
             1) echo "❌ Unknown provider: $provider" ;;
             2) echo "❌ Provider disabled: $provider" ;;
         esac
-        echo "Available providers: ${AVAILABLE_PROVIDERS[*]}"
+        echo "Available providers: ${AVAILABLE_PROVIDERS[*]-}"
         return 1
     fi
 
@@ -1630,7 +1630,7 @@ cmd_test() {
     if command -v curl >/dev/null 2>&1; then
         response=$(curl -s -w "%{http_code}" -o /dev/null \
             --max-time 10 \
-            "${auth_headers[@]}" \
+            ${auth_headers[@]+"${auth_headers[@]}"} \
             -H "Content-Type: application/json" \
             "$test_endpoint" 2>/dev/null)
     elif command -v wget >/dev/null 2>&1; then
@@ -1646,7 +1646,7 @@ cmd_test() {
         # wget prints server response headers to stderr with --server-response (-S)
         # We capture stderr, grep for HTTP status code
         local wget_out
-        wget_out=$(wget -q -S -O /dev/null --timeout=10 "${wget_headers[@]}" "$test_endpoint" 2>&1)
+        wget_out=$(wget -q -S -O /dev/null --timeout=10 ${wget_headers[@]+"${wget_headers[@]}"} "$test_endpoint" 2>&1)
         
         # Extract the last HTTP status code
         response=$(echo "$wget_out" | grep "HTTP/" | tail -1 | awk '{print $2}')
@@ -2056,7 +2056,7 @@ _qs_process_v2_file() {
             fi
             # Look up protocols for this model id from the parallel arrays.
             idx=-1
-            for j in "${!model_ids[@]}"; do
+            for j in ${model_ids[@]+"${!model_ids[@]}"}; do
                 if [[ "${model_ids[$j]}" == "$fam_id" ]]; then
                     idx="$j"; break
                 fi
@@ -2163,7 +2163,7 @@ _qs_resolve_selection() {
     read -r -a tokens <<< "$arg"
     local out=""
     local tok
-    for tok in "${tokens[@]}"; do
+    for tok in ${tokens[@]+"${tokens[@]}"}; do
         if [[ "$tok" != "synthetic" && "$tok" != "alibaba" ]]; then
             echo "❌ Unknown quickstart source: '$tok'. Valid: synthetic, alibaba, all (or comma-separated combinations)." >&2
             return 1
@@ -2542,8 +2542,8 @@ cmd_config_validate() {
 
     # Check each provider
     get_provider_keys "PROVIDER_BASE_URLS"
-    local -a validate_keys=("${REPLY_KEYS[@]}")
-    for provider in "${validate_keys[@]}"; do
+    local -a validate_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    for provider in ${validate_keys[@]+"${validate_keys[@]}"}; do
         [[ -z "$provider" ]] && continue
         get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$REPLY"
         get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; api_key_var="$REPLY"
@@ -2763,7 +2763,7 @@ cmd_config_bulk() {
     if [[ ${#providers[@]} -eq 0 ]]; then
         echo "❌ No providers specified"
         get_provider_keys "PROVIDER_BASE_URLS"
-        echo "Available providers: ${REPLY_KEYS[*]}"
+        echo "Available providers: ${REPLY_KEYS[*]-}"
         return 1
     fi
     
@@ -2794,7 +2794,7 @@ cmd_config_bulk() {
     local failed_providers=()
     local enabled_value
 
-    for provider in "${providers[@]}"; do
+    for provider in ${providers[@]+"${providers[@]}"}; do
         # Validate provider name format
         if ! validate_provider_name "${provider}"; then
             failed_providers+=("${provider} (invalid name)")
@@ -2856,7 +2856,7 @@ cmd_config_bulk() {
     
     if [[ ${#failed_providers[@]} -gt 0 ]]; then
         echo "  Failed:"
-        for failure in "${failed_providers[@]}"; do
+        for failure in ${failed_providers[@]+"${failed_providers[@]}"}; do
             echo "    ❌ ${failure}"
         done
     fi
