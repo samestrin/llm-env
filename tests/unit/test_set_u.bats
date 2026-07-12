@@ -71,3 +71,32 @@ run_setu() {
     [ "$status" -eq 0 ]
     [[ "$output" =~ "alpha" ]]
 }
+
+@test "set -u: source + set <provider> does not abort (compat)" {
+    run /bin/bash -c "
+        set -u
+        export BASH_ASSOC_ARRAY_SUPPORT='false'
+        export XDG_CONFIG_HOME='$TEST_CFG_DIR/.config'
+        export LLM_ALPHA_KEY='secret-key'
+        source '$BATS_TEST_DIRNAME/../../llm-env' set alpha
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "alpha" ]]
+}
+
+@test "set -u: source + unset does not abort (compat)" {
+    run_setu false unset
+    [ "$status" -eq 0 ]
+}
+
+@test "set -u: caller's nounset is restored after sourcing" {
+    run /bin/bash -c "
+        set -u
+        export BASH_ASSOC_ARRAY_SUPPORT='false'
+        export XDG_CONFIG_HOME='$TEST_CFG_DIR/.config'
+        source '$BATS_TEST_DIRNAME/../../llm-env' list >/dev/null 2>&1
+        case \$- in *u*) echo NOUNSET_ON ;; *) echo NOUNSET_OFF ;; esac
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "NOUNSET_ON" ]]
+}

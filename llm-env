@@ -10,6 +10,15 @@
 # Version information
 VERSION="1.6.1"
 
+# llm-env is sourced into the user's shell. A user who has `set -u` (nounset)
+# in their profile would otherwise abort on this script's own unset-variable
+# reads -- notably empty-array expansions, which raise "unbound variable" on
+# bash < 4.4 (the macOS system bash 3.2). Disable nounset for the duration of
+# this script's own execution and restore the caller's setting at the end
+# (see the Entry Point at the bottom of this file).
+case $- in *u*) __LLM_ENV_RESTORE_NOUNSET=1 ;; *) __LLM_ENV_RESTORE_NOUNSET=0 ;; esac
+set +u
+
 # ---------- Shell Detection and Version ----------
 
 # Detect which shell we're running in
@@ -1203,7 +1212,7 @@ cmd_list() {
     local mark base model key_var have_key description enabled_status provider_enabled protocol key_val
     for provider in ${providers_to_show[@]+"${providers_to_show[@]}"}; do
         mark=" "
-        [[ "$provider" == "$LLM_PROVIDER" ]] && mark="*"
+        [[ "$provider" == "${LLM_PROVIDER:-}" ]] && mark="*"
 
         get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$REPLY"
         get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="$REPLY"
@@ -1227,7 +1236,7 @@ cmd_list() {
         printf " %s %-12s  %-9s  %-30s  %-24s  key:%-3s  %s%s\n" \
             "$mark" "$provider" "$protocol" "$base" "$model" "$have_key" "$description" "$enabled_status"
     done
-    [[ -n "$LLM_PROVIDER" ]] && echo; echo "* current provider"
+    [[ -n "${LLM_PROVIDER:-}" ]] && echo; echo "* current provider"
 
     # Show groups if any are defined
     if [[ ${#AVAILABLE_GROUPS[@]} -gt 0 ]]; then
@@ -2871,6 +2880,9 @@ cmd_config_bulk() {
 
 # ---------- Entry Point ----------
 
+# Run init + command dispatch inside a function so the caller's nounset
+# setting can be restored on every exit path (see set +u near the top).
+__llm_env_run() {
 # Initialize configuration on script load
 init_config
 
@@ -2916,3 +2928,9 @@ case "$1" in
         ;;
 esac
 fi
+}
+__llm_env_run "$@"
+__LLM_ENV_RC=$?
+[[ "${__LLM_ENV_RESTORE_NOUNSET:-0}" == "1" ]] && set -u
+unset __LLM_ENV_RESTORE_NOUNSET
+return $__LLM_ENV_RC 2>/dev/null || exit $__LLM_ENV_RC
