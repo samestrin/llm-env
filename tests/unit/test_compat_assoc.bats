@@ -13,6 +13,13 @@ setup() {
     export LLM_ENV_DEBUG=0
     export BASH_ASSOC_ARRAY_SUPPORT="false"
     source "$BATS_TEST_DIRNAME/../../llm-env" >/dev/null 2>&1
+    # The compat associative-array backend only exists on bash < 4.0. On bash
+    # 4+/zsh, parse_bash_version resets BASH_ASSOC_ARRAY_SUPPORT to true at source
+    # time and compat_assoc_set is never defined, so these behavioral tests can
+    # only run where that backend is actually active (i.e. bash 3.2).
+    if ! declare -f compat_assoc_set >/dev/null 2>&1; then
+        skip "compat associative-array path not active (native bash 4+/zsh backend)"
+    fi
     # Fresh arrays for isolation
     unset TESTMAP_KEYS TESTMAP_VALUES
     TESTMAP_KEYS=(); TESTMAP_VALUES=()
@@ -111,14 +118,6 @@ setup() {
     [ "$?" -eq 0 ]
 }
 
-# ---- structural guards: the O(N) rewrite dropped the quadratic machinery ----
-
-@test "compat_assoc_set no longer rewrites the whole array with printf %q" {
-    run grep -n "printf '%q'" "$BATS_TEST_DIRNAME/../../llm-env"
-    [ "$status" -ne 0 ]
-}
-
-@test "dead code compat_assoc_size is removed" {
-    run grep -n "compat_assoc_size" "$BATS_TEST_DIRNAME/../../llm-env"
-    [ "$status" -ne 0 ]
-}
+# Structural guards for the O(N) rewrite (printf %q removal, dead-code removal)
+# live in test_accessor_contract.bats so they run on every shell, not only where
+# the compat backend is active (this file's setup skips on bash 4+/zsh).

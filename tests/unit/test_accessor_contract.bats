@@ -140,3 +140,15 @@ setup() {
     run grep -nE '\$\(echo "\$(key|value)" \| sed' "$BATS_TEST_DIRNAME/../../llm-env"
     [ "$status" -ne 0 ]
 }
+
+# ---- O(N) compat-layer structural guards (shell-agnostic; run everywhere) ----
+
+@test "compat_assoc_set no longer rewrites the whole array with printf %q" {
+    run grep -n "printf '%q'" "$BATS_TEST_DIRNAME/../../llm-env"
+    [ "$status" -ne 0 ]
+}
+
+@test "dead code compat_assoc_size is removed" {
+    run grep -n "compat_assoc_size" "$BATS_TEST_DIRNAME/../../llm-env"
+    [ "$status" -ne 0 ]
+}
