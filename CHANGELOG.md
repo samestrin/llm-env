@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Third-party Anthropic gateways now authenticate.** Anthropic-protocol
+  providers that only declare `api_key_var` (the bundled `synthetic` and
+  `alibaba` configs, and most custom gateways) previously left
+  `ANTHROPIC_AUTH_TOKEN` unset. Claude Code populates the `Authorization:
+  Bearer` header from `ANTHROPIC_AUTH_TOKEN`, so those gateways rejected the
+  request. `llm-env set` now mirrors `ANTHROPIC_API_KEY` into
+  `ANTHROPIC_AUTH_TOKEN` when no explicit `auth_token_var` is configured, so
+  the key is sent as a Bearer token. The mirror is skipped for the real
+  Anthropic API (`api.anthropic.com`), which expects the `sk-ant-*` key via
+  the `x-api-key` header and may reject it as a Bearer token. An explicit
+  `auth_token_var` is never overwritten.
+
 ### Changed
 - **Performance**: `source llm-env <cmd>` is dramatically faster, especially on the
   macOS system bash (3.2). Provider-array accessors now return via `$REPLY`/`$REPLY_KEYS`

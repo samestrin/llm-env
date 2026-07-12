@@ -1055,10 +1055,22 @@ set_single_provider() {
             # Also set ANTHROPIC_API_KEY from auth_token if not already set
             export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$auth_token}"
         fi
+        # Third-party Anthropic-compatible gateways (e.g. synthetic, alibaba)
+        # authenticate via the Authorization: Bearer header, which Claude Code
+        # populates from ANTHROPIC_AUTH_TOKEN. Bundled provider configs only
+        # declare api_key_var, so ANTHROPIC_AUTH_TOKEN would otherwise stay
+        # unset and those gateways reject the request. Mirror the API key into
+        # the auth token when no explicit auth_token was configured. Skip the
+        # real Anthropic API (api.anthropic.com): it expects the sk-ant-* key
+        # via the x-api-key header, and sending it as a Bearer token can fail.
+        host=$(host_from_url "$ANTHROPIC_BASE_URL")
+        if [[ -z "$auth_token" && -n "${ANTHROPIC_API_KEY:-}" && "$host" != "api.anthropic.com" ]]; then
+            export ANTHROPIC_AUTH_TOKEN="$ANTHROPIC_API_KEY"
+            debug "  mirrored ANTHROPIC_API_KEY -> ANTHROPIC_AUTH_TOKEN (host=$host)"
+        fi
         export LLM_PROVIDER="$provider"
         export LLM_PROTOCOL="$protocol"
 
-        host=$(host_from_url "$ANTHROPIC_BASE_URL")
         local cred_display=""
         [[ -n "$key" ]] && cred_display="key=$(mask "$key")"
         [[ -n "$auth_token" ]] && {

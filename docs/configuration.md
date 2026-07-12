@@ -77,6 +77,7 @@ By default, all providers use the OpenAI protocol, exporting `OPENAI_*` environm
 **Anthropic Protocol:**
 - Exports: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - Uses: `x-api-key: <key>` and `anthropic-version: 2023-06-01` headers
+- `ANTHROPIC_AUTH_TOKEN` is exported from the provider's `auth_token_var` when configured. When a provider only declares `api_key_var` (the common case for third-party Anthropic-compatible gateways like synthetic or alibaba), the API key is also mirrored into `ANTHROPIC_AUTH_TOKEN` so the key is sent as the `Authorization: Bearer` header those gateways expect. The mirror is skipped for the real Anthropic API (`api.anthropic.com`), which takes the `sk-ant-*` key via `x-api-key` and may reject it as a Bearer token. An explicit `auth_token_var` is never overwritten.
 
 ## Configuration Examples
 
