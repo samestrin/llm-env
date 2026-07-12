@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   providers). Behavior and output are unchanged across bash 3.2, bash 4+, and zsh. Also
   silences spurious `parameter not set` warnings under `set -u` on zsh/bash 4+.
 
+### Added
+- **Coverage floor gate**: kcov-based line-coverage measurement (`tests/coverage.sh`)
+  wired into CI on the Linux runner with a realistic 50% floor (current full-suite
+  coverage of `llm-env` is ~55%). kcov is built from source in the job since it is no
+  longer packaged in Ubuntu apt repos.
+
 ## [1.6.1] - 2026-05-04
 
 ### Fixed
