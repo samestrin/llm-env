@@ -2933,4 +2933,7 @@ __llm_env_run "$@"
 __LLM_ENV_RC=$?
 [[ "${__LLM_ENV_RESTORE_NOUNSET:-0}" == "1" ]] && set -u
 unset __LLM_ENV_RESTORE_NOUNSET
-return $__LLM_ENV_RC 2>/dev/null || exit $__LLM_ENV_RC
+# When sourced, `return` exits here; when executed directly it fails and the
+# `exit` runs instead. shellcheck cannot see the executed path.
+# shellcheck disable=SC2317
+return "$__LLM_ENV_RC" 2>/dev/null || exit "$__LLM_ENV_RC"
