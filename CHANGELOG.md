@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Performance**: `source llm-env <cmd>` is dramatically faster, especially on the
+  macOS system bash (3.2). Provider-array accessors now return via `$REPLY`/`$REPLY_KEYS`
+  instead of forking a subshell per read, config-parser whitespace trimming is done with
+  parameter expansion instead of `echo | sed`, and the bash-3.2 compatibility
+  associative-array layer is now O(1) per write (was O(N²) per config load). Measured
+  `list`: bash 3.2 and zsh both drop from ~1–4s to under ~0.1s (the gap widens with more
+  providers). Behavior and output are unchanged across bash 3.2, bash 4+, and zsh. Also
+  silences spurious `parameter not set` warnings under `set -u` on zsh/bash 4+.
+
+### Added
+- **Coverage gate**: kcov-based line-coverage measurement (`tests/coverage.sh`) with an
+  80% gate wired into CI on the Linux runner.
+
 ## [1.6.1] - 2026-05-04
 
 ### Fixed
