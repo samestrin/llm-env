@@ -221,3 +221,42 @@ jobs:
             exit 1
           fi
         fi
+
+  # Line-coverage floor gate for the llm-env script.
+  # kcov is not packaged in modern Ubuntu apt repos, so build it from source
+  # (the persistent self-hosted runner keeps the built binary, so the guard
+  # skips the build on subsequent runs). The gate is a realistic floor, not an
+  # aspirational target: full-suite coverage is ~55%, so 50% guards against
+  # regressions without demanding command-surface tests that don't exist yet.
+  coverage:
+    runs-on: [self-hosted, linux]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install kcov (build from source if absent)
+      run: |
+        if ! command -v kcov &> /dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y binutils-dev libcurl4-openssl-dev libdw-dev \
+            libiberty-dev cmake g++ zlib1g-dev libssl-dev
+          rm -rf /tmp/kcov-src
+          git clone --depth 1 https://github.com/SimonKagstrom/kcov /tmp/kcov-src
+          mkdir -p /tmp/kcov-src/build && cd /tmp/kcov-src/build
+          cmake .. && make -j"$(nproc)" && sudo make install
+        fi
+        kcov --version
+
+    - name: Verify BATS installation
+      run: |
+        if [[ ! -f tests/bats/bin/bats ]]; then
+          git submodule update --init --recursive
+        fi
+        tests/bats/bin/bats --version
+
+    - name: "Measure coverage (floor 50 percent)"
+      run: |
+        chmod +x tests/coverage.sh
+        COVERAGE_MIN=50 tests/coverage.sh all
