@@ -227,7 +227,7 @@ jobs:
         fi
         tests/bats/bin/bats --version
 
-    - name: Measure coverage (gate: 80%)
+    - name: "Measure coverage (gate 80 percent)"
       run: |
         chmod +x tests/coverage.sh
         COVERAGE_MIN=80 tests/coverage.sh all
