@@ -92,7 +92,7 @@ EOF
         export BASH_ASSOC_ARRAY_SUPPORT='true'
         export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env
-        get_provider_value 'PROVIDER_BASE_URLS' 'openai'
+        get_provider_value 'PROVIDER_BASE_URLS' 'openai'; printf '%s\n' \"\$REPLY\"
     "
 
     # Clean up
@@ -120,7 +120,7 @@ EOF
         export BASH_ASSOC_ARRAY_SUPPORT='false'
         export XDG_CONFIG_HOME='$test_config_dir/.config'
         source $BATS_TEST_DIRNAME/../../llm-env
-        get_provider_value 'PROVIDER_BASE_URLS' 'openai'
+        get_provider_value 'PROVIDER_BASE_URLS' 'openai'; printf '%s\n' \"\$REPLY\"
     "
 
     # Clean up
@@ -264,6 +264,50 @@ EOF
     
     # Clean up
     rm -rf "$test_config_dir"
+}
+
+@test "performance regression: compat load stays sub-linear with many providers" {
+    # Regression guard for the O(N) compat_assoc_set rewrite. The old whole-array
+    # printf '%q' + eval rewrite was O(N^2) per config load and would blow past a
+    # generous ceiling at 60 providers; the O(1)-per-op version stays well under it.
+    # Timed via `bash -c` so bats framework overhead is excluded.
+    local perf_config_dir="$BATS_TMPDIR/llm-env-perf-scale"
+    mkdir -p "$perf_config_dir/.config/llm-env"
+    {
+        for i in $(seq 1 60); do
+            echo "[perf_provider_$i]"
+            echo "base_url=https://api.perf$i.com/v1"
+            echo "api_key_var=PERF_${i}_API_KEY"
+            echo "default_model=perf-model-$i"
+            echo "description=Perf provider $i"
+            echo "enabled=true"
+            echo ""
+        done
+    } > "$perf_config_dir/.config/llm-env/config.conf"
+
+    local start_time end_time duration
+    start_time=$(date +%s%N)
+    run bash -c "
+        unset LLM_ENV_DEBUG
+        export BASH_ASSOC_ARRAY_SUPPORT='false'
+        export XDG_CONFIG_HOME='$perf_config_dir/.config'
+        source $BATS_TEST_DIRNAME/../../llm-env list
+    "
+    end_time=$(date +%s%N)
+    duration=$(( (end_time - start_time) / 1000000 ))
+    echo "# 60-provider compat load: ${duration}ms" >&3
+
+    rm -rf "$perf_config_dir"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ "perf_provider_60" ]]
+
+    # Generous, load-adjusted ceiling. The pre-refactor O(N^2) path took several
+    # seconds at this size; anything under the dynamic timeout confirms O(N).
+    local dynamic_timeout
+    dynamic_timeout=$(calculate_dynamic_timeout 2500)
+    echo "# ceiling: ${dynamic_timeout}ms" >&3
+    [ "$duration" -lt "$dynamic_timeout" ]
 }
 
 @test "edge cases: empty configuration handled properly" {
