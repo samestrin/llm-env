@@ -25,6 +25,22 @@ description = Anthropic provider
 enabled = true
 protocol = anthropic
 
+[anthropic_gateway]
+base_url = https://gateway.example.com/anthropic
+api_key_var = ANTHROPIC_GATEWAY_KEY
+default_model = glm-5
+description = Third-party Anthropic gateway, key only
+enabled = true
+protocol = anthropic
+
+[anthropic_real_keyonly]
+base_url = https://api.anthropic.com/v1
+api_key_var = ANTHROPIC_REAL_KEY
+default_model = claude-sonnet-4
+description = Real Anthropic API, key only (no auth token)
+enabled = true
+protocol = anthropic
+
 [provider_no_protocol]
 base_url = https://api.noprotocol.com/v1
 api_key_var = PROT_NO_PROTO_KEY
@@ -41,7 +57,7 @@ enabled = true'
 
 teardown() {
     teardown_test_env
-    unset OPENAI_TEST_KEY ANTHROPIC_TEST_KEY ANTHROPIC_TEST_TOKEN PROT_NO_PROTO_KEY
+    unset OPENAI_TEST_KEY ANTHROPIC_TEST_KEY ANTHROPIC_TEST_TOKEN PROT_NO_PROTO_KEY ANTHROPIC_GATEWAY_KEY ANTHROPIC_REAL_KEY
     unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL LLM_PROVIDER
     unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
 }
@@ -112,6 +128,32 @@ teardown() {
 
     # Verify ANTHROPIC_AUTH_TOKEN is exported
     [ "$ANTHROPIC_AUTH_TOKEN" = "anthropic-test-token-6789" ]
+}
+
+@test "Anthropic protocol: mirrors API key into ANTHROPIC_AUTH_TOKEN for third-party gateway" {
+    # Key-only config (no auth_token_var) against a non-Anthropic host: the
+    # API key must be mirrored into ANTHROPIC_AUTH_TOKEN so Bearer-auth
+    # gateways authenticate. Only fires when no explicit token is configured.
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-abc"
+
+    cmd_set "anthropic_gateway"
+
+    [ "$ANTHROPIC_API_KEY" = "gateway-key-abc" ]
+    [ "$ANTHROPIC_AUTH_TOKEN" = "gateway-key-abc" ]
+}
+
+@test "Anthropic protocol: does not mirror AUTH_TOKEN for real api.anthropic.com" {
+    # Key-only config against api.anthropic.com: the sk-ant-* key must NOT be
+    # sent as a Bearer token (the real API expects it via x-api-key), so
+    # ANTHROPIC_AUTH_TOKEN stays unset.
+    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    export ANTHROPIC_REAL_KEY="sk-ant-api03-realkey"
+
+    cmd_set "anthropic_real_keyonly"
+
+    [ "$ANTHROPIC_API_KEY" = "sk-ant-api03-realkey" ]
+    [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]
 }
 
 @test "Anthropic protocol: exports ANTHROPIC_BASE_URL correctly" {
