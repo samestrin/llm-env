@@ -221,3 +221,32 @@ jobs:
             exit 1
           fi
         fi
+
+  # Line-coverage gate for the llm-env script (kcov is reliable on Linux).
+  coverage:
+    runs-on: [self-hosted, linux]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install kcov
+      run: |
+        if ! command -v kcov &> /dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y kcov
+        fi
+        kcov --version
+
+    - name: Verify BATS installation
+      run: |
+        if [[ ! -f tests/bats/bin/bats ]]; then
+          git submodule update --init --recursive
+        fi
+        tests/bats/bin/bats --version
+
+    - name: "Measure coverage (gate 80 percent)"
+      run: |
+        chmod +x tests/coverage.sh
+        COVERAGE_MIN=80 tests/coverage.sh all
