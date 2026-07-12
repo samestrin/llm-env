@@ -17,10 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   providers). Behavior and output are unchanged across bash 3.2, bash 4+, and zsh. Also
   silences spurious `parameter not set` warnings under `set -u` on zsh/bash 4+.
 
-### Added
-- **Coverage gate**: kcov-based line-coverage measurement (`tests/coverage.sh`) with an
-  80% gate wired into CI on the Linux runner.
-
 ## [1.6.1] - 2026-05-04
 
 ### Fixed
