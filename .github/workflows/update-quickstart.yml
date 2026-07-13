@@ -37,6 +37,7 @@ jobs:
         run: python -m scripts.update_quickstart
 
       - name: Open PR if files changed
+        id: create-pr
         uses: peter-evans/create-pull-request@v6
         with:
           commit-message: "chore: refresh quickstart JSON files"
@@ -46,9 +47,18 @@ jobs:
             `quickstart-alibaba.json`.
 
             Triggered by `.github/workflows/update-quickstart.yml`.
-            Review the model diff before merging.
+            This PR is merged automatically by the workflow once the
+            in-run pytest + v2 schema gate pass. If the model diff looks
+            wrong, audit the commit history on `main`.
           branch: automated/quickstart-refresh
           delete-branch: true
           add-paths: |
             quickstart-synthetic.json
             quickstart-alibaba.json
+
+      - name: Auto-merge the refresh PR
+        if: steps.create-pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+        run: gh pr merge "$PR_NUMBER" --squash --delete-branch
