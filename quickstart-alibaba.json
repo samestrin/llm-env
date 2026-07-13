@@ -1,6 +1,6 @@
 {
   "schema_version": "2",
-  "generated_at": "2026-04-30T23:23:57Z",
+  "generated_at": "2026-07-12T08:21:57Z",
   "source": "alibaba",
   "vendor_short": "alibaba",
   "endpoints": {
@@ -10,6 +10,17 @@
   "api_key_var": "LLM_ALIBABA_API_KEY",
   "signup_url": "https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX",
   "models": [
+    {
+      "id": "qwen3.7-plus",
+      "family": "qwen",
+      "version": "3.7",
+      "description": "qwen3.7-plus - Recommended coding model from Alibaba Cloud Coding Plan",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
+      "upstream_id": "qwen3.7-plus"
+    },
     {
       "id": "qwen3.6-plus",
       "family": "qwen",
@@ -56,7 +67,7 @@
     }
   ],
   "family_latest": {
-    "qwen": "qwen3.6-plus",
+    "qwen": "qwen3.7-plus",
     "kimi": "kimi-k2.5",
     "glm": "glm-5",
     "minimax": "minimax-m2.5"

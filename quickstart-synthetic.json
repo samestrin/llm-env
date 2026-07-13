@@ -1,6 +1,6 @@
 {
   "schema_version": "2",
-  "generated_at": "2026-04-30T23:23:56Z",
+  "generated_at": "2026-07-12T08:21:49Z",
   "source": "synthetic",
   "vendor_short": "synth",
   "endpoints": {
@@ -10,83 +10,6 @@
   "api_key_var": "LLM_SYNTHETIC_API_KEY",
   "signup_url": "https://synthetic.new/?referral=ugceNlJ08A3Eeww",
   "models": [
-    {
-      "id": "glm-5.1",
-      "family": "glm",
-      "version": "5.1",
-      "description": "GLM 5.1 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:zai-org/GLM-5.1"
-    },
-    {
-      "id": "minimax-m2.5",
-      "family": "minimax",
-      "version": "2.5",
-      "description": "Minimax 2.5 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:MiniMaxAI/MiniMax-M2.5"
-    },
-    {
-      "id": "glm-4.7-flash",
-      "family": "glm",
-      "version": "4.7",
-      "description": "GLM 4.7 Flash from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:zai-org/GLM-4.7-Flash"
-    },
-    {
-      "id": "glm-5",
-      "family": "glm",
-      "version": "5",
-      "description": "GLM 5 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:zai-org/GLM-5"
-    },
-    {
-      "id": "glm-4.7",
-      "family": "glm",
-      "version": "4.7",
-      "description": "GLM 4.7 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:zai-org/GLM-4.7"
-    },
-    {
-      "id": "kimi-k2.5",
-      "family": "kimi",
-      "version": "2.5",
-      "description": "Kimi 2.5 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:moonshotai/Kimi-K2.5"
-    },
-    {
-      "id": "deepseek-v3.2",
-      "family": "deepseek",
-      "version": "3.2",
-      "description": "Deepseek 3.2 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:deepseek-ai/DeepSeek-V3.2"
-    },
     {
       "id": "gpt-oss-120b",
       "family": "gpt-oss",
@@ -99,83 +22,67 @@
       "upstream_id": "hf:openai/gpt-oss-120b"
     },
     {
-      "id": "deepseek-v3",
-      "family": "deepseek",
-      "version": "3",
-      "description": "Deepseek 3 from synthetic.new",
+      "id": "glm-5.2",
+      "family": "glm",
+      "version": "5.2",
+      "description": "GLM 5.2 from synthetic.new",
       "protocols": [
         "openai",
         "anthropic"
       ],
-      "upstream_id": "hf:deepseek-ai/DeepSeek-V3"
+      "upstream_id": "hf:zai-org/GLM-5.2"
     },
     {
-      "id": "deepseek-r1-0528",
-      "family": "deepseek",
-      "version": "1",
-      "description": "Deepseek 1 R from synthetic.new",
+      "id": "kimi-k2.7-code",
+      "family": "kimi",
+      "version": "2.7",
+      "description": "Kimi 2.7 from synthetic.new",
       "protocols": [
         "openai",
         "anthropic"
       ],
-      "upstream_id": "hf:deepseek-ai/DeepSeek-R1-0528"
+      "upstream_id": "hf:moonshotai/Kimi-K2.7-Code"
     },
     {
-      "id": "qwen3-235b-a22b-thinking-2507",
+      "id": "qwen3.6-27b",
       "family": "qwen",
+      "version": "3.6",
+      "description": "Qwen 3.6 from synthetic.new",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
+      "upstream_id": "hf:Qwen/Qwen3.6-27B"
+    },
+    {
+      "id": "minimax-m3",
+      "family": "minimax",
       "version": "3",
-      "description": "Qwen 3 Thinking from synthetic.new",
+      "description": "Minimax 3 from synthetic.new",
       "protocols": [
         "openai",
         "anthropic"
       ],
-      "upstream_id": "hf:Qwen/Qwen3-235B-A22B-Thinking-2507"
+      "upstream_id": "hf:MiniMaxAI/MiniMax-M3"
     },
     {
-      "id": "qwen3-coder-480b-a35b-instruct",
-      "family": "qwen",
-      "version": "3",
-      "description": "Qwen 3 Coder from synthetic.new",
+      "id": "glm-4.7-flash",
+      "family": "glm",
+      "version": "4.7",
+      "description": "GLM 4.7 Flash from synthetic.new",
       "protocols": [
         "openai",
         "anthropic"
       ],
-      "upstream_id": "hf:Qwen/Qwen3-Coder-480B-A35B-Instruct"
-    },
-    {
-      "id": "qwen3.5-397b-a17b",
-      "family": "qwen",
-      "version": "3.5",
-      "description": "Qwen 3.5 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:Qwen/Qwen3.5-397B-A17B"
-    },
-    {
-      "id": "llama-3.3-70b-instruct",
-      "family": "llama",
-      "version": "3.3",
-      "description": "Llama 3.3 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:meta-llama/Llama-3.3-70B-Instruct"
+      "upstream_id": "hf:zai-org/GLM-4.7-Flash"
     }
   ],
   "family_latest": {
-    "glm": "glm-5.1",
-    "minimax": "minimax-m2.5",
-    "glm-flash": "glm-4.7-flash",
-    "kimi": "kimi-k2.5",
-    "deepseek": "deepseek-v3.2",
     "gpt-oss": "gpt-oss-120b",
-    "deepseek-r": "deepseek-r1-0528",
-    "qwen-thinking": "qwen3-235b-a22b-thinking-2507",
-    "qwen-coder": "qwen3-coder-480b-a35b-instruct",
-    "qwen": "qwen3.5-397b-a17b",
-    "llama": "llama-3.3-70b-instruct"
+    "glm": "glm-5.2",
+    "kimi": "kimi-k2.7-code",
+    "qwen": "qwen3.6-27b",
+    "minimax": "minimax-m3",
+    "glm-flash": "glm-4.7-flash"
   }
 }
