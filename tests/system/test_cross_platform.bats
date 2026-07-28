@@ -63,7 +63,7 @@ teardown() {
     run bash -c "source $BATS_TEST_DIRNAME/../../llm-env --version"
     [ "$status" -eq 0 ]
     [[ "$output" =~ "LLM Environment Manager" ]]
-    [[ "$output" =~ "$VERSION" ]]
+    [[ "$output" =~ "$LLM_ENV_VERSION" ]]
 }
 
 @test "system: help command displays usage" {
@@ -183,5 +183,5 @@ EOF
     
     run env PATH="$limited_path" bash -c "source $BATS_TEST_DIRNAME/../../llm-env --version"
     [ "$status" -eq 0 ]
-    [[ "$output" =~ "$VERSION" ]]
+    [[ "$output" =~ "$LLM_ENV_VERSION" ]]
 }

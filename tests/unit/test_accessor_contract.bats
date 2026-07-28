@@ -2,8 +2,8 @@
 #
 # Accessor return-value contract (performance refactor).
 #
-# The scalar accessors return via the global $REPLY instead of echoing to
-# stdout, so callers stop forking a subshell per read. $REPLY is empty for a
+# The scalar accessors return via the global $__LLM_REPLY instead of echoing to
+# stdout, so callers stop forking a subshell per read. $__LLM_REPLY is empty for a
 # missing OR empty key (existence is decided only by has_provider_key). These
 # tests pin that contract on both the native (BASH_ASSOC_ARRAY_SUPPORT=true)
 # and the bash-3.2 compat (=false) paths.
@@ -15,21 +15,21 @@ setup() {
 
 # ---- get_provider_value: native path ----
 
-@test "get_provider_value: sets REPLY to the value (native)" {
+@test "get_provider_value: sets __LLM_REPLY to the value (native)" {
     export BASH_ASSOC_ARRAY_SUPPORT="true"
     source "$BATS_TEST_DIRNAME/../../llm-env" >/dev/null 2>&1
     set_provider_value "PROVIDER_BASE_URLS" "acme" "https://api.acme.test/v1"
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_provider_value "PROVIDER_BASE_URLS" "acme"
-    [ "$REPLY" = "https://api.acme.test/v1" ]
+    [ "$__LLM_REPLY" = "https://api.acme.test/v1" ]
 }
 
-@test "get_provider_value: REPLY empty on missing key (native)" {
+@test "get_provider_value: __LLM_REPLY empty on missing key (native)" {
     export BASH_ASSOC_ARRAY_SUPPORT="true"
     source "$BATS_TEST_DIRNAME/../../llm-env" >/dev/null 2>&1
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_provider_value "PROVIDER_BASE_URLS" "does_not_exist"
-    [ -z "$REPLY" ]
+    [ -z "$__LLM_REPLY" ]
 }
 
 @test "get_provider_value: emits no stdout (native)" {
@@ -43,21 +43,21 @@ setup() {
 
 # ---- get_provider_value: compat (bash 3.2) path ----
 
-@test "get_provider_value: sets REPLY to the value (compat)" {
+@test "get_provider_value: sets __LLM_REPLY to the value (compat)" {
     export BASH_ASSOC_ARRAY_SUPPORT="false"
     source "$BATS_TEST_DIRNAME/../../llm-env" >/dev/null 2>&1
     set_provider_value "PROVIDER_BASE_URLS" "acme" "https://api.acme.test/v1"
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_provider_value "PROVIDER_BASE_URLS" "acme"
-    [ "$REPLY" = "https://api.acme.test/v1" ]
+    [ "$__LLM_REPLY" = "https://api.acme.test/v1" ]
 }
 
-@test "get_provider_value: REPLY empty on missing key (compat)" {
+@test "get_provider_value: __LLM_REPLY empty on missing key (compat)" {
     export BASH_ASSOC_ARRAY_SUPPORT="false"
     source "$BATS_TEST_DIRNAME/../../llm-env" >/dev/null 2>&1
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_provider_value "PROVIDER_BASE_URLS" "does_not_exist"
-    [ -z "$REPLY" ]
+    [ -z "$__LLM_REPLY" ]
 }
 
 @test "get_provider_value: emits no stdout (compat)" {
@@ -69,29 +69,29 @@ setup() {
     [ -z "$output" ]
 }
 
-@test "get_provider_value: empty stored value yields empty REPLY (compat)" {
+@test "get_provider_value: empty stored value yields empty __LLM_REPLY (compat)" {
     export BASH_ASSOC_ARRAY_SUPPORT="false"
     source "$BATS_TEST_DIRNAME/../../llm-env" >/dev/null 2>&1
     set_provider_value "PROVIDER_ENABLED" "acme" ""
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_provider_value "PROVIDER_ENABLED" "acme"
-    [ -z "$REPLY" ]
+    [ -z "$__LLM_REPLY" ]
 }
 
 # ---- get_var_value ----
 
-@test "get_var_value: sets REPLY to the variable's value" {
+@test "get_var_value: sets __LLM_REPLY to the variable's value" {
     export LLM_ACCESSOR_TEST_VAR="secret-token-123"
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_var_value "LLM_ACCESSOR_TEST_VAR"
-    [ "$REPLY" = "secret-token-123" ]
+    [ "$__LLM_REPLY" = "secret-token-123" ]
 }
 
-@test "get_var_value: REPLY empty for unset variable" {
+@test "get_var_value: __LLM_REPLY empty for unset variable" {
     unset LLM_ACCESSOR_UNSET_VAR 2>/dev/null || true
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_var_value "LLM_ACCESSOR_UNSET_VAR"
-    [ -z "$REPLY" ]
+    [ -z "$__LLM_REPLY" ]
 }
 
 @test "get_var_value: emits no stdout" {
@@ -103,13 +103,13 @@ setup() {
 
 # ---- get_match ----
 
-@test "get_match: sets REPLY from BASH_REMATCH capture group" {
+@test "get_match: sets __LLM_REPLY from BASH_REMATCH capture group" {
     [[ "key=value" =~ ^([^=]+)=(.*)$ ]]
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_match 1
-    [ "$REPLY" = "key" ]
+    [ "$__LLM_REPLY" = "key" ]
     get_match 2
-    [ "$REPLY" = "value" ]
+    [ "$__LLM_REPLY" = "value" ]
 }
 
 @test "get_match: emits no stdout" {

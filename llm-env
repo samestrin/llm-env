@@ -8,7 +8,7 @@
 #   source ./llm-env config <command>
 
 # Version information
-VERSION="1.6.1"
+LLM_ENV_VERSION="1.6.1"
 
 # llm-env is sourced into the user's shell. A user who has `set -u` (nounset)
 # in their profile would otherwise abort on this script's own unset-variable
@@ -134,8 +134,8 @@ get_script_dir() {
 parse_bash_version
 
 # Helper function to get regex match at index (works in both bash and zsh)
-# Sets the global REPLY to the capture group (no stdout, no subshell fork).
-# Usage: get_match 1; result=$REPLY   # first capture group
+# Sets the global __LLM_REPLY to the capture group (no stdout, no subshell fork).
+# Usage: get_match 1; result=$__LLM_REPLY   # first capture group
 # Call immediately after the matching [[ =~ ]] so BASH_REMATCH is still current.
 # In bash: BASH_REMATCH is 0-indexed, so capture group 1 is at index 1
 # In zsh with BASH_REMATCH option: array is 1-indexed, so capture group 1 is at index 2
@@ -143,32 +143,32 @@ get_match() {
     local index="$1"
     if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
         # Zsh arrays are 1-indexed, so add 1 to get equivalent position
-        REPLY="${BASH_REMATCH[$((index + 1))]}"
+        __LLM_REPLY="${BASH_REMATCH[$((index + 1))]}"
     else
-        REPLY="${BASH_REMATCH[$index]}"
+        __LLM_REPLY="${BASH_REMATCH[$index]}"
     fi
 }
 
 # Helper function for indirect variable expansion (works in both bash and zsh)
-# Sets the global REPLY to the named variable's value (empty if unset).
-# Usage: get_var_value "SOME_VAR_NAME"; result=$REPLY
+# Sets the global __LLM_REPLY to the named variable's value (empty if unset).
+# Usage: get_var_value "SOME_VAR_NAME"; result=$__LLM_REPLY
 get_var_value() {
     local var_name="$1"
     if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
         # shellcheck disable=SC2296 # zsh-specific indirect expansion syntax
-        REPLY="${(P)var_name-}"
+        __LLM_REPLY="${(P)var_name-}"
     else
-        REPLY="${!var_name-}"
+        __LLM_REPLY="${!var_name-}"
     fi
 }
 
 # Trim leading/trailing whitespace using parameter expansion (no subshell fork).
-# Sets the global REPLY. Works in both bash and zsh. Usage: trim "$s"; s=$REPLY
+# Sets the global __LLM_REPLY. Works in both bash and zsh. Usage: trim "$s"; s=$__LLM_REPLY
 trim() {
     local s="$1"
     s="${s#"${s%%[![:space:]]*}"}"   # strip leading whitespace
     s="${s%"${s##*[![:space:]]}"}"   # strip trailing whitespace
-    REPLY="$s"
+    __LLM_REPLY="$s"
 }
 
 # Configuration state variables
@@ -226,12 +226,12 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
     }
 
     # Get a value from a compatibility associative array
-    # Sets the global REPLY (empty for a missing OR empty key); no stdout.
+    # Sets the global __LLM_REPLY (empty for a missing OR empty key); no stdout.
     compat_assoc_get() {
         local array_name="$1"
         local key="$2"
 
-        REPLY=""
+        __LLM_REPLY=""
 
         if [[ -z "$array_name" || -z "$key" ]]; then
             return 1
@@ -250,22 +250,22 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
         local i
         for ((i=0; i<${#keys[@]}; i++)); do
             if [[ "${keys[i]}" == "$key" ]]; then
-                REPLY="${values[i]}"
+                __LLM_REPLY="${values[i]}"
                 return 0
             fi
         done
 
-        # Key not found - REPLY already empty. Caller uses has_provider_key for
-        # existence; empty REPLY means missing OR empty (documented invariant).
+        # Key not found - __LLM_REPLY already empty. Caller uses has_provider_key for
+        # existence; empty __LLM_REPLY means missing OR empty (documented invariant).
         return 0
     }
 
     # Get all keys from a compatibility associative array
-    # Populates the global REPLY_KEYS array; no stdout.
+    # Populates the global __LLM_REPLY_KEYS array; no stdout.
     compat_assoc_keys() {
         local array_name="$1"
 
-        REPLY_KEYS=()
+        __LLM_REPLY_KEYS=()
 
         if [[ -z "$array_name" ]]; then
             return 1
@@ -273,7 +273,7 @@ if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
 
         local keys_array="${array_name}_KEYS"
 
-        eval "REPLY_KEYS=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || REPLY_KEYS=()
+        eval "__LLM_REPLY_KEYS=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || __LLM_REPLY_KEYS=()
     }
 
     # Check if a key exists in a compatibility associative array
@@ -398,7 +398,7 @@ declare -a AVAILABLE_PROVIDERS
 declare -a AVAILABLE_GROUPS
 # Output array for get_provider_keys (avoids a subshell per key enumeration)
 # shellcheck disable=SC2034  # populated by get_provider_keys, consumed by callers
-declare -a REPLY_KEYS
+declare -a __LLM_REPLY_KEYS
 
 # ---------- Array Access Wrappers ----------
 
@@ -424,9 +424,9 @@ set_provider_value() {
 }
 
 # Get a value from a provider array
-# Sets the global REPLY to the value (empty for a missing OR empty key); no
-# stdout, no subshell fork. Usage: get_provider_value ARR KEY; val=$REPLY
-# Existence is decided only by has_provider_key (empty REPLY == missing OR empty).
+# Sets the global __LLM_REPLY to the value (empty for a missing OR empty key); no
+# stdout, no subshell fork. Usage: get_provider_value ARR KEY; val=$__LLM_REPLY
+# Existence is decided only by has_provider_key (empty __LLM_REPLY == missing OR empty).
 get_provider_value() {
     local array_name="$1"
     local key="$2"
@@ -434,10 +434,10 @@ get_provider_value() {
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
         if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
             # Zsh associative array access
-            eval "REPLY=\"\${${array_name}[${key}]-}\""
+            eval "__LLM_REPLY=\"\${${array_name}[${key}]-}\""
         else
             # Bash associative array access
-            eval "REPLY=\"\${${array_name}[\"${key}\"]-}\""
+            eval "__LLM_REPLY=\"\${${array_name}[\"${key}\"]-}\""
         fi
     else
         compat_assoc_get "${array_name}" "${key}"
@@ -445,18 +445,18 @@ get_provider_value() {
 }
 
 # Get all keys from a provider array
-# Populates the global REPLY_KEYS array; no stdout, no subshell fork.
-# Usage: get_provider_keys ARR; for k in ${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"}; do ...; done
+# Populates the global __LLM_REPLY_KEYS array; no stdout, no subshell fork.
+# Usage: get_provider_keys ARR; for k in ${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"}; do ...; done
 get_provider_keys() {
     local array_name="$1"
 
     if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
         if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
             # Zsh uses ${(k)array} for keys
-            eval "REPLY_KEYS=(\"\${(@k)${array_name}}\")"
+            eval "__LLM_REPLY_KEYS=(\"\${(@k)${array_name}}\")"
         else
             # Bash uses ${!array[@]} for keys
-            eval "REPLY_KEYS=(\${${array_name}[@]+\"\${!${array_name}[@]}\"})"
+            eval "__LLM_REPLY_KEYS=(\${${array_name}[@]+\"\${!${array_name}[@]}\"})"
         fi
     else
         compat_assoc_keys "${array_name}"
@@ -536,7 +536,7 @@ load_config() {
         # Section header
         if [[ "$line" =~ $section_pattern ]]; then
             sections_found=$((sections_found + 1))
-            get_match 1; section_name="$REPLY"
+            get_match 1; section_name="$__LLM_REPLY"
             if [[ "$section_name" =~ $group_prefix_pattern ]]; then
                 # Group section: [group:name]
                 current_group="${section_name#group:}"
@@ -554,10 +554,10 @@ load_config() {
         # Handle group key=value (only "providers" key supported)
         if [[ -n "$current_group" ]]; then
             if [[ "$line" =~ $keyval_pattern ]]; then
-                get_match 1; key="$REPLY"
-                get_match 2; value="$REPLY"
-                trim "$key"; key="$REPLY"
-                trim "$value"; value="$REPLY"
+                get_match 1; key="$__LLM_REPLY"
+                get_match 2; value="$__LLM_REPLY"
+                trim "$key"; key="$__LLM_REPLY"
+                trim "$value"; value="$__LLM_REPLY"
                 if [[ "$key" == "providers" ]]; then
                     set_provider_value "PROVIDER_GROUPS" "$current_group" "$value"
                     debug "PROVIDER_GROUPS[$current_group] = $value"
@@ -571,12 +571,12 @@ load_config() {
 
         # Parse key=value pairs
         if [[ "$line" =~ $keyval_pattern ]]; then
-            get_match 1; key="$REPLY"
-            get_match 2; value="$REPLY"
+            get_match 1; key="$__LLM_REPLY"
+            get_match 2; value="$__LLM_REPLY"
 
             # Trim whitespace (fork-free)
-            trim "$key"; key="$REPLY"
-            trim "$value"; value="$REPLY"
+            trim "$key"; key="$__LLM_REPLY"
+            trim "$value"; value="$__LLM_REPLY"
 
             debug "Setting $current_provider.$key = $value"
 
@@ -694,21 +694,21 @@ init_config() {
     # Get all provider keys using wrapper function
     local -a provider_keys
     get_provider_keys "PROVIDER_BASE_URLS"
-    provider_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    provider_keys=(${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"})
     debug "PROVIDER_BASE_URLS keys: ${provider_keys[*]-}"
 
     # Declare loop variables outside the loop for zsh compatibility
     local provider_enabled has_base_url has_api_key_var has_model has_protocol has_auth_token_var
     for provider in ${provider_keys[@]+"${provider_keys[@]}"}; do
         [[ -n "$provider" ]] || continue
-        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
+        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$__LLM_REPLY"
         debug "Checking provider: $provider, enabled: ${provider_enabled:-true}"
 
         # Check if provider has all required fields
-        get_provider_value "PROVIDER_BASE_URLS" "$provider"; has_base_url="$REPLY"
-        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; has_api_key_var="$REPLY"
-        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; has_model="$REPLY"
-        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; has_protocol="$REPLY"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; has_base_url="$__LLM_REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; has_api_key_var="$__LLM_REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; has_model="$__LLM_REPLY"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; has_protocol="$__LLM_REPLY"
         has_protocol="${has_protocol:-openai}"
 
         # base_url and model are always required
@@ -719,7 +719,7 @@ init_config() {
 
         # Credential validation: anthropic protocol accepts api_key_var or auth_token_var
         if [[ "$has_protocol" == "anthropic" ]]; then
-            get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; has_auth_token_var="$REPLY"
+            get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; has_auth_token_var="$__LLM_REPLY"
             if [[ -z "$has_api_key_var" && -z "$has_auth_token_var" ]]; then
                 debug "Skipping incomplete anthropic provider $provider: no api_key_var or auth_token_var"
                 continue
@@ -749,7 +749,7 @@ init_config() {
     AVAILABLE_GROUPS=()
     local -a group_keys
     get_provider_keys "PROVIDER_GROUPS"
-    group_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    group_keys=(${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"})
     local group_name
     for group_name in ${group_keys[@]+"${group_keys[@]}"}; do
         [[ -n "$group_name" ]] || continue
@@ -859,19 +859,19 @@ apply_default_protocols() {
 
     local -a base_url_keys
     get_provider_keys "PROVIDER_BASE_URLS"
-    base_url_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    base_url_keys=(${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"})
     for provider in ${base_url_keys[@]+"${base_url_keys[@]}"}; do
         [[ -z "$provider" ]] && continue
 
         # Check if provider has a protocol set
-        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; existing_protocol="$REPLY"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; existing_protocol="$__LLM_REPLY"
 
         # Only set default if protocol is empty and provider is enabled
         # Check if provider is enabled (defaults to true if not set)
         if [[ -z "$existing_protocol" ]]; then
             # Preserve original semantics: the old `|| echo "true"` fired only on a
             # nonzero exit (which never occurred here), so an unset enabled -> empty.
-            get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
+            get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$__LLM_REPLY"
 
             # Only set default for enabled providers
             if [[ "$provider_enabled" == "true" ]]; then
@@ -949,7 +949,7 @@ validate_provider() {
     
     # Check if provider is enabled
     local provider_enabled
-    get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
+    get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$__LLM_REPLY"
     if [[ "${provider_enabled:-true}" != "true" ]]; then
         debug "Provider disabled: $provider"
         return 2
@@ -984,23 +984,23 @@ set_single_provider() {
 
     # Get protocol for this provider (defaults to "openai")
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
+    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
 
     local key_var model base key auth_token_var auth_token
-    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
-    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$REPLY"
-    get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="${OPENAI_MODEL_OVERRIDE:-$REPLY}"
+    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$__LLM_REPLY"
+    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$__LLM_REPLY"
+    get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="${OPENAI_MODEL_OVERRIDE:-$__LLM_REPLY}"
     if [[ -n "$key_var" ]]; then
-        get_var_value "$key_var"; key="$REPLY"
+        get_var_value "$key_var"; key="$__LLM_REPLY"
     else
         key=""
     fi
 
     # Get auth token for Anthropic protocol
     if [[ "$protocol" == "anthropic" ]]; then
-        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$REPLY"
+        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
         if [[ -n "$auth_token_var" ]]; then
-            get_var_value "$auth_token_var"; auth_token="$REPLY"
+            get_var_value "$auth_token_var"; auth_token="$__LLM_REPLY"
         fi
     fi
 
@@ -1032,7 +1032,7 @@ set_single_provider() {
             }
             echo "⚠️  No credentials found for $provider. Set $missing_vars in your shell profile."
             local signup_url
-            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$REPLY"
+            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$__LLM_REPLY"
             if [[ -n "$signup_url" ]]; then
                 printf '   🔑 Get an API key: %s\n' "$(link "$signup_url" "$signup_url")"
             fi
@@ -1048,7 +1048,7 @@ set_single_provider() {
         elif [[ -z "$key" ]]; then
             echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
             local signup_url
-            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$REPLY"
+            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$__LLM_REPLY"
             if [[ -n "$signup_url" ]]; then
                 printf '   🔑 Get an API key: %s\n' "$(link "$signup_url" "$signup_url")"
             fi
@@ -1132,7 +1132,7 @@ set_multiple_providers() {
     local provider
     while IFS= read -r provider; do
         # Trim whitespace
-        trim "$provider"; provider="$REPLY"
+        trim "$provider"; provider="$__LLM_REPLY"
         [[ -z "$provider" ]] && continue
         ((count+=1))
         if ! set_single_provider "$provider"; then
@@ -1163,7 +1163,7 @@ cmd_set() {
 
     # Check if input is a group name
     local group_providers
-    get_provider_value "PROVIDER_GROUPS" "$input"; group_providers="$REPLY"
+    get_provider_value "PROVIDER_GROUPS" "$input"; group_providers="$__LLM_REPLY"
     if [[ -n "$group_providers" ]]; then
         debug "Setting group '$input' with providers: $group_providers"
         set_multiple_providers "$group_providers"
@@ -1241,7 +1241,7 @@ cmd_list() {
         # Show all providers (enabled and disabled)
         get_provider_keys "PROVIDER_BASE_URLS"
         local _p
-        for _p in ${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"}; do
+        for _p in ${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"}; do
             [[ -n "$_p" ]] && providers_to_show+=("$_p")
         done
     else
@@ -1255,21 +1255,21 @@ cmd_list() {
         mark=" "
         [[ "$provider" == "${LLM_PROVIDER:-}" ]] && mark="*"
 
-        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$REPLY"
-        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="$REPLY"
-        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
-        get_provider_value "PROVIDER_DESCRIPTIONS" "$provider"; description="$REPLY"
-        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$__LLM_REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="$__LLM_REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$__LLM_REPLY"
+        get_provider_value "PROVIDER_DESCRIPTIONS" "$provider"; description="$__LLM_REPLY"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
 
         have_key="no"
         if [[ -n "$key_var" ]]; then
-            get_var_value "$key_var"; key_val="$REPLY"
+            get_var_value "$key_var"; key_val="$__LLM_REPLY"
             [[ -n "$key_val" ]] && have_key="yes"
         fi
 
         # Show disabled status if showing all providers
         enabled_status=""
-        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
+        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$__LLM_REPLY"
         if $show_all && [[ "${provider_enabled:-true}" != "true" ]]; then
             enabled_status=" (disabled)"
         fi
@@ -1286,7 +1286,7 @@ cmd_list() {
         echo
         local group_name group_providers
         for group_name in ${AVAILABLE_GROUPS[@]+"${AVAILABLE_GROUPS[@]}"}; do
-            get_provider_value "PROVIDER_GROUPS" "$group_name"; group_providers="$REPLY"
+            get_provider_value "PROVIDER_GROUPS" "$group_name"; group_providers="$__LLM_REPLY"
             printf "   %-12s  → %s\n" "$group_name" "$group_providers"
         done
     fi
@@ -1385,6 +1385,11 @@ cmd_config_init() {
         echo
         echo
         local yes_pattern="^[Yy]$"
+        # $REPLY here is the `read` builtin's own output slot, deliberately NOT
+        # the accessors' __LLM_REPLY. They used to be the same variable, so a
+        # failed `read` (zsh has no -p/-n) left whatever value an accessor had
+        # last written -- and a config value of "y" silently answered the
+        # prompt. If `read` fails now, $REPLY is empty and this aborts.
         [[ ! $REPLY =~ $yes_pattern ]] && return 1
     fi
 
@@ -1598,15 +1603,15 @@ cmd_test() {
 
     # Get protocol for this provider (defaults to "openai")
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
+    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
 
     echo "🧪 Testing provider: $provider (protocol: $protocol)"
 
     local key_var base_url api_key auth_token_var auth_token
-    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
-    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$REPLY"
+    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$__LLM_REPLY"
+    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$__LLM_REPLY"
     if [[ -n "$key_var" ]]; then
-        get_var_value "$key_var"; api_key="$REPLY"
+        get_var_value "$key_var"; api_key="$__LLM_REPLY"
     else
         api_key=""
     fi
@@ -1615,9 +1620,9 @@ cmd_test() {
     auth_token_var=""
     auth_token=""
     if [[ "$protocol" == "anthropic" ]]; then
-        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$REPLY"
+        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
         if [[ -n "$auth_token_var" ]]; then
-            get_var_value "$auth_token_var"; auth_token="$REPLY"
+            get_var_value "$auth_token_var"; auth_token="$__LLM_REPLY"
         fi
     fi
 
@@ -2515,7 +2520,7 @@ cmd_quickstart() {
 }
 
 cmd_help() {
-    echo "llm-env - LLM Environment Manager v$VERSION"
+    echo "llm-env - LLM Environment Manager v${LLM_ENV_VERSION}"
     echo
     echo "Usage:"
     echo "    source llm-env <command> [options]"
@@ -2592,15 +2597,15 @@ cmd_config_validate() {
 
     # Check each provider
     get_provider_keys "PROVIDER_BASE_URLS"
-    local -a validate_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    local -a validate_keys=(${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"})
     for provider in ${validate_keys[@]+"${validate_keys[@]}"}; do
         [[ -z "$provider" ]] && continue
-        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$REPLY"
-        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; api_key_var="$REPLY"
-        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$REPLY"
-        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; default_model="$REPLY"
-        get_provider_value "PROVIDER_ENABLED" "$provider"; enabled="${REPLY:-true}"
-        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$__LLM_REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; api_key_var="$__LLM_REPLY"
+        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; default_model="$__LLM_REPLY"
+        get_provider_value "PROVIDER_ENABLED" "$provider"; enabled="${__LLM_REPLY:-true}"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
 
         echo "Checking provider: $provider"
 
@@ -2623,7 +2628,7 @@ cmd_config_validate() {
             else
                 if [[ -n "$api_key_var" ]]; then
                     echo "  ✅ api_key_var: $api_key_var"
-                    get_var_value "$api_key_var"; cred_val="$REPLY"
+                    get_var_value "$api_key_var"; cred_val="$__LLM_REPLY"
                     if [[ -z "$cred_val" ]]; then
                         echo "  ⚠️  API key not set: $api_key_var"
                         ((warnings++))
@@ -2633,7 +2638,7 @@ cmd_config_validate() {
                 fi
                 if [[ -n "$auth_token_var" ]]; then
                     echo "  ✅ auth_token_var: $auth_token_var"
-                    get_var_value "$auth_token_var"; cred_val="$REPLY"
+                    get_var_value "$auth_token_var"; cred_val="$__LLM_REPLY"
                     if [[ -z "$cred_val" ]]; then
                         echo "  ⚠️  Auth token not set: $auth_token_var"
                         ((warnings++))
@@ -2649,7 +2654,7 @@ cmd_config_validate() {
             echo "  ✅ api_key_var: $api_key_var"
 
             # Check if API key is set
-            get_var_value "$api_key_var"; cred_val="$REPLY"
+            get_var_value "$api_key_var"; cred_val="$__LLM_REPLY"
             if [[ -z "$cred_val" ]]; then
                 echo "  ⚠️  API key not set: $api_key_var"
                 ((warnings++))
@@ -2675,7 +2680,7 @@ cmd_config_validate() {
 
     get_provider_keys "PROVIDER_BASE_URLS"
     echo "Validation complete:"
-    echo "  Providers: ${#REPLY_KEYS[@]}"
+    echo "  Providers: ${#__LLM_REPLY_KEYS[@]}"
     echo "  Enabled: ${#AVAILABLE_PROVIDERS[@]}"
     echo "  Errors: $errors"
     echo "  Warnings: $warnings"
@@ -2767,6 +2772,7 @@ cmd_config_restore() {
         read -p "Continue? (y/N): " -n 1 -r
         echo
         local yes_pattern="^[Yy]$"
+        # See cmd_config_init: $REPLY is `read`'s slot, not the accessors'.
         [[ ! $REPLY =~ $yes_pattern ]] && { echo "Restore cancelled"; return 1; }
     fi
     
@@ -2813,7 +2819,7 @@ cmd_config_bulk() {
     if [[ ${#providers[@]} -eq 0 ]]; then
         echo "❌ No providers specified"
         get_provider_keys "PROVIDER_BASE_URLS"
-        echo "Available providers: ${REPLY_KEYS[*]-}"
+        echo "Available providers: ${__LLM_REPLY_KEYS[*]-}"
         return 1
     fi
     
@@ -2932,7 +2938,7 @@ init_config
 if [[ $# -gt 0 ]] && [[ "$1" != test_* ]]; then
 case "$1" in
     --version)
-        echo "llm-env - LLM Environment Manager v${VERSION}"
+        echo "llm-env - LLM Environment Manager v${LLM_ENV_VERSION}"
         ;;
     --help|help)
         cmd_help
