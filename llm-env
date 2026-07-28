@@ -706,10 +706,16 @@ normalize_protocol() {
     # Return empty for empty string
     [[ -z "$value" && -n "${value+x}" ]] && { echo ""; return 0; }
 
-    # Trim whitespace and convert to lowercase using bash 3.2 compatible approach
-    # Using parameter expansion for trimming (available in bash 3.2)
-    local trimmed="${value##[[:space:]]*}"  # Remove leading whitespace
-    trimmed="${trimmed%%[[:space:]]*}"     # Remove trailing whitespace
+    # Trim via the shared trim() helper.
+    #
+    # This used to hand-roll it as ${value##[[:space:]]*} / %%[[:space:]]*,
+    # which are GLOB patterns, not character-class trims: [[:space:]] followed
+    # by * matches "whitespace then anything", so a leading-space value was
+    # deleted entirely ("  anthropic" -> "") and an inner space truncated it
+    # ("open ai" -> "open"). Either way validate_protocol then silently fell
+    # back to openai, so a provider configured for anthropic exported OPENAI_*.
+    local trimmed
+    trim "$value"; trimmed="$__LLM_REPLY"
 
     # Return empty for whitespace-only input
     [[ -z "$trimmed" ]] && { echo ""; return 0; }
@@ -799,8 +805,18 @@ mask() {
     echo "$masked"
 }
 
+# Extract the host from a URL. Pure parameter expansion: the previous
+# `awk -F/ '{print $3}'` forked a process on every set/unset, and silently
+# returned empty for a scheme-less URL.
 host_from_url() {
-    awk -F/ '{print $3}' <<<"$1"
+    local url="$1"
+    [[ -z "$url" ]] && { echo ""; return 0; }
+    # Strip scheme:// if present; tolerate a bare host[:port]/path too.
+    local rest="${url#*://}"
+    # Drop everything from the first / onward, then any userinfo prefix.
+    rest="${rest%%/*}"
+    rest="${rest##*@}"
+    echo "$rest"
 }
 
 # Validate provider name format. Allows letters, digits, underscore, hyphen,
@@ -854,6 +870,35 @@ validate_provider() {
     
     debug "Provider validation successful: $provider"
     return 0
+}
+
+# ---------- Managed environment ----------
+#
+# Single source of truth for the variables llm-env owns, per protocol. Both
+# set_single_provider and cmd_unset consume these lists, so the two can no
+# longer disagree about what "clearing" means -- which is how switching
+# protocols used to leave the previous provider's host and credentials
+# exported.
+#
+# CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is deliberately NOT listed. It is a
+# user preference that set_single_provider only defaults (via :-false) rather
+# than owns, so unsetting it would destroy a value from the user's own profile.
+LLM_MANAGED_VARS_OPENAI="OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL"
+LLM_MANAGED_VARS_ANTHROPIC="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL"
+# Protocol-agnostic variables llm-env owns outright.
+LLM_MANAGED_VARS_COMMON="LLM_PROVIDER LLM_PROTOCOL OPENAI_MODEL_OVERRIDE"
+
+# Unset every variable belonging to a protocol. $1 = openai | anthropic
+_clear_protocol_env() {
+    local __proto="$1" __vars __v
+    case "$__proto" in
+        openai)    __vars="$LLM_MANAGED_VARS_OPENAI" ;;
+        anthropic) __vars="$LLM_MANAGED_VARS_ANTHROPIC" ;;
+        *)         return 1 ;;
+    esac
+    for __v in $__vars; do
+        unset "$__v"
+    done
 }
 
 # ---------- Commands ----------
@@ -965,9 +1010,23 @@ set_single_provider() {
         return 1
     fi
 
-    # Export protocol-specific variables
+    # Export protocol-specific variables.
+    #
+    # Clear the OTHER protocol first. Previously each branch only exported its
+    # own variables, so `set openai` after an Anthropic provider left
+    # ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and the
+    # CLAUDE_CODE_* model overrides still exported -- and Claude Code reads
+    # those, so it kept routing to the previous host after the user believed
+    # they had switched.
     local host
     if [[ "$protocol" == "anthropic" ]]; then
+        _clear_protocol_env openai
+        # Clear this protocol's own credentials too, so nothing from a
+        # previously-set provider can survive into this one. Without this,
+        # ${ANTHROPIC_API_KEY:-$auth_token} below silently preserved the
+        # previous provider's key and sent it to this provider's endpoint.
+        _clear_protocol_env anthropic
+
         # Export Anthropic-specific variables (only set what's configured)
         export ANTHROPIC_BASE_URL="$base"
         export ANTHROPIC_MODEL="$model"
@@ -983,8 +1042,13 @@ set_single_provider() {
         fi
         if [[ -n "$auth_token" ]]; then
             export ANTHROPIC_AUTH_TOKEN="$auth_token"
-            # Also set ANTHROPIC_API_KEY from auth_token if not already set
-            export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$auth_token}"
+            # Fall back to the auth token only when THIS provider supplied no
+            # api_key. The previous ${ANTHROPIC_API_KEY:-$auth_token} form read
+            # a variable that a previously-set provider may have exported, so
+            # provider A's key was sent to provider B's endpoint.
+            if [[ -z "$key" ]]; then
+                export ANTHROPIC_API_KEY="$auth_token"
+            fi
         fi
         # Third-party Anthropic-compatible gateways (e.g. synthetic, alibaba)
         # authenticate via the Authorization: Bearer header, which Claude Code
@@ -1011,6 +1075,9 @@ set_single_provider() {
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
         echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL"
     else
+        _clear_protocol_env anthropic
+        _clear_protocol_env openai
+
         # Export OpenAI-compatible variables (default)
         export OPENAI_API_KEY="$key"
         export OPENAI_BASE_URL="$base"
@@ -1117,12 +1184,22 @@ cmd_unset() {
     prev_anthropic_host=$(host_from_url "${ANTHROPIC_BASE_URL:-}")
     prev_anthropic_model="${ANTHROPIC_MODEL:-}"
 
-    # Unset all protocol variables (both OpenAI and Anthropic)
-    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
-    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
-    unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
-    unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
-    unset LLM_PROVIDER LLM_PROTOCOL
+    # Unset everything llm-env owns, from the same lists set_single_provider
+    # uses, so set and unset cannot disagree about the managed surface.
+    #
+    # Two deliberate changes from the previous hand-written list:
+    #   * CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is no longer unset. set only
+    #     DEFAULTS it (via :-false) rather than owning it, so unsetting it
+    #     destroyed a value the user had put in their own profile.
+    #   * OPENAI_MODEL_OVERRIDE is now unset. It is documented in cmd_help and
+    #     honoured by set_single_provider, but was never cleared -- so it kept
+    #     silently overriding the model on every subsequent set.
+    _clear_protocol_env openai
+    _clear_protocol_env anthropic
+    local __v
+    for __v in $LLM_MANAGED_VARS_COMMON; do
+        unset "$__v"
+    done
 
     echo "🗑️ Unset LLM environment variables."
     if [[ -n "$prev_p" ]]; then
