@@ -271,6 +271,6 @@ key=value'
 }
 
 @test "version constant is defined" {
-    [[ -n "$VERSION" ]]
-    [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+    [[ -n "$LLM_ENV_VERSION" ]]
+    [[ "$LLM_ENV_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }

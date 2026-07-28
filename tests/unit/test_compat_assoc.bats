@@ -28,27 +28,27 @@ setup() {
 @test "compat set/get: stores and retrieves a value" {
     set_provider_value "TESTMAP" "alpha" "one"
     get_provider_value "TESTMAP" "alpha"
-    [ "$REPLY" = "one" ]
+    [ "$__LLM_REPLY" = "one" ]
 }
 
 @test "compat set: update-in-place overwrites existing key, no duplicate" {
     set_provider_value "TESTMAP" "alpha" "one"
     set_provider_value "TESTMAP" "alpha" "two"
     get_provider_value "TESTMAP" "alpha"
-    [ "$REPLY" = "two" ]
+    [ "$__LLM_REPLY" = "two" ]
     get_provider_keys "TESTMAP"
-    [ "${#REPLY_KEYS[@]}" -eq 1 ]
+    [ "${#__LLM_REPLY_KEYS[@]}" -eq 1 ]
 }
 
 @test "compat set: append keeps all distinct keys" {
     set_provider_value "TESTMAP" "a" "1"
     set_provider_value "TESTMAP" "b" "2"
     set_provider_value "TESTMAP" "c" "3"
-    get_provider_value "TESTMAP" "a"; [ "$REPLY" = "1" ]
-    get_provider_value "TESTMAP" "b"; [ "$REPLY" = "2" ]
-    get_provider_value "TESTMAP" "c"; [ "$REPLY" = "3" ]
+    get_provider_value "TESTMAP" "a"; [ "$__LLM_REPLY" = "1" ]
+    get_provider_value "TESTMAP" "b"; [ "$__LLM_REPLY" = "2" ]
+    get_provider_value "TESTMAP" "c"; [ "$__LLM_REPLY" = "3" ]
     get_provider_keys "TESTMAP"
-    [ "${#REPLY_KEYS[@]}" -eq 3 ]
+    [ "${#__LLM_REPLY_KEYS[@]}" -eq 3 ]
 }
 
 @test "compat set: preserves insertion order of keys" {
@@ -56,52 +56,52 @@ setup() {
     set_provider_value "TESTMAP" "alpha" "2"
     set_provider_value "TESTMAP" "mu" "3"
     get_provider_keys "TESTMAP"
-    [ "${REPLY_KEYS[0]}" = "zeta" ]
-    [ "${REPLY_KEYS[1]}" = "alpha" ]
-    [ "${REPLY_KEYS[2]}" = "mu" ]
+    [ "${__LLM_REPLY_KEYS[0]}" = "zeta" ]
+    [ "${__LLM_REPLY_KEYS[1]}" = "alpha" ]
+    [ "${__LLM_REPLY_KEYS[2]}" = "mu" ]
 }
 
 @test "compat set/get: value with spaces" {
     set_provider_value "TESTMAP" "k" "hello there world"
     get_provider_value "TESTMAP" "k"
-    [ "$REPLY" = "hello there world" ]
+    [ "$__LLM_REPLY" = "hello there world" ]
 }
 
 @test "compat set/get: value with shell metacharacters" {
     set_provider_value "TESTMAP" "k" 'a$b&c|d;e/f:g=h'
     get_provider_value "TESTMAP" "k"
-    [ "$REPLY" = 'a$b&c|d;e/f:g=h' ]
+    [ "$__LLM_REPLY" = 'a$b&c|d;e/f:g=h' ]
 }
 
 @test "compat set/get: value with a leading dash" {
     set_provider_value "TESTMAP" "k" "-n"
     get_provider_value "TESTMAP" "k"
-    [ "$REPLY" = "-n" ]
+    [ "$__LLM_REPLY" = "-n" ]
 }
 
 @test "compat set/get: value with a backslash" {
     set_provider_value "TESTMAP" "k" 'a\b\c'
     get_provider_value "TESTMAP" "k"
-    [ "$REPLY" = 'a\b\c' ]
+    [ "$__LLM_REPLY" = 'a\b\c' ]
 }
 
 @test "compat set/get: value with an apostrophe" {
     set_provider_value "TESTMAP" "k" "it's a test"
     get_provider_value "TESTMAP" "k"
-    [ "$REPLY" = "it's a test" ]
+    [ "$__LLM_REPLY" = "it's a test" ]
 }
 
 @test "compat set/get: value with double quotes" {
     set_provider_value "TESTMAP" "k" 'say "hi"'
     get_provider_value "TESTMAP" "k"
-    [ "$REPLY" = 'say "hi"' ]
+    [ "$__LLM_REPLY" = 'say "hi"' ]
 }
 
-@test "compat get: empty REPLY on missing key" {
+@test "compat get: empty __LLM_REPLY on missing key" {
     set_provider_value "TESTMAP" "a" "1"
-    REPLY="SENTINEL"
+    __LLM_REPLY="SENTINEL"
     get_provider_value "TESTMAP" "missing"
-    [ -z "$REPLY" ]
+    [ -z "$__LLM_REPLY" ]
 }
 
 @test "compat has_provider_key: true on hit, false on miss" {
