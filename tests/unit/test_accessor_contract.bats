@@ -156,7 +156,17 @@ setup() {
 
 @test "init_config derives its reset from the single map list" {
     # The two backends drifted because each repeated the map names. The reset
-    # must iterate LLM_PROVIDER_MAPS so it cannot fall out of sync again.
-    run grep -n 'for __m in \$LLM_PROVIDER_MAPS' "$BATS_TEST_DIRNAME/../../llm-env"
+    # must be driven by LLM_PROVIDER_MAPS so it cannot fall out of sync again.
+    run grep -n '__llm_split "\$LLM_PROVIDER_MAPS"' "$BATS_TEST_DIRNAME/../../llm-env"
     [ "$status" -eq 0 ]
+}
+
+@test "no unquoted word-split loop over a space-separated list" {
+    # zsh does not word-split unquoted parameter expansions, so
+    # `for x in $list` silently iterates ONCE with the whole string. That is
+    # how init_config ended up clearing nothing at all under zsh. Every such
+    # loop must go through __llm_split.
+    run grep -nE '^[[:space:]]*for [a-zA-Z_]+ in \$[A-Za-z_][A-Za-z0-9_]*;? ?do' \
+        "$BATS_TEST_DIRNAME/../../llm-env"
+    [ "$status" -ne 0 ]
 }
