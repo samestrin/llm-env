@@ -68,18 +68,27 @@ _sut() {
 
 # ---- C2: list --all ----
 
+# Only the provider table is relevant to enabled/disabled filtering: the
+# "Provider groups:" section legitimately names every member of a group,
+# including disabled ones, so a whole-output grep would be misleading.
+_provider_table() {
+    printf '%s\n' "$output" | sed -n '1,/^Provider groups:/p'
+}
+
 @test "dispatch: plain list hides disabled providers" {
     _sut list
     [ "$status" -eq 0 ]
-    [[ "$output" == *"alpha"* ]]
-    [[ "$output" != *"beta"* ]]
+    local table; table="$(_provider_table)"
+    [[ "$table" == *"alpha"* ]]
+    [[ "$table" != *"beta-1"* ]]
 }
 
 @test "dispatch: list --all shows disabled providers" {
     _sut list --all
     [ "$status" -eq 0 ]
-    [[ "$output" == *"alpha"* ]]
-    [[ "$output" == *"beta"* ]]
+    local table; table="$(_provider_table)"
+    [[ "$table" == *"alpha"* ]]
+    [[ "$table" == *"beta-1"* ]]
 }
 
 # ---- C4: errexit safety ----
