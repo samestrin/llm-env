@@ -208,14 +208,54 @@ EOF
 
 # ---- structural guard ----
 
-@test "injection: the accessor layer contains no eval" {
-    # Extract the array-access section and assert eval is gone from it. A
-    # behavioral test can only prove the payloads we thought of are inert;
-    # this proves the whole class is unreachable.
-    run awk '/^# ---------- Array Access/,/^# ---------- Configuration Loading/' \
-        "$BATS_TEST_DIRNAME/../../llm-env"
-    [ -n "$output" ]
-    [[ "$output" != *"eval"* ]]
+@test "injection: every eval in the provider store is a fixed literal" {
+    # A behavioral test can only prove the payloads we thought of are inert.
+    # This proves the class is unreachable by construction.
+    #
+    # The store is not eval-free: zsh's ${(P)name} indirect expansion is a
+    # syntax error to bash's parser even inside a branch bash never executes,
+    # so it has to be hidden behind eval for the file to parse at all. What
+    # matters is that the eval argument is a single-quoted literal containing
+    # no interpolation -- the operand comes from $1 at expansion time, not from
+    # string concatenation.
+    local region
+    region="$(awk '/^# ---------- Provider store/,/^# ---------- Configuration Loading/' \
+        "$BATS_TEST_DIRNAME/../../llm-env")"
+    [ -n "$region" ]
+
+    local line trimmed offenders=""
+    while IFS= read -r line; do
+        # Comments are prose about eval, not code.
+        trimmed="${line#"${line%%[![:space:]]*}"}"
+        case "$trimmed" in
+            '#'*) continue ;;
+        esac
+        case "$line" in
+            *eval*) ;;
+            *) continue ;;
+        esac
+        # Permitted form only: eval '...single-quoted literal...'
+        case "$line" in
+            *"eval '"*) continue ;;
+        esac
+        offenders="$offenders$line"$'\n'
+    done <<< "$region"
+
+    if [ -n "$offenders" ]; then
+        echo "eval with a non-literal argument in the provider store:"
+        printf '%s' "$offenders"
+        return 1
+    fi
+}
+
+@test "injection: no eval in the store interpolates a variable" {
+    local region
+    region="$(awk '/^# ---------- Provider store/,/^# ---------- Configuration Loading/' \
+        "$BATS_TEST_DIRNAME/../../llm-env")"
+    # Any eval line carrying a double quote or a bare $ outside single quotes
+    # would mean data is being concatenated into code.
+    run grep -nE 'eval[^'\'']*"' <<< "$region"
+    [ "$status" -ne 0 ]
 }
 
 @test "injection: no eval anywhere interpolates a config-derived name" {

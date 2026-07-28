@@ -175,133 +175,162 @@ trim() {
 CONFIG_SOURCE=""  # none, user, system, builtin
 CONFIG_LOADED=false
 
-# Bash compatibility functions for older bash versions (< 4.0)
-# Provides associative array functionality using parallel indexed arrays
-# Each "associative array" is represented by:
-# - {name}_KEYS: indexed array of keys
-# - {name}_VALUES: indexed array of values (parallel to keys)
+# ---------- Provider store ----------
+#
+# Provider data lives in flat scalar variables, not associative arrays:
+#
+#   __LLM_V_<MAP>__<mangled_key>   the value (set == the key exists)
+#   __LLM_KN_<MAP>                 number of registered keys
+#   __LLM_K_<MAP>__<i>             i-th key, in insertion order
+#
+# This replaced two divergent backends -- native `declare -A` on bash 4+/zsh
+# and parallel KEYS/VALUES arrays on bash 3.2 -- both of which reached values
+# and keys through `eval`. Interpolating config-derived text into eval gave
+# arbitrary code execution from a config file (see tests/unit/test_injection.bats).
+#
+# Nothing here evals. Values are written with `printf -v`, which never re-parses
+# its argument. Keys are validated against [A-Za-z0-9._-] and then mangled to
+# [A-Za-z0-9_], so a storage variable name can never contain `[`, `$`, a quote,
+# or a backtick -- which also closes the `unset 'a[$(cmd)]'` arithmetic-subscript
+# vector.
+#
+# Collapsing to one backend additionally fixes:
+#   * bash 3.2 keeping removed providers after re-init (only the native branch
+#     was ever cleared)
+#   * bash 4.0/4.1 losing every provider, because a bare `declare -A` inside
+#     init_config created function-locals that died on return
+#   * zsh's has_provider_key matching keys as a glob rather than exactly
+#   * key order differing between backends, which made output untestable
 
-if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
-    # Set a key-value pair in a compatibility associative array
-    compat_assoc_set() {
-        local array_name="$1"
-        local key="$2"
-        local value="$3"
+# The nine provider maps. Single source of truth: the reset path derives from
+# this list, so it cannot drift from the writers the way the old code did.
+LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS"
 
-        if [[ -z "$array_name" || -z "$key" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-        local values_array="${array_name}_VALUES"
-
-        # Initialize arrays if they don't exist (but don't overwrite existing ones)
-        if ! declare -p "$keys_array" >/dev/null 2>&1; then
-            eval "${keys_array}=()"
-        fi
-        if ! declare -p "$values_array" >/dev/null 2>&1; then
-            eval "${values_array}=()"
-        fi
-
-        # Read the current keys to locate an existing entry (scan only; we no
-        # longer copy+rewrite the whole array, which was the O(N^2) hot spot).
-        local -a keys
-        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || keys=()
-
-        # Look for existing key -> update that element in place (O(1)).
-        # eval assigns a single element with a double-quoted expansion, so the
-        # value's content is never re-parsed (safe for spaces, $ & | ; ' " \ etc).
-        # bash 3.2's `printf -v arr[i]` is unsupported, so eval is required here.
-        local i n="${#keys[@]}"
-        for ((i=0; i<n; i++)); do
-            if [[ "${keys[i]}" == "$key" ]]; then
-                eval "${values_array}[$i]=\"\$value\""
-                return 0
-            fi
-        done
-
-        # Not found: append key/value at the tail index (O(1) each, no rewrite).
-        eval "${keys_array}[$n]=\"\$key\""
-        eval "${values_array}[$n]=\"\$value\""
-    }
-
-    # Get a value from a compatibility associative array
-    # Sets the global __LLM_REPLY (empty for a missing OR empty key); no stdout.
-    compat_assoc_get() {
-        local array_name="$1"
-        local key="$2"
-
-        __LLM_REPLY=""
-
-        if [[ -z "$array_name" || -z "$key" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-        local values_array="${array_name}_VALUES"
-
-        # Get current arrays
-        local -a keys
-        local -a values
-        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || keys=()
-        eval "values=(\${${values_array}[@]+\"\${${values_array}[@]}\"})" 2>/dev/null || values=()
-
-        # Look for key
-        local i
-        for ((i=0; i<${#keys[@]}; i++)); do
-            if [[ "${keys[i]}" == "$key" ]]; then
-                __LLM_REPLY="${values[i]}"
-                return 0
-            fi
-        done
-
-        # Key not found - __LLM_REPLY already empty. Caller uses has_provider_key for
-        # existence; empty __LLM_REPLY means missing OR empty (documented invariant).
-        return 0
-    }
-
-    # Get all keys from a compatibility associative array
-    # Populates the global __LLM_REPLY_KEYS array; no stdout.
-    compat_assoc_keys() {
-        local array_name="$1"
-
-        __LLM_REPLY_KEYS=()
-
-        if [[ -z "$array_name" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-
-        eval "__LLM_REPLY_KEYS=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || __LLM_REPLY_KEYS=()
-    }
-
-    # Check if a key exists in a compatibility associative array
-    compat_assoc_has_key() {
-        local array_name="$1"
-        local key="$2"
-
-        if [[ -z "$array_name" || -z "$key" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-
-        # Get current keys
-        local -a keys
-        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})"
-
-        # Look for key
-        local i
-        for ((i=0; i<${#keys[@]}; i++)); do
-            if [[ "${keys[i]}" == "$key" ]]; then
-                return 0
-            fi
-        done
-
-        return 1
-    }
+# Shell-specific indirection, resolved once at source time rather than per call.
+# These are the only two shell branches in the whole store.
+if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+    # shellcheck disable=SC1087,SC2296  # zsh ${(P)} indirect expansion
+    __llm_var_get()   { eval '__LLM_REPLY="${(P)1-}"'; }
+    # shellcheck disable=SC2296
+    __llm_var_isset() { eval '[[ -n "${(P)1+x}" ]]'; }
+else
+    __llm_var_get()   { __LLM_REPLY="${!1-}"; }
+    __llm_var_isset() { [[ -n "${!1+x}" ]]; }
 fi
+
+# Canonical identifier predicate. Provider ids legitimately contain dots and
+# hyphens -- quickstart schema v2 ships ids like kimi-k2.5 and glm-5.1 -- so the
+# charset must allow them. Uses `case` globbing rather than [[ =~ ]] so
+# BASH_REMATCH is never clobbered (load_config depends on it via get_match) and
+# no locale-sensitive character class is involved.
+_llm_id_is_safe() {
+    case "$1" in
+        "")                return 1 ;;
+        *[!A-Za-z0-9._-]*) return 1 ;;
+    esac
+    return 0
+}
+
+# Build the storage variable name for (map, key) into __LLM_VN.
+# Returns 1 for an invalid map or key. Deliberately uses a dedicated slot
+# rather than __LLM_REPLY so a has_provider_key call cannot clobber a value
+# fetch that is still in flight.
+__llm_store_var() {
+    local __m="$1" __k="$2" __x
+    case "$__m" in
+        ""|*[!A-Za-z0-9_]*) __LLM_VN=""; return 1 ;;
+    esac
+    if ! _llm_id_is_safe "$__k"; then
+        __LLM_VN=""
+        return 1
+    fi
+    # Injective mangling to a legal variable name. Order matters: underscore
+    # first, so the escapes introduced below are not themselves re-escaped.
+    # a-b and a_b must not collide.
+    __x="${__k//_/_5f}"
+    __x="${__x//./_2e}"
+    __x="${__x//-/_2d}"
+    __LLM_VN="__LLM_V_${__m}__${__x}"
+}
+
+# Set a value in a provider map. Returns 1 (without storing) for an invalid key.
+set_provider_value() {
+    local __map="$1" __key="$2" __value="$3" __vn __kn __n
+
+    if ! __llm_store_var "$__map" "$__key"; then
+        debug "rejected key '$__key' for map '$__map'"
+        return 1
+    fi
+    __vn="$__LLM_VN"
+
+    # First write for this key: append it to the ordered key registry.
+    if ! __llm_var_isset "$__vn"; then
+        __kn="__LLM_KN_${__map}"
+        __llm_var_get "$__kn"
+        __n="${__LLM_REPLY:-0}"
+        printf -v "__LLM_K_${__map}__${__n}" '%s' "$__key"
+        printf -v "$__kn" '%s' "$((__n + 1))"
+    fi
+
+    # printf -v assigns literally: the value is never parsed as code.
+    printf -v "$__vn" '%s' "$__value"
+}
+
+# Get a value from a provider map.
+# Sets __LLM_REPLY to the value, empty for a missing OR empty key. Existence is
+# decided only by has_provider_key. No stdout, no subshell.
+get_provider_value() {
+    __LLM_REPLY=""
+    __llm_store_var "$1" "$2" || return 1
+    __llm_var_get "$__LLM_VN"
+}
+
+# Exact-match key existence. A key set to the empty string still exists.
+has_provider_key() {
+    __llm_store_var "$1" "$2" || return 1
+    __llm_var_isset "$__LLM_VN"
+}
+
+# Populate __LLM_REPLY_KEYS with a map's keys in insertion order.
+# Insertion order is now identical on every shell, so command output is stable
+# and golden-output assertions are possible for the first time.
+get_provider_keys() {
+    local __map="$1" __n __i=0
+    __LLM_REPLY_KEYS=()
+    case "$__map" in
+        ""|*[!A-Za-z0-9_]*) return 1 ;;
+    esac
+    __llm_var_get "__LLM_KN_${__map}"
+    __n="${__LLM_REPLY:-0}"
+    while [[ $__i -lt $__n ]]; do
+        __llm_var_get "__LLM_K_${__map}__${__i}"
+        # Append rather than assign by index: zsh arrays are 1-indexed, so
+        # __LLM_REPLY_KEYS[0]= is an "invalid subscript" error there. `+=` is
+        # correct in bash 3.1+ and zsh alike.
+        __LLM_REPLY_KEYS+=("$__LLM_REPLY")
+        __i=$((__i + 1))
+    done
+}
+
+# Drop every key/value in a map and reset its registry.
+clear_provider_map() {
+    local __map="$1" __n __i=0 __key
+    case "$__map" in
+        ""|*[!A-Za-z0-9_]*) return 1 ;;
+    esac
+    __llm_var_get "__LLM_KN_${__map}"
+    __n="${__LLM_REPLY:-0}"
+    while [[ $__i -lt $__n ]]; do
+        __llm_var_get "__LLM_K_${__map}__${__i}"
+        __key="$__LLM_REPLY"
+        if __llm_store_var "$__map" "$__key"; then
+            unset "$__LLM_VN"
+        fi
+        unset "__LLM_K_${__map}__${__i}"
+        __i=$((__i + 1))
+    done
+    unset "__LLM_KN_${__map}"
+}
 
 # ---------- Configuration Loading ----------
 
@@ -320,166 +349,11 @@ get_config_locations() {
     printf '%s\n' ${locations[@]+"${locations[@]}"}
 }
 
-# Global arrays for configuration (conditional based on bash version)
-if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-    # Use native associative arrays for bash 4.0+ (only declare if not already declared)
-    if ! declare -p PROVIDER_BASE_URLS >/dev/null 2>&1; then
-        declare -A PROVIDER_BASE_URLS
-    fi
-    if ! declare -p PROVIDER_API_KEY_VARS >/dev/null 2>&1; then
-        declare -A PROVIDER_API_KEY_VARS
-    fi
-    if ! declare -p PROVIDER_DEFAULT_MODELS >/dev/null 2>&1; then
-        declare -A PROVIDER_DEFAULT_MODELS
-    fi
-    if ! declare -p PROVIDER_DESCRIPTIONS >/dev/null 2>&1; then
-        declare -A PROVIDER_DESCRIPTIONS
-    fi
-    if ! declare -p PROVIDER_ENABLED >/dev/null 2>&1; then
-        declare -A PROVIDER_ENABLED
-    fi
-    if ! declare -p PROVIDER_PROTOCOLS >/dev/null 2>&1; then
-        declare -A PROVIDER_PROTOCOLS
-    fi
-    if ! declare -p PROVIDER_AUTH_TOKENS >/dev/null 2>&1; then
-        declare -A PROVIDER_AUTH_TOKENS
-    fi
-    if ! declare -p PROVIDER_SIGNUP_URLS >/dev/null 2>&1; then
-        declare -A PROVIDER_SIGNUP_URLS
-    fi
-else
-    # Initialize compatibility arrays for bash <4.0
-    # These are managed by the compatibility functions
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_BASE_URLS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_BASE_URLS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_API_KEY_VARS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_API_KEY_VARS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_DEFAULT_MODELS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_DEFAULT_MODELS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_DESCRIPTIONS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_DESCRIPTIONS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_ENABLED_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_ENABLED_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_PROTOCOLS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_PROTOCOLS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_AUTH_TOKENS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_AUTH_TOKENS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_SIGNUP_URLS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_SIGNUP_URLS_VALUES=()
-fi
-# Provider groups: map group name → comma-separated provider list
-if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-    if ! declare -p PROVIDER_GROUPS >/dev/null 2>&1; then
-        declare -A PROVIDER_GROUPS
-    fi
-else
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_GROUPS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_GROUPS_VALUES=()
-fi
 declare -a AVAILABLE_PROVIDERS
 declare -a AVAILABLE_GROUPS
 # Output array for get_provider_keys (avoids a subshell per key enumeration)
 # shellcheck disable=SC2034  # populated by get_provider_keys, consumed by callers
 declare -a __LLM_REPLY_KEYS
-
-# ---------- Array Access Wrappers ----------
-
-# Wrapper functions to provide consistent API for both native and compatibility arrays
-
-# Set a value in a provider array
-set_provider_value() {
-    local array_name="$1"
-    local key="$2"
-    local value="$3"
-
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-            # Zsh associative array assignment
-            eval "${array_name}[${key}]='${value}'"
-        else
-            # Bash associative array assignment
-            eval "${array_name}[\"${key}\"]='${value}'"
-        fi
-    else
-        compat_assoc_set "${array_name}" "${key}" "${value}"
-    fi
-}
-
-# Get a value from a provider array
-# Sets the global __LLM_REPLY to the value (empty for a missing OR empty key); no
-# stdout, no subshell fork. Usage: get_provider_value ARR KEY; val=$__LLM_REPLY
-# Existence is decided only by has_provider_key (empty __LLM_REPLY == missing OR empty).
-get_provider_value() {
-    local array_name="$1"
-    local key="$2"
-
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-            # Zsh associative array access
-            eval "__LLM_REPLY=\"\${${array_name}[${key}]-}\""
-        else
-            # Bash associative array access
-            eval "__LLM_REPLY=\"\${${array_name}[\"${key}\"]-}\""
-        fi
-    else
-        compat_assoc_get "${array_name}" "${key}"
-    fi
-}
-
-# Get all keys from a provider array
-# Populates the global __LLM_REPLY_KEYS array; no stdout, no subshell fork.
-# Usage: get_provider_keys ARR; for k in ${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"}; do ...; done
-get_provider_keys() {
-    local array_name="$1"
-
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-            # Zsh uses ${(k)array} for keys
-            eval "__LLM_REPLY_KEYS=(\"\${(@k)${array_name}}\")"
-        else
-            # Bash uses ${!array[@]} for keys
-            eval "__LLM_REPLY_KEYS=(\${${array_name}[@]+\"\${!${array_name}[@]}\"})"
-        fi
-    else
-        compat_assoc_keys "${array_name}"
-    fi
-}
-
-# Check if a key exists in a provider array
-has_provider_key() {
-    local array_name="$1"
-    local key="$2"
-
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-            # Zsh uses (k) to check keys
-            eval "[[ -n \"\${${array_name}[(I)${key}]}\" ]]"
-        else
-            # Bash uses ${var+set} to check if key exists
-            eval "[[ -n \"\${${array_name}[\"${key}\"]+set}\" ]]"
-        fi
-    else
-        compat_assoc_has_key "${array_name}" "${key}"
-    fi
-}
 
 # Load configuration from file
 load_config() {
@@ -537,15 +411,32 @@ load_config() {
         if [[ "$line" =~ $section_pattern ]]; then
             sections_found=$((sections_found + 1))
             get_match 1; section_name="$__LLM_REPLY"
+            # Validate before the name reaches any store call. The store
+            # rejects unsafe keys on its own, but doing it here means the whole
+            # section is skipped -- otherwise its key=value lines would silently
+            # attach to whichever provider happened to be current -- and the
+            # user gets one clear diagnostic instead of a stream of them.
             if [[ "$section_name" =~ $group_prefix_pattern ]]; then
                 # Group section: [group:name]
                 current_group="${section_name#group:}"
                 current_provider=""
+                if ! _llm_id_is_safe "$current_group"; then
+                    echo "⚠️  Skipping group section '[$section_name]' (line $line_num): invalid name." >&2
+                    echo "   Group names may contain letters, digits, dot, underscore and hyphen only." >&2
+                    current_group=""
+                    continue
+                fi
                 debug "Found group section: $current_group"
             else
                 # Provider section: [name]
                 current_provider="$section_name"
                 current_group=""
+                if ! _llm_id_is_safe "$current_provider"; then
+                    echo "⚠️  Skipping provider section '[$section_name]' (line $line_num): invalid name." >&2
+                    echo "   Provider names may contain letters, digits, dot, underscore and hyphen only." >&2
+                    current_provider=""
+                    continue
+                fi
                 debug "Found provider section: $current_provider"
             fi
             continue
@@ -635,18 +526,21 @@ load_config() {
 init_config() {
     debug "Initializing configuration"
     
-    # Clear existing configuration
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
-        if [[ "${BASH_DECLARE_GLOBAL_SUPPORT}" == "true" ]]; then
-            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
-        else
-            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
-        fi
-    else
-        unset AVAILABLE_PROVIDERS
-        AVAILABLE_PROVIDERS=()
-    fi
+    # Clear existing configuration.
+    #
+    # Derived from LLM_PROVIDER_MAPS so the reset can never drift from the set
+    # of maps that writers actually use. The previous version reset only the
+    # native associative arrays, leaving the bash-3.2 parallel arrays to
+    # accumulate forever -- so on macOS's system bash, `config remove` followed
+    # by `list` still showed the removed provider. It also re-declared the
+    # arrays with a bare `declare -A` when `declare -g` was unavailable
+    # (bash 4.0/4.1), which created function-locals that were destroyed on
+    # return, emptying the whole provider set.
+    local __m
+    for __m in $LLM_PROVIDER_MAPS; do
+        clear_provider_map "$__m"
+    done
+    AVAILABLE_PROVIDERS=()
     AVAILABLE_GROUPS=()
     
     local config_loaded=false
@@ -912,29 +806,32 @@ host_from_url() {
 # Validate provider name format. Allows letters, digits, underscore, hyphen,
 # and dot. Dots are required to express version-bearing model ids like
 # `kimi-k2.5` and `glm-5.1` introduced by quickstart schema v2.
+#
+# Delegates to _llm_id_is_safe so the charset rule lives in exactly one place;
+# it previously existed here, in _qs_id_is_safe, and implicitly in the store.
 validate_provider_name() {
     local name="$1"
-    local valid_name_pattern="^[a-zA-Z0-9._-]+$"
-    # Use C locale for consistent ASCII-only character class matching
-    if LC_ALL=C; [[ ! "$name" =~ $valid_name_pattern ]]; then
+    if ! _llm_id_is_safe "$name"; then
         echo "Error: Invalid provider name '$name'. Only letters, numbers, dots, underscores, and hyphens are allowed." >&2
         return 1
     fi
     return 0
 }
 
-# Sanitize configuration values to prevent injection
-sanitize_config_value() {
-    local value="$1"
-    # Remove potential command substitution and other dangerous patterns
-    value="${value//\$(/}"
-    value="${value//\`/}"
-    value="${value//\$/}"
-    value="${value//;/}"
-    value="${value//&/}"
-    value="${value//|/}"
-    echo "$value"
-}
+# NOTE: sanitize_config_value was removed in 1.7.0.
+#
+# It stripped $ ` ; & | from values, which was both unsafe and lossy:
+#
+#   * it did NOT strip the apostrophe, the one character that actually broke
+#     out of the accessor's eval quoting, so it never blocked the injection it
+#     was named for;
+#   * it silently corrupted legitimate values -- any URL with a query string
+#     lost its &, including this project's own Alibaba signup URL; and
+#   * it ran only on the `config add` path, not on load or quickstart.
+#
+# Values no longer need sanitising because they are never re-parsed: the store
+# writes them with printf -v. Identifiers are validated (and rejected) by
+# _llm_id_is_safe rather than silently mutated.
 
 # Validate provider exists and is enabled
 validate_provider() {
@@ -1506,12 +1403,25 @@ cmd_config_add() {
     read -r -t $TMOUT -p "Default Model: " default_model || { echo "Timeout reached"; return 1; }
     read -r -t $TMOUT -p "Description (optional): " description || { echo "Timeout reached"; return 1; }
     
-    # Sanitize input values
-    base_url=$(sanitize_config_value "$base_url")
-    api_key_var=$(sanitize_config_value "$api_key_var")
-    default_model=$(sanitize_config_value "$default_model")
-    description=$(sanitize_config_value "$description")
-    
+    # Validate rather than mutate. sanitize_config_value used to strip & $ ; |
+    # here, corrupting any URL with a query string while missing the apostrophe
+    # that was the actual injection vector. A newline would let a value forge a
+    # new [section] when written to the config, so reject that outright.
+    local field
+    for field in base_url api_key_var default_model description; do
+        get_var_value "$field"
+        case "$__LLM_REPLY" in
+            *$'\n'*|*$'\r'*)
+                echo "❌ $field may not contain a newline." >&2
+                return 1
+                ;;
+        esac
+    done
+    if [[ -n "$api_key_var" ]] && ! [[ "$api_key_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "❌ API key variable '$api_key_var' is not a valid environment variable name." >&2
+        return 1
+    fi
+
     local user_config
     user_config="$(get_user_config_path)"
     
