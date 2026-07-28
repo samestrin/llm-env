@@ -718,14 +718,53 @@ load_builtin_config() {
 # Create a clickable terminal hyperlink using OSC 8 escape sequence
 # Falls back to plain "label (url)" if terminal doesn't support it
 # Usage: link "https://example.com" "Click here"
+# Decide once, at source time, whether OSC 8 hyperlinks are safe to emit.
+#
+# This CANNOT be decided inside link(): every caller wraps it in $(...), where
+# stdout is a pipe, so an inline [[ -t 1 ]] would always say "not a terminal".
+# Capturing it here -- before any command substitution exists -- is what makes
+# the check meaningful. llm-env is re-sourced per invocation, so the value is
+# never stale across commands.
+__llm_init_terminal() {
+    if [[ -n "${LLM_ENV_TTY:-}" ]]; then
+        __LLM_STDOUT_TTY="$LLM_ENV_TTY"
+    elif [[ -t 1 ]]; then
+        __LLM_STDOUT_TTY=1
+    else
+        __LLM_STDOUT_TTY=0
+    fi
+
+    case "${LLM_ENV_HYPERLINKS:-}" in
+        1) __LLM_LINK_MODE="osc8";  return 0 ;;
+        0) __LLM_LINK_MODE="plain"; return 0 ;;
+    esac
+
+    __LLM_LINK_MODE="plain"
+    [[ "$__LLM_STDOUT_TTY" == 1 ]] || return 0
+    # https://no-color.org/
+    [[ -n "${NO_COLOR+x}" ]] && return 0
+    case "${TERM:-}" in ''|dumb) return 0 ;; esac
+    __LLM_LINK_MODE="osc8"
+    return 0
+}
+__llm_init_terminal
+
+# Render a hyperlink. Falls back to plain text when the terminal cannot show
+# one -- which the docstring has always promised and the code never did, so
+# raw OSC 8 bytes ended up in pipes, redirected files and CI logs.
 link() {
     local url="$1"
     local label="${2:-$url}"
-    # OSC 8 hyperlink: supported by most modern terminals.
-    # The trailing \\ is part of the ST (string terminator), not an attempt
-    # to escape a single quote, so disable the SC1003 false positive.
-    # shellcheck disable=SC1003
-    printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$url" "$label"
+    if [[ "${__LLM_LINK_MODE:-plain}" == "osc8" ]]; then
+        # The trailing \\ is part of the ST (string terminator), not an attempt
+        # to escape a single quote, so disable the SC1003 false positive.
+        # shellcheck disable=SC1003
+        printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$url" "$label"
+    elif [[ "$label" == "$url" ]]; then
+        printf '%s' "$url"
+    else
+        printf '%s (%s)' "$label" "$url"
+    fi
 }
 
 # Normalize protocol value: trim whitespace and convert to lowercase
@@ -814,24 +853,33 @@ apply_default_protocols() {
     done
 }
 
+# Render a secret for display.
+#
+# Reveals at most the last 4 characters, and only when the secret is long
+# enough that 4 characters are a small fraction of it. The previous version
+# masked only the FIRST character of anything up to 4 long ("abcd" -> "•bcd")
+# and revealed 4 of 5 for a 5-character secret -- enough to make a short token
+# or a test key trivially guessable from a screenshot or a shared log.
 mask() {
     local input="$1"
+    local n=${#input}
     [[ -z "$input" ]] && { echo "∅"; return; }
-    [[ ${#input} -le 2 ]] && { echo "$input"; return; }
 
-    # For strings of 3-4 characters, mask first character only
-    if [[ ${#input} -le 4 ]]; then
-        echo "•${input:1}"
-        return
+    local reveal=0
+    # Only show a tail once the secret is comfortably longer than the tail.
+    if [[ $n -ge 12 ]]; then
+        reveal=4
+    elif [[ $n -ge 8 ]]; then
+        reveal=2
     fi
 
-    # For strings > 4 characters, mask all but last 4 characters
-    local masked=""
-    local i
-    for ((i=0; i<${#input}-4; i++)); do
+    local masked="" i
+    for ((i = 0; i < n - reveal; i++)); do
         masked+="•"
     done
-    masked+="${input: -4}"
+    if [[ $reveal -gt 0 ]]; then
+        masked+="${input: -$reveal}"
+    fi
     echo "$masked"
 }
 
@@ -901,6 +949,52 @@ validate_provider() {
     debug "Provider validation successful: $provider"
     return 0
 }
+
+# ---------- Portable timing ----------
+#
+# `date +%s.%N` is a GNU extension: BSD date (stock macOS) emits a literal "N",
+# and the result was piped to bc, which Git Bash does not ship at all. Both
+# failure modes were swallowed by `|| echo "N/A"`, so response time rendered as
+# "N/As" on two of the three supported platforms.
+#
+# Prefer bash 5's EPOCHREALTIME, then zsh's datetime module, then a verified
+# `date +%s%N`, then whole seconds. All arithmetic is integer.
+
+__llm_now_ms() {
+    local t frac
+    if [[ -n "${EPOCHREALTIME:-}" ]]; then
+        # EPOCHREALTIME uses the locale's decimal separator, hence [.,].
+        t="${EPOCHREALTIME%%[.,]*}"
+        frac="${EPOCHREALTIME#*[.,]}000"
+        printf '%s%s' "$t" "${frac:0:3}"
+        return 0
+    fi
+    t="$(date +%s%N 2>/dev/null)"
+    if [[ "$t" =~ ^[0-9]+$ ]] && [[ ${#t} -gt 10 ]]; then
+        # ns -> ms by string truncation, so there is no 64-bit overflow
+        # question on any bash.
+        printf '%s' "${t%??????}"
+        return 0
+    fi
+    t="$(date +%s 2>/dev/null)"
+    [[ "$t" =~ ^[0-9]+$ ]] || t=0
+    printf '%s000' "$t"
+}
+
+# $1 = start ms, $2 = end ms -> "S.mmm"
+__llm_fmt_duration() {
+    local a="${1:-0}" b="${2:-0}" d
+    [[ "$a" =~ ^[0-9]+$ ]] || a=0
+    [[ "$b" =~ ^[0-9]+$ ]] || b=0
+    d=$((b - a))
+    [[ $d -lt 0 ]] && d=0
+    printf '%d.%03d' "$((d / 1000))" "$((d % 1000))"
+}
+
+# zsh needs its datetime module loaded before EPOCHREALTIME exists.
+if [[ "${CURRENT_SHELL}" == "zsh" ]] && [[ -z "${EPOCHREALTIME:-}" ]]; then
+    zmodload zsh/datetime 2>/dev/null || true
+fi
 
 # ---------- Safe config rewriting ----------
 #
@@ -1835,7 +1929,12 @@ cmd_test() {
     echo "🔗 Base URL: $base_url"
 
     # Determine endpoint and auth headers based on protocol
-    local test_endpoint auth_headers
+    local test_endpoint
+    # curl reads its headers from stdin via --config so the API key never
+    # enters argv, where ps and /proc/<pid>/cmdline expose it on a shared host.
+    # auth_headers is retained only for the wget fallback and debug output,
+    # with the credential redacted.
+    local -a auth_headers curl_cfg_lines
     # Strip trailing slash from base_url if present
     base_url="${base_url%/}"
 
@@ -1847,27 +1946,42 @@ cmd_test() {
         else
             test_endpoint="${base_url}/v1/messages"
         fi
-        auth_headers=(-H "x-api-key: $api_key" -H "anthropic-version: 2023-06-01")
+        auth_headers=(-H "x-api-key: <redacted>" -H "anthropic-version: 2023-06-01")
+        curl_cfg_lines=(
+            "url = \"$test_endpoint\""
+            "header = \"x-api-key: $api_key\""
+            "header = \"anthropic-version: 2023-06-01\""
+            "header = \"Content-Type: application/json\""
+        )
     else
         # OpenAI uses Authorization: Bearer header
         # Endpoint: base_url/models
         test_endpoint="${base_url}/models"
-        auth_headers=(-H "Authorization: Bearer $api_key")
+        auth_headers=(-H "Authorization: Bearer <redacted>")
+        curl_cfg_lines=(
+            "url = \"$test_endpoint\""
+            "header = \"Authorization: Bearer $api_key\""
+            "header = \"Content-Type: application/json\""
+        )
     fi
 
     echo "🌐 Testing connectivity to: $test_endpoint"
 
     local start_time
-    start_time=$(date +%s.%N)
+    start_time="$(__llm_now_ms)"
     local response
 
     # Use curl or wget to test API endpoint
     if command -v curl >/dev/null 2>&1; then
-        response=$(curl -s -w "%{http_code}" -o /dev/null \
-            --max-time 10 \
-            ${auth_headers[@]+"${auth_headers[@]}"} \
-            -H "Content-Type: application/json" \
-            "$test_endpoint" 2>/dev/null)
+        # Headers go in on stdin via --config, NOT in argv. As -H arguments the
+        # API key was visible to any process that could read ps output or
+        # /proc/<pid>/cmdline on a shared host.
+        #
+        # -L follows redirects: a provider that 30x's /models otherwise
+        # reported "Unexpected response".
+        response=$(printf '%s\n' "${curl_cfg_lines[@]}" \
+            | curl -s -L -w "%{http_code}" -o /dev/null \
+                   --max-time 10 --config - 2>/dev/null)
     elif command -v wget >/dev/null 2>&1; then
         # Construct wget headers
         local wget_headers=()
@@ -1891,10 +2005,19 @@ cmd_test() {
         return 1
     fi
 
-    local end_time
-    end_time=$(date +%s.%N)
-    local duration
-    duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
+    local end_time duration
+    end_time="$(__llm_now_ms)"
+    duration="$(__llm_fmt_duration "$start_time" "$end_time")"
+
+    # curl -w '%{http_code}' prints 000 when it never got a response at all
+    # (DNS failure, refused connection, timeout). That is a connection error,
+    # not an HTTP status -- treating it as one made the empty-string arm below
+    # unreachable and reported an unreachable host as exit 0. wget yields an
+    # empty string in the same situation, so normalise both here and let the
+    # single arm handle it.
+    case "$response" in
+        000|"") response="" ;;
+    esac
 
     case "$response" in
         200)
@@ -1918,6 +2041,11 @@ cmd_test() {
             echo "⚠️  $provider: Endpoint not found (protocol: $protocol, HTTP $response)"
             echo "💡 Provider may use different API path"
             echo
+            # A 404 means the endpoint under test does not exist, so the
+            # connectivity check has not succeeded. This arm alone fell through
+            # to exit 0, unlike 401/403/5xx, so a scripted caller could not tell
+            # a misconfigured base_url from a working provider.
+            return 1
             ;;
         405)
             # For Anthropic, /v1/messages returns 405 for GET requests (it requires POST)
