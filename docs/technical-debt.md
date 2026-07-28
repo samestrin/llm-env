@@ -128,3 +128,40 @@ legitimately contain `#` (some URLs do).
 backups taken within the same second collide. The newer
 `_config_backup_file` helper used by `config remove` already appends `$$`;
 `cmd_config_backup` should adopt the same scheme.
+
+---
+
+## Coverage: 58.15%, not 80%
+
+Measured with kcov on Linux over `unit` + `integration` (what `tests/coverage.sh
+all` covers). 1.7.0 raised the CI floor from 50% to 55%.
+
+172 tests were added in 1.7.0 yet the percentage moved only ~3 points. That is
+not a contradiction, and the reasons are worth recording:
+
+- **`tests/system/` is excluded from the measurement.** `coverage.sh` accepts
+  only `unit | integration | all`, and `all` means unit+integration. So the 18
+  zsh tests, 19 regression tests and 11 cross-platform tests contribute
+  **nothing** to the number despite genuinely exercising the script. Adding a
+  `system` option is the single cheapest way to make the figure honest.
+- **The denominator grew.** `llm-env` went from 2,951 to ~3,780 lines: the
+  platform layer, the validators, the atomic-write helper and the portable
+  timing helpers are all new code.
+- **~120 lines of the old bash-3.2 backend were deleted rather than covered.**
+  That removes uncovered lines, but it also removes lines.
+
+The residual uncovered code is concentrated in places that need real
+scaffolding rather than more assertions:
+
+- interactive prompt bodies (`read -s` in `_qs_prompt_api_key`, `read -p` in
+  `cmd_config_add` / `cmd_config_init` / `cmd_config_restore`);
+- the `wget` fallback in `cmd_test`, reachable only with `curl` absent;
+- the `$EDITOR` exec in `cmd_config_edit`;
+- `get_script_dir`'s zsh branch and its `command -v` fallback;
+- the `exit "$rc"` at the very end, taken only when executed rather than
+  sourced;
+- error arms for unwritable paths, which are no-ops when the test runs as root.
+
+Reaching 80% means writing PTY-driven tests and a `curl`-absent harness. That
+is real work with real value, but it is test-infrastructure work rather than
+defect-finding work, and it was out of scope for a security release.

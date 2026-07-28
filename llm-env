@@ -2885,7 +2885,9 @@ _qs_resolve_selection() {
     local -a tokens
     # zsh's `read` has no -a (it spells it -A), so this aborted the whole
     # sourced file with "bad option: -a". __llm_split works in both shells.
-    __llm_split "$arg"
+    # __llm_split deliberately forces IFS=' ' so a caller's strict-mode IFS
+    # cannot defeat it, which means comma inputs must be converted first.
+    __llm_split "${arg//,/ }"
     local -a tokens
     tokens=(${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"})
     local out=""
@@ -3144,7 +3146,7 @@ cmd_quickstart() {
     # zsh does not word-split an unquoted expansion, so this iterated ONCE
     # with the whole "synthetic,alibaba" string, matched no case arm, and left
     # json_file empty -- the visible symptom was "Quickstart file is empty:".
-    __llm_split "$selection"
+    __llm_split "${selection//,/ }"
     for src in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
         IFS="$IFS_old"
         # (json_file/api_key_var/signup_url/verify_provider are declared once
