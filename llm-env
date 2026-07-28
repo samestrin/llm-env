@@ -495,7 +495,15 @@ load_config() {
     # Read file content and process line by line to avoid subshell issues
     local file_content
     file_content="$(cat "$config_file")"
-    
+
+    # Classic-Mac line endings (lone CR, no LF anywhere) would otherwise arrive
+    # as a single giant line. Convert those up front. CRLF is handled per-line
+    # below instead, which keeps $line_num accurate for diagnostics.
+    case "$file_content" in
+        *$'\n'*) : ;;
+        *$'\r'*) file_content="${file_content//$'\r'/$'\n'}" ;;
+    esac
+
     # Regex patterns stored in variables for cross-shell compatibility
     local comment_pattern="^[[:space:]]*#"
     local empty_pattern="^[[:space:]]*$"
@@ -505,17 +513,29 @@ load_config() {
 
     # Declare loop variables outside the loop for zsh compatibility
     # In zsh, re-declaring local variables inside a loop prints previous values
-    local key value normalized_protocol validated_protocol section_name
+    # ($line included -- it also used to leak into the caller's shell).
+    local line key value normalized_protocol validated_protocol section_name
+    # Tracked so a file that parses to nothing can say so instead of silently
+    # presenting an empty provider list as a successful load.
+    local sections_found=0 meaningful_lines=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        ((line_num+=1))
+        line_num=$((line_num + 1))
+
+        # Strip one trailing CR so CRLF files parse identically to LF ones.
+        # Without this the section regex's `$` anchor never matches (the CR
+        # sits between `]` and end-of-line) and every provider is dropped.
+        line="${line%$'\r'}"
 
         # Skip comments and empty lines
         [[ "$line" =~ $comment_pattern ]] && continue
         [[ "$line" =~ $empty_pattern ]] && continue
 
+        meaningful_lines=$((meaningful_lines + 1))
+
         # Section header
         if [[ "$line" =~ $section_pattern ]]; then
+            sections_found=$((sections_found + 1))
             get_match 1; section_name="$REPLY"
             if [[ "$section_name" =~ $group_prefix_pattern ]]; then
                 # Group section: [group:name]
@@ -594,6 +614,15 @@ load_config() {
             esac
         fi
     done <<< "$file_content"
+
+    # A file with real content that yielded no sections parsed to nothing. Say
+    # so: silently reporting an empty provider list as a successful load is how
+    # the CRLF defect stayed invisible. Comment-only and empty files are
+    # legitimately section-free and must not warn.
+    if [[ $sections_found -eq 0 && $meaningful_lines -gt 0 ]]; then
+        echo "⚠️  Found no provider sections in $config_file (${meaningful_lines} non-comment lines)." >&2
+        echo "   Check the file uses [section] headers and is not corrupted." >&2
+    fi
 
     # Set default protocol for providers that don't have one explicitly set
     # Only applies to enabled providers

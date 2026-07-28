@@ -642,6 +642,9 @@ done
 "
 }
 
+# $output is set by bats' `run` (and by dump_env_after, which wraps it), so the
+# linter cannot see the assignment.
+# shellcheck disable=SC2154
 assert_env_unset() {
     local v
     for v in "$@"; do
@@ -678,6 +681,9 @@ snapshot_real_home() {
         if [[ -f "$home/$f" ]]; then
             # size + mtime is enough to catch an append, and needs no hashing.
             out+="$f:$(wc -c < "$home/$f" 2>/dev/null | tr -d ' '):"
+            # ls is fine here: the paths are a fixed list of dotfiles we built
+            # ourselves, so the non-alphanumeric-filename concern does not apply.
+            # shellcheck disable=SC2012
             out+="$(ls -l "$home/$f" 2>/dev/null | awk '{print $6, $7, $8}')"$'\n'
         else
             out+="$f:absent"$'\n'
