@@ -2,7 +2,11 @@
 # Disable SC1091 (not following sourced files) for compatibility library
 # Disable SC2034 for compatibility arrays accessed dynamically via eval
 # Disable SC2250 for style preference on variable braces (too many instances)
-disable=SC1091,SC2034,SC2250
+#
+# SC2317 (unreachable command) is a known false-positive generator on scripts
+# that drive flow through traps, early exits, or sourced-function entry points.
+# It fires 27 times on demo-quickstart.sh alone, all spurious.
+disable=SC1091,SC2034,SC2250,SC2317
 
 # Enable additional checks for better code quality
 enable=require-variable-braces

@@ -59,7 +59,7 @@ llm_test() {
     # Simple test request
     curl -s -H "Authorization: Bearer $OPENAI_API_KEY" \
          -H "Content-Type: application/json" \
-         -d '{"model":"'$OPENAI_MODEL'","messages":[{"role":"user","content":"Say hello in one word"}],"max_tokens":10}' \
+         -d '{"model":"'"$OPENAI_MODEL"'","messages":[{"role":"user","content":"Say hello in one word"}],"max_tokens":10}' \
          "$OPENAI_BASE_URL/chat/completions" | \
     python3 -c "import sys, json; data=json.load(sys.stdin); print('✅ Response:', data['choices'][0]['message']['content'].strip()) if 'choices' in data else print('❌ Error:', data.get('error', {}).get('message', 'Unknown error'))"
 }
@@ -118,7 +118,7 @@ ask_llm() {
     
     curl -s -H "Authorization: Bearer $OPENAI_API_KEY" \
          -H "Content-Type: application/json" \
-         -d '{"model":"'$OPENAI_MODEL'","messages":[{"role":"user","content":"'$1'"}]}' \
+         -d '{"model":"'"$OPENAI_MODEL"'","messages":[{"role":"user","content":"'"$1"'"}]}' \
          "$OPENAI_BASE_URL/chat/completions" | \
     python3 -c "
 import sys, json

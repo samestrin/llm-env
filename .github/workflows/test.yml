@@ -168,14 +168,87 @@ jobs:
           sudo apt-get install -y shellcheck
         fi
 
-    - name: Run ShellCheck on main script
-      run: shellcheck llm-env
+    # Discover every shell file rather than naming three. The previous form
+    # left tests/lib/bats_helpers.sh, tests/coverage.sh and the system runners
+    # unlinted -- which is how a `local -n` (bash 4.3+) landed in the helper
+    # whose whole purpose is exercising the bash-3.2 path.
+    # .bats files are excluded: `@test "..." {` is not valid sh and produces
+    # only noise.
+    - name: Run ShellCheck
+      run: |
+        mapfile -t files < <(git ls-files '*.sh' '*.bash')
+        files+=(llm-env)
+        printf 'linting %d files\n' "${#files[@]}"
+        shellcheck --shell=bash "${files[@]}"
 
-    - name: Run ShellCheck on installer
-      run: shellcheck install.sh
+  # Guard the LF invariant that Windows support depends on. A CRLF checkout
+  # makes `source llm-env` die on its first line and makes run_tests.sh die on
+  # its own heredoc terminator, so this must fail loudly rather than surface as
+  # a confusing downstream error.
+  crlf-guard:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: Run ShellCheck on test runner
-      run: shellcheck tests/run_tests.sh
+    - name: Assert no CR in shell-parsed files
+      run: |
+        bad=0
+        while IFS= read -r f; do
+          [ -f "$f" ] || continue
+          if grep -qU $'\r' "$f"; then
+            echo "::error file=$f::contains a carriage return"
+            bad=1
+          fi
+        done < <(git ls-files 'llm-env' '*.sh' '*.bash' '*.bats' '*.conf' '*.json' '*.yml')
+        exit "$bad"
+
+    - name: Assert .gitattributes pins eol=lf
+      run: grep -q 'eol=lf' .gitattributes
+
+  # Windows support via Git Bash (MSYS2). Advisory for now -- promoted to a
+  # required check once the platform work lands.
+  test-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+    # MUST precede checkout. Git for Windows defaults to core.autocrlf=true;
+    # without this the working tree lands CRLF and run_tests.sh dies before a
+    # single test runs (its `cat << 'EOF'` terminator becomes "EOF\r").
+    # `git config --global` needs no repository, so it is safe here.
+    - name: Force an LF checkout
+      run: |
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Assert the checkout really is LF
+      run: |
+        for f in llm-env install.sh tests/run_tests.sh tests/bats/bin/bats; do
+          if grep -qU $'\r' "$f"; then echo "CRLF in $f"; exit 1; fi
+        done
+        tests/bats/bin/bats --version
+
+    - name: Environment probe
+      run: |
+        uname -s
+        echo "BASH_VERSION=$BASH_VERSION"
+        for c in bc free awk sed curl wget zsh; do
+          if command -v "$c" >/dev/null 2>&1; then echo "have $c"; else echo "MISSING $c"; fi
+        done
+
+    - name: Run unit tests
+      run: bash tests/run_tests.sh --unit-only
+
+    - name: Run integration tests
+      run: bash tests/run_tests.sh --integration-only
 
   scraper-tests:
     runs-on: ubuntu-latest
