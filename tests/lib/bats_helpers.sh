@@ -209,24 +209,29 @@ get_test_provider() {
     fi
 }
 
-# Helper function for compatibility array value lookup
+# Helper function for compatibility array value lookup.
+#
+# Deliberately avoids `local -n` namerefs: those are bash 4.3+, so the helper
+# meant to exercise the bash-3.2 code path could not itself run on bash 3.2
+# (it aborted with "local: -n: invalid option"). This mirrors the indirection
+# style the product's own compat_assoc_get uses, which works everywhere.
 get_compat_value() {
     local keys_array_name="$1"
     local values_array_name="$2"
     local search_key="$3"
-    
-    # Get array references
-    local -n keys_ref="$keys_array_name"
-    local -n values_ref="$values_array_name"
-    
-    # Linear search for key
-    for i in "${!keys_ref[@]}"; do
-        if [[ "${keys_ref[$i]}" == "$search_key" ]]; then
-            echo "${values_ref[$i]:-}"
+
+    local -a keys values
+    eval "keys=(\${${keys_array_name}[@]+\"\${${keys_array_name}[@]}\"})"     2>/dev/null || keys=()
+    eval "values=(\${${values_array_name}[@]+\"\${${values_array_name}[@]}\"})" 2>/dev/null || values=()
+
+    local i
+    for ((i = 0; i < ${#keys[@]}; i++)); do
+        if [[ "${keys[i]}" == "$search_key" ]]; then
+            echo "${values[i]:-}"
             return 0
         fi
     done
-    
+
     return 1
 }
 
@@ -306,47 +311,142 @@ assert_provider_count() {
 }
 
 # Load assessment and dynamic timeout helpers
-# Assess system load to determine if timeouts should be extended
+#
+# Assess system load to determine if timeouts should be extended.
+#
+# Uses awk rather than bc for the float->int conversion, and gates the memory
+# probe on the tool actually existing rather than assuming Linux. Git Bash
+# ships neither bc nor free and macOS ships no free, so the previous version
+# silently produced a wrong (or empty) factor on two of the three supported
+# platforms -- which made perf-test failures unreproducible.
+#
+# Set LLM_ENV_TEST_LOAD_FACTOR to pin the factor explicitly in CI.
+# When a probe could not run, LLM_ENV_LOAD_FACTOR_DEGRADED is set to 1 so the
+# degradation is observable instead of silent.
 get_system_load_factor() {
     local load_factor=100  # Base factor as integer (1.0 * 100)
-    
+    LLM_ENV_LOAD_FACTOR_DEGRADED=0
+
+    if [[ -n "${LLM_ENV_TEST_LOAD_FACTOR:-}" ]]; then
+        echo "$LLM_ENV_TEST_LOAD_FACTOR"
+        return 0
+    fi
+
     # Check if we're in CI environment
     if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" || -n "${TRAVIS:-}" || -n "${JENKINS_URL:-}" ]]; then
         # Base CI multiplier
         load_factor=150  # 1.5 * 100
-        
+
         # Check system load average (1-minute)
-        if command -v uptime >/dev/null 2>&1; then
-            local load_avg
-            load_avg=$(uptime | awk '{print $(NF-2)}' | sed 's/,//')
-            
-            # Convert to integer comparison (multiply by 100, remove decimals)
+        if command -v uptime >/dev/null 2>&1 && command -v awk >/dev/null 2>&1; then
             local load_int
-            load_int=$(printf "%.0f" "$(echo "$load_avg * 100" | bc 2>/dev/null || echo "100")")
-            
-            # Adjust factor based on load
-            if [[ $load_int -gt 300 ]]; then  # > 3.0
-                load_factor=300  # 3.0 * 100
-            elif [[ $load_int -gt 200 ]]; then  # > 2.0
-                load_factor=250  # 2.5 * 100
-            elif [[ $load_int -gt 150 ]]; then  # > 1.5
-                load_factor=200  # 2.0 * 100
+            # One awk does the extraction, comma stripping, and float->int, so
+            # the probe needs no bc and no tr.
+            load_int=$(uptime 2>/dev/null | awk '
+                { v = $(NF-2); gsub(/,/, "", v); v = v + 0; if (v <= 0) v = 1; printf "%d", v * 100 }
+            ' 2>/dev/null)
+            [[ "$load_int" =~ ^[0-9]+$ ]] || { load_int=100; LLM_ENV_LOAD_FACTOR_DEGRADED=1; }
+
+            if [[ $load_int -gt 300 ]]; then
+                load_factor=300
+            elif [[ $load_int -gt 200 ]]; then
+                load_factor=250
+            elif [[ $load_int -gt 150 ]]; then
+                load_factor=200
             fi
+        else
+            LLM_ENV_LOAD_FACTOR_DEGRADED=1
         fi
-        
-        # Check available memory if possible
-        if command -v free >/dev/null 2>&1; then
+
+        # Memory pressure probe. Linux only -- there is no portable equivalent,
+        # so on macOS/Git Bash this is skipped rather than silently mis-read.
+        if command -v free >/dev/null 2>&1 && command -v awk >/dev/null 2>&1; then
             local mem_usage
-            mem_usage=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
-            
-            # If memory usage > 80%, increase factor by 30%
-            if [[ $mem_usage -gt 80 ]]; then
+            mem_usage=$(free 2>/dev/null | awk 'NR==2 && $2 > 0 { printf "%d", $3*100/$2 }')
+            if [[ "$mem_usage" =~ ^[0-9]+$ ]] && [[ $mem_usage -gt 80 ]]; then
                 load_factor=$((load_factor * 130 / 100))
             fi
         fi
     fi
-    
+
     echo "$load_factor"
+}
+
+# Portable millisecond clock.
+#
+# `date +%s%N` is a GNU extension: BSD date (macOS <= 13) emits a literal "N",
+# which silently poisons any arithmetic done on it. Prefer bash 5's
+# EPOCHREALTIME, fall back to date +%s%N only after verifying it produced
+# digits, and finally to whole seconds.
+now_ms() {
+    local t frac
+
+    if [[ -n "${EPOCHREALTIME:-}" ]]; then
+        # EPOCHREALTIME uses the locale decimal separator, hence the [.,] class.
+        t="${EPOCHREALTIME%%[.,]*}"
+        frac="${EPOCHREALTIME#*[.,]}"
+        frac="${frac}000"
+        printf '%s%s\n' "$t" "${frac:0:3}"
+        return 0
+    fi
+
+    t="$(date +%s%N 2>/dev/null)"
+    if [[ "$t" =~ ^[0-9]+$ ]] && [[ ${#t} -gt 10 ]]; then
+        # Nanoseconds -> milliseconds by truncation, never arithmetic, so there
+        # is no 64-bit overflow question on any bash.
+        printf '%s\n' "${t%??????}"
+        return 0
+    fi
+
+    t="$(date +%s 2>/dev/null)"
+    [[ "$t" =~ ^[0-9]+$ ]] || t=0
+    printf '%s000\n' "$t"
+}
+
+# Skip a perf test when only whole-second resolution is available.
+skip_if_no_hires_clock() {
+    if [[ -z "${EPOCHREALTIME:-}" ]]; then
+        local probe
+        probe="$(date +%s%N 2>/dev/null)"
+        [[ "$probe" =~ ^[0-9]+$ ]] || skip "no high-resolution clock available"
+    fi
+}
+
+# ---- Real-HOME protection ----------------------------------------------------
+#
+# setup_test_env overrides HOME and XDG_CONFIG_HOME, but a bug that resolves ~
+# before the override (or a helper that reads $SHELL) can still write to the
+# developer's actual rc files. Snapshot them in setup and assert in teardown;
+# all suites that call setup_test_env inherit the protection for free.
+
+snapshot_real_home() {
+    local home="${LLM_ENV_REAL_HOME_OVERRIDE:-${ORIG_HOME:-$HOME}}"
+    local f out=""
+    for f in .bashrc .bash_profile .bash_login .profile .zshrc; do
+        if [[ -f "$home/$f" ]]; then
+            # size + mtime is enough to catch an append, and needs no hashing.
+            out+="$f:$(wc -c < "$home/$f" 2>/dev/null | tr -d ' '):"
+            out+="$(ls -l "$home/$f" 2>/dev/null | awk '{print $6, $7, $8}')"$'\n'
+        else
+            out+="$f:absent"$'\n'
+        fi
+    done
+    LLM_ENV_REAL_HOME_SNAPSHOT="$out"
+    export LLM_ENV_REAL_HOME_SNAPSHOT
+}
+
+assert_no_real_home_writes() {
+    [[ -n "${LLM_ENV_REAL_HOME_SNAPSHOT:-}" ]] || return 0
+    local expected="$LLM_ENV_REAL_HOME_SNAPSHOT"
+    snapshot_real_home
+    if [[ "$LLM_ENV_REAL_HOME_SNAPSHOT" != "$expected" ]]; then
+        echo "FATAL: a test modified the real HOME's shell rc files" >&2
+        echo "--- before ---" >&2; printf '%s' "$expected" >&2
+        echo "--- after  ---" >&2; printf '%s' "$LLM_ENV_REAL_HOME_SNAPSHOT" >&2
+        LLM_ENV_REAL_HOME_SNAPSHOT="$expected"
+        return 1
+    fi
+    return 0
 }
 
 # Calculate dynamic timeout based on base timeout and system load
