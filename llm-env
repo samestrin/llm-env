@@ -8,7 +8,7 @@
 #   source ./llm-env config <command>
 
 # Version information
-LLM_ENV_VERSION="1.6.1"
+LLM_ENV_VERSION="1.7.0"
 
 # llm-env is sourced into the user's shell. A user who has `set -u` (nounset)
 # in their profile would otherwise abort on this script's own unset-variable

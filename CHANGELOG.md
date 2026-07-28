@@ -7,6 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-28
+
+Security and correctness release. Two confirmed remote-code-execution paths
+are closed, Windows (Git Bash and WSL2) is supported and tested in CI, and zsh
+works for the first time. 172 tests added (250 -> 422).
+
+### BREAKING CHANGES
+
+- **Switching provider now clears the other protocol's variables.** Previously
+  `llm-env set <openai-provider>` after an Anthropic one left
+  `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and the
+  `ANTHROPIC_DEFAULT_*` / `CLAUDE_CODE_SUBAGENT_MODEL` overrides exported.
+  Claude Code reads those, so it kept routing to the previous provider with the
+  previous credential while the user believed they had switched. Setting a
+  *group* still configures both protocols at once, which is its purpose.
+- **`cmd_config_restore` no longer skips confirmation when `BATS_TMPDIR` is
+  set.** That was a test hook in production code, and bats exports
+  `BATS_TMPDIR` to every child process, so anyone running under bats lost the
+  prompt before their config was overwritten. Use `LLM_ENV_ASSUME_YES=1`.
+- **`sanitize_config_value` removed.** It stripped `$ \` ; & |` from values --
+  corrupting any URL with a query string, including this project's own Alibaba
+  signup URL -- while leaving the apostrophe that was the actual injection
+  vector, and it ran only on the `config add` path. Values are now never
+  re-parsed, and identifiers are validated rather than silently mutated.
+- **Internal `$REPLY` and `$VERSION` renamed** to `__LLM_REPLY` and
+  `LLM_ENV_VERSION`. Anything reading those from a sourced `llm-env` must
+  update. The provider maps are also no longer inspectable arrays; use the
+  accessor functions.
+- **`cmd_config_bulk` returns non-zero when any provider failed** (it always
+  returned 0), and `config remove` / `config bulk` now fail for a provider that
+  does not exist instead of reporting success.
+
+### Security
+
+- **Config-driven code execution (two paths).** The accessor layer built shell
+  code by string interpolation and ran it through `eval`, so an apostrophe in
+  any config *value* escaped its quoting and `$(...)` in a *section name* was
+  executed -- both on `source llm-env <anything>`, before validation ran. This
+  was reachable as a supply chain: `quickstart-*.json` is scraped from live
+  provider APIs daily and squash-merged with no human review, and those strings
+  were written straight into the user's config. Both backends were replaced
+  with a single `eval`-free flat-scalar store.
+- **API key no longer passed in `curl` argv** by `llm-env test`, where `ps` and
+  `/proc/<pid>/cmdline` exposed it on a shared host.
+- **API keys written to shell rc files** are now created with `umask 077`
+  rather than the ambient umask, which had produced a world-readable file.
+- **Scraped catalog fields validated.** `upstream_id`, `description`,
+  `endpoints` and `signup_url` previously went into the config unchecked.
+- **`update-quickstart.yml` gates its auto-merge** on the refreshed catalog
+  parsing, emitting providers, and passing the quickstart suites. It previously
+  scraped and merged with no gate of any kind.
+- **`mask()` no longer reveals most of a short secret** (`abcd` showed `•bcd`).
+
+### Added
+
+- **Windows support**: Git Bash (MSYS2) and WSL2, with a required
+  `windows-latest` CI job.
+- **Platform detection** (`detect_platform`) driving the config search path and
+  shell-rc selection, with `LLM_ENV_PLATFORM` and friends as test overrides.
+- **zsh support**: `quickstart` was 100% broken under zsh and now produces
+  byte-identical output to bash.
+- `docs/technical-debt.md` recording deferred findings.
+
+### Fixed
+
+- **CRLF configs loaded zero providers silently** while still reporting
+  success, because a trailing CR defeated the section regex's `$` anchor.
+  `.gitattributes` now pins `eol=lf`, and the parser strips CR at runtime.
+- **`install.sh` never installed `config/llm-env.conf` or the quickstart JSON**,
+  so `llm-env quickstart` failed immediately after install on every platform.
+- **"Unknown provider" and "Provider disabled" could never print** -- `$?`
+  inside `if ! cmd` is the negated pipeline's status, always 0.
+- **`list --all` was silently ignored** (a missing `shift`), making disabled
+  providers unreachable from the CLI.
+- **`((x++))` returns 1 at zero**, aborting under a caller's `set -e` and
+  skipping the `set -u` restore. Fixed at 16 sites.
+- **Provider A's API key could be sent to provider B's endpoint** via a stale
+  `${ANTHROPIC_API_KEY:-...}` default.
+- **`cmd_config_remove` truncated the live config** before `awk` wrote a byte;
+  `cmd_config_bulk` never checked `awk`'s status before `mv`, and `mv` dropped
+  the file's permissions (600 -> 644). Both now rewrite atomically in place.
+- **`normalize_protocol` used a glob, not a trim**: `"  anthropic"` became `""`
+  and `"open ai"` became `"open"`, silently falling back to the openai protocol.
+- **The JSON parser truncated values containing `\"`** and emitted the contents
+  of nested objects as top-level pairs, producing bogus `[group:*]` sections.
+- **`llm-env test` reported success for unreachable hosts** (curl's `000` was
+  treated as an HTTP status) and did not follow redirects.
+- **Response timing showed `N/As`** on macOS and Git Bash (`date +%s.%N` is
+  GNU-only; `bc` is absent on Git Bash).
+- **OSC 8 hyperlink escapes leaked into pipes, files and CI logs** because the
+  TTY check could never work from inside the `$(...)` its callers used.
+- **Removed provider sections persisted on bash 3.2**, and **all providers
+  vanished on bash 4.0/4.1**, both consequences of the dual-backend design.
+- `quickstart` never reloaded the config, so key verification always reported
+  failure; its hardcoded `anth_synth_kimi-k2.5` no longer existed in the
+  catalog after the scraper renamed that model.
+- Backup directory honours `XDG_CONFIG_HOME`; backups are timestamped rather
+  than a single overwritten slot.
+- Windows documentation rewrote a PowerShell wrapper suggestion that could not
+  work (`bash -c "source ..."` sets variables in a child that then exits).
+
+### Removed
+
+- `lib/Config.psm1`, `lib/IniParser.psm1`, `lib/Providers.psm1` -- 43KB of
+  orphaned PowerShell modules referenced by nothing, predating protocols,
+  groups and quickstart entirely.
+
+### Internal
+
+- The `test-macos` CI matrix ran the same bash suite twice: bats is
+  `#!/usr/bin/env bash` and never consults `$SHELL`, so its "zsh" leg proved
+  nothing. Replaced with steps that spawn real `zsh` and real `/bin/bash` 3.2.
+- ShellCheck now lints every `*.sh` (was three named files), which is how a
+  bash-4.3-only `local -n` had reached the helper whose purpose is exercising
+  bash 3.2.
+- `llm-env` is ~90 lines shorter despite the added validation.
+
+
 ### Fixed
 - **Third-party Anthropic gateways now authenticate.** Anthropic-protocol
   providers that only declare `api_key_var` (the bundled `synthetic` and
