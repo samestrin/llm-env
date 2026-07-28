@@ -902,6 +902,74 @@ validate_provider() {
     return 0
 }
 
+# ---------- Safe config rewriting ----------
+#
+# Every command that edits the config went through
+#     transform ... "$config.backup" > "$config"
+# or
+#     transform ... "$config" > "$config.tmp" && mv "$config.tmp" "$config"
+#
+# The first form is unrecoverable: the shell truncates "$config" when it opens
+# the redirect, before the transform writes a byte, so any failure leaves an
+# empty config. The second never checked the transform's exit status, and mv
+# from a fresh umask-created temp silently dropped the original's permissions
+# (a chmod 600 config became 644).
+
+# Directory holding timestamped backups. Honours XDG_CONFIG_HOME, which
+# get_user_config_path already does -- the previous hardcoded $HOME/.config
+# orphaned backups from the config they belonged to.
+_config_backup_dir() {
+    printf '%s' "$(dirname "$(get_user_config_path)")/backups"
+}
+
+# Copy the config to a timestamped backup; echoes the path.
+# Includes $$ so two operations in the same second cannot collide.
+_config_backup_file() {
+    local src="$1" dir stamp out
+    dir="$(_config_backup_dir)"
+    mkdir -p "$dir" 2>/dev/null || return 1
+    stamp="$(date +%Y%m%d_%H%M%S)"
+    out="$dir/config-${stamp}-$$.conf"
+    cp "$src" "$out" 2>/dev/null || return 1
+    printf '%s' "$out"
+}
+
+# Rewrite $1 by piping it through the command in "$@" (from $2 on).
+# The transform reads the ORIGINAL on stdin and writes the new content on
+# stdout. The target is replaced only if the transform succeeds and produced
+# output; permissions and ownership of the original are preserved because we
+# write through the existing inode rather than mv-ing a new file over it.
+_config_atomic_write() {
+    local target="$1"; shift
+    local tmp rc
+
+    [[ -f "$target" ]] || return 1
+    tmp="$(mktemp "${target}.XXXXXX")" || return 1
+
+    if ! "$@" < "$target" > "$tmp"; then
+        rc=$?
+        rm -f "$tmp"
+        debug "config rewrite failed (rc=$rc); '$target' left untouched"
+        return 1
+    fi
+
+    # A transform that produced nothing is treated as a failure: no config
+    # command has a legitimate reason to empty the file.
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        debug "config rewrite produced empty output; '$target' left untouched"
+        return 1
+    fi
+
+    # Overwrite in place so mode, owner and any ACL survive.
+    if ! cat "$tmp" > "$target"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
 # ---------- Managed environment ----------
 #
 # Single source of truth for the variables llm-env owns, per protocol. Both
@@ -1569,7 +1637,24 @@ cmd_config_add() {
     if [[ ! -f "$user_config" ]]; then
         cmd_config_init || return 1
     fi
-    
+
+    # Refuse a duplicate rather than appending a second [provider] section.
+    # Two sections with the same name meant the later one silently won at load
+    # time while the earlier sat there as dead weight. _qs_emit_provider has
+    # always checked this; config add did not.
+    if grep -qFx "[$provider]" "$user_config"; then
+        echo "❌ Provider '$provider' already exists in $user_config" >&2
+        echo "   Use 'config remove $provider' first, or pick another name." >&2
+        return 1
+    fi
+
+    # Required fields must be non-empty, otherwise load_config drops the
+    # provider with only a debug message and the user never learns why.
+    if [[ -z "$base_url" || -z "$api_key_var" || -z "$default_model" ]]; then
+        echo "❌ base_url, api_key_var and default_model are all required." >&2
+        return 1
+    fi
+
     # Append new provider
     {
         echo ""
@@ -1592,38 +1677,83 @@ cmd_config_remove() {
         return 1
     fi
     
-    # Validate provider name format
-    if ! validate_provider_name "$provider"; then
-        return 1
-    fi
-    
+    # Accept "group:name" as well as a plain provider. Group sections were
+    # previously unremovable, so quickstart-created groups accumulated forever.
+    local section_kind="provider" section_name="$provider"
+    case "$provider" in
+        group:*)
+            section_kind="group"
+            section_name="${provider#group:}"
+            if ! _llm_id_is_safe "$section_name"; then
+                echo "Error: Invalid group name '$section_name'." >&2
+                return 1
+            fi
+            ;;
+        *)
+            if ! validate_provider_name "$provider"; then
+                return 1
+            fi
+            ;;
+    esac
+
     local user_config
     user_config="$(get_user_config_path)"
-    
+
     if [[ ! -f "$user_config" ]]; then
         echo "❌ User configuration not found: $user_config"
         return 1
     fi
-    
-    # Create backup
-    cp "$user_config" "$user_config.backup"
-    
-    # Remove provider section
-    awk -v provider="$provider" '
-        BEGIN { in_section = 0 }
-        /^\[/ { 
-            if ($0 == "[" provider "]") {
-                in_section = 1
-                next
-            } else {
-                in_section = 0
-            }
+
+    # Refuse rather than report a phantom success. This used to print
+    # "✅ Removed" unconditionally, so a typo looked like a removal.
+    if ! grep -qFx "[$provider]" "$user_config"; then
+        echo "❌ No such $section_kind in $user_config: $provider" >&2
+        return 1
+    fi
+
+    local backup
+    backup="$(_config_backup_file "$user_config")" || {
+        echo "❌ Could not create a backup; refusing to modify the config." >&2
+        return 1
+    }
+
+    # Also drops the "# <description>" comment _qs_emit_provider writes
+    # directly above each section, which otherwise accumulated as orphans.
+    # $0 below is awk's own field variable and must NOT be expanded by the
+    # shell; the section name is passed in safely via -v.
+    # shellcheck disable=SC2016
+    if ! _config_atomic_write "$user_config" awk -v section="[$provider]" '
+        BEGIN { in_section = 0; pending = "" }
+        {
+            line = $0
+            sub(/\r$/, "", line)
         }
-        !in_section { print }
-    ' "$user_config.backup" > "$user_config"
-    
-    echo "✅ Removed provider '$provider' from $user_config"
-    echo "💡 Backup saved as $user_config.backup"
+        line ~ /^\[/ {
+            if (line == section) { in_section = 1; pending = ""; next }
+            in_section = 0
+            if (pending != "") { print pending; pending = "" }
+            print
+            next
+        }
+        in_section { next }
+        # Hold a lone comment: it belongs to whatever section follows.
+        line ~ /^#/ && pending == "" { pending = $0; next }
+        {
+            if (pending != "") { print pending; pending = "" }
+            print
+        }
+        END { if (pending != "") print pending }
+    '; then
+        echo "❌ Failed to rewrite $user_config; it is unchanged." >&2
+        echo "   A backup of the current contents is at $backup" >&2
+        return 1
+    fi
+
+    # Refresh the in-memory view so `list` does not keep showing the removal.
+    init_config >/dev/null 2>&1 || true
+
+    echo "✅ Removed $section_kind '$provider' from $user_config"
+    echo "💡 Backup saved as $backup"
 }
 
 cmd_test() {
@@ -3027,7 +3157,8 @@ cmd_config_backup() {
     fi
     
     # Create backup directory if it doesn't exist
-    local backup_dir="$HOME/.config/llm-env/backups"
+    local backup_dir
+    backup_dir="$(_config_backup_dir)"
     mkdir -p "$backup_dir"
     
     # Generate timestamp for backup filename
@@ -3063,7 +3194,8 @@ cmd_config_restore() {
         echo "Usage: source llm-env config restore <backup_file>"
         echo ""
         echo "Available backups:"
-        local backup_dir="$HOME/.config/llm-env/backups"
+        local backup_dir
+    backup_dir="$(_config_backup_dir)"
         if [[ -d "$backup_dir" ]]; then
             find "$backup_dir" -name "*.conf" -type f -exec ls -lt {} + 2>/dev/null | head -10 | while read -r line; do
                 echo "  $line"
@@ -3080,7 +3212,11 @@ cmd_config_restore() {
     fi
     
     # Confirm before restoring (skip in test environment)
-    if [[ -z "$BATS_TMPDIR" ]]; then
+    # Confirmation is skipped only on an explicit opt-in. This used to test
+    # $BATS_TMPDIR, which bats exports to every child process -- so anyone
+    # running under bats, including this project's own developers, silently
+    # lost the prompt before their config was overwritten.
+    if [[ "${LLM_ENV_ASSUME_YES:-}" != "1" ]]; then
         echo "⚠️  This will overwrite your current configuration:"
         echo "   Current: $user_config"
         echo "   Restore from: $backup_file"
@@ -3186,11 +3322,35 @@ cmd_config_bulk() {
         esac
         
         # Update configuration file
-        # Use awk to update the enabled value for the provider
-        awk -v provider="${provider}" -v enabled="${enabled_value}" '
+        # Check against the FILE being edited, not the in-memory config: the
+        # loaded config may have come from a different precedence tier, in
+        # which case awk found nothing and this still reported success.
+        if ! grep -qFx "[${provider}]" "${user_config}"; then
+            failed_providers+=("${provider} (not found in ${user_config})")
+            continue
+        fi
+
+        # Rewrite atomically. Previously awk's exit status was never checked
+        # before an unconditional mv, so a failed or missing awk replaced the
+        # config with an empty file and still printed a success line; and mv
+        # from a fresh temp dropped the original's mode (600 -> 644).
+        #
+        # The section/enabled matching tolerates leading whitespace and a
+        # trailing CR: /^enabled=/ missed "  enabled=true" and appended a
+        # duplicate key instead of updating the existing one.
+        # $0 is awk's field variable; values are passed via -v.
+        # shellcheck disable=SC2016
+        if _config_atomic_write "${user_config}" \
+            awk -v section="[${provider}]" -v enabled="${enabled_value}" '
             BEGIN { in_section = 0; found = 0; found_enabled = 0 }
-            /^\[/ { 
-                if ($0 == "[" provider "]") {
+            {
+                line = $0
+                sub(/\r$/, "", line)
+                stripped = line
+                sub(/^[ \t]+/, "", stripped)
+            }
+            stripped ~ /^\[/ {
+                if (stripped == section) {
                     in_section = 1
                     found = 1
                 } else {
@@ -3200,8 +3360,10 @@ cmd_config_bulk() {
                     }
                     in_section = 0
                 }
+                print
+                next
             }
-            in_section && /^enabled=/ { 
+            in_section && stripped ~ /^enabled=/ {
                 print "enabled=" enabled
                 found_enabled = 1
                 next
@@ -3212,13 +3374,11 @@ cmd_config_bulk() {
                     print "enabled=" enabled
                 }
             }
-        ' "${user_config}" > "${user_config}.tmp"
-        
-        if mv "${user_config}.tmp" "${user_config}"; then
+        '; then
             echo "  ✅ ${provider}: ${action}"
             success_count=$((success_count + 1))
         else
-            failed_providers+=("${provider} (update failed)")
+            failed_providers+=("${provider} (update failed; config unchanged)")
         fi
     done
     
@@ -3239,6 +3399,10 @@ cmd_config_bulk() {
     echo ""
     echo "💡 Run 'source llm-env config validate' to verify changes"
     echo "💡 Run 'source llm-env list' to see updated provider list"
+
+    # Report failure to the caller. It always returned 0, so a scripted bulk
+    # operation could not tell that nothing had been changed.
+    [[ ${#failed_providers[@]} -eq 0 ]]
 }
 
 # ---------- Entry Point ----------
