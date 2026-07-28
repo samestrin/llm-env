@@ -26,8 +26,20 @@ detect_shell() {
     if [[ -n "${ZSH_VERSION:-}" ]]; then
         CURRENT_SHELL="zsh"
         SHELL_VERSION="${ZSH_VERSION}"
-        # Enable bash compatibility for regex matching (BASH_REMATCH array)
-        setopt BASH_REMATCH 2>/dev/null || true
+        # Deliberately NOT `setopt BASH_REMATCH`.
+        #
+        # llm-env is sourced into the user's interactive shell, and setopt
+        # without `localoptions` is permanent for that session. Enabling
+        # BASH_REMATCH changes how every later regex match populates $match and
+        # $MATCH -- they stop being set at all -- silently breaking any zsh
+        # plugin, prompt, or completion that reads them. `localoptions` is not
+        # an alternative here: it would restore the option on return from
+        # detect_shell, long before the matches that need it.
+        #
+        # get_match reads zsh's native $match array instead, which also removes
+        # the fragile index offset the option required (captures landed at
+        # [2]/[3] under BASH_REMATCH but [1]/[2] without it).
+        :
     elif [[ -n "${BASH_VERSION:-}" ]]; then
         CURRENT_SHELL="bash"
         SHELL_VERSION="${BASH_VERSION}"
@@ -36,6 +48,27 @@ detect_shell() {
         SHELL_VERSION="0.0"
     fi
     export CURRENT_SHELL SHELL_VERSION
+}
+
+# Get a regex capture group. Sets the global __LLM_REPLY (no stdout, no fork).
+# Usage: get_match 1; result=$__LLM_REPLY   # first capture group
+# Call immediately after the matching [[ =~ ]] while the captures are current.
+#
+# bash exposes captures in BASH_REMATCH, 0-indexed with the whole match at [0].
+# zsh exposes them in its native $match array, 1-indexed with capture 1 at [1].
+# Reading $match directly means the script no longer has to enable -- and
+# permanently leak into the user's session -- the BASH_REMATCH option purely to
+# borrow bash's names. See detect_shell.
+#
+# The shell test is at call time rather than source time because
+# parse_bash_version calls this while establishing CURRENT_SHELL itself.
+get_match() {
+    if [[ "${CURRENT_SHELL:-}" == "zsh" ]]; then
+        # shellcheck disable=SC2154  # $match is a zsh builtin array
+        eval '__LLM_REPLY="${match[$1]-}"'
+    else
+        __LLM_REPLY="${BASH_REMATCH[$1]-}"
+    fi
 }
 
 # Parse shell version for compatibility features
@@ -53,9 +86,11 @@ parse_bash_version() {
         # Parse zsh version
         version="${ZSH_VERSION:-5.0}"
         if [[ "${version}" =~ ^([0-9]+)\.([0-9]+) ]]; then
-            # With BASH_REMATCH option and 1-indexed arrays: [2] is first capture, [3] is second
-            major="${BASH_REMATCH[2]}"
-            minor="${BASH_REMATCH[3]}"
+            # Read captures via get_match, which uses zsh's native $match. The
+            # old [2]/[3] indices only held while the BASH_REMATCH option was
+            # enabled -- an offset that silently inverted when it was not.
+            get_match 1; major="$__LLM_REPLY"
+            get_match 2; minor="$__LLM_REPLY"
         else
             major=5
             minor=0
@@ -133,21 +168,7 @@ get_script_dir() {
 # Initialize bash version detection
 parse_bash_version
 
-# Helper function to get regex match at index (works in both bash and zsh)
-# Sets the global __LLM_REPLY to the capture group (no stdout, no subshell fork).
-# Usage: get_match 1; result=$__LLM_REPLY   # first capture group
-# Call immediately after the matching [[ =~ ]] so BASH_REMATCH is still current.
-# In bash: BASH_REMATCH is 0-indexed, so capture group 1 is at index 1
-# In zsh with BASH_REMATCH option: array is 1-indexed, so capture group 1 is at index 2
-get_match() {
-    local index="$1"
-    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-        # Zsh arrays are 1-indexed, so add 1 to get equivalent position
-        __LLM_REPLY="${BASH_REMATCH[$((index + 1))]}"
-    else
-        __LLM_REPLY="${BASH_REMATCH[$index]}"
-    fi
-}
+# (get_match is defined above, before parse_bash_version needs it.)
 
 # Helper function for indirect variable expansion (works in both bash and zsh)
 # Sets the global __LLM_REPLY to the named variable's value (empty if unset).
@@ -213,9 +234,17 @@ if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
     __llm_var_get()   { eval '__LLM_REPLY="${(P)1-}"'; }
     # shellcheck disable=SC2296
     __llm_var_isset() { eval '[[ -n "${(P)1+x}" ]]'; }
+    # zsh does NOT word-split unquoted parameter expansions (no SH_WORD_SPLIT
+    # by default), so `for x in $space_separated_list` iterates ONCE with the
+    # whole string. ${=1} forces the split.
+    __llm_split()     { eval '__LLM_WORDS=(${=1})'; }
 else
     __llm_var_get()   { __LLM_REPLY="${!1-}"; }
     __llm_var_isset() { [[ -n "${!1+x}" ]]; }
+    # Inputs are our own fixed identifier lists, so there is nothing for
+    # pathname expansion to act on here.
+    # shellcheck disable=SC2206
+    __llm_split()     { __LLM_WORDS=($1); }
 fi
 
 # Canonical identifier predicate. Provider ids legitimately contain dots and
@@ -537,7 +566,8 @@ init_config() {
     # (bash 4.0/4.1), which created function-locals that were destroyed on
     # return, emptying the whole provider set.
     local __m
-    for __m in $LLM_PROVIDER_MAPS; do
+    __llm_split "$LLM_PROVIDER_MAPS"
+    for __m in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
         clear_provider_map "$__m"
     done
     AVAILABLE_PROVIDERS=()
@@ -896,7 +926,8 @@ _clear_protocol_env() {
         anthropic) __vars="$LLM_MANAGED_VARS_ANTHROPIC" ;;
         *)         return 1 ;;
     esac
-    for __v in $__vars; do
+    __llm_split "$__vars"
+    for __v in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
         unset "$__v"
     done
 }
@@ -1197,7 +1228,8 @@ cmd_unset() {
     _clear_protocol_env openai
     _clear_protocol_env anthropic
     local __v
-    for __v in $LLM_MANAGED_VARS_COMMON; do
+    __llm_split "$LLM_MANAGED_VARS_COMMON"
+    for __v in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
         unset "$__v"
     done
 
@@ -1822,7 +1854,7 @@ _qs_json_object() {
     # Walk the object respecting nested braces and strings.
     local in_string=false esc=false
     for (( i=0; i<${#rest}; i++ )); do
-        ch="${rest:i:1}"
+        ch="${rest:$i:1}"
         out+="$ch"
         if [[ "$in_string" == true ]]; then
             if [[ "$esc" == true ]]; then
@@ -1866,7 +1898,7 @@ _qs_json_array_body() {
     # Skip the opening [.
     rest="${rest:1}"
     for (( i=0; i<${#rest}; i++ )); do
-        ch="${rest:i:1}"
+        ch="${rest:$i:1}"
         if [[ "$in_string" == true ]]; then
             out+="$ch"
             if [[ "$esc" == true ]]; then
@@ -1902,7 +1934,7 @@ _qs_split_object_array() {
     local body="$1"
     local depth=0 i ch out="" in_string=false esc=false started=false
     for (( i=0; i<${#body}; i++ )); do
-        ch="${body:i:1}"
+        ch="${body:$i:1}"
         if [[ "$in_string" == true ]]; then
             out+="$ch"
             if [[ "$esc" == true ]]; then
@@ -2036,6 +2068,11 @@ _qs_process_v2_file() {
     # Parse models[] block by block. Objects are NUL-delimited to survive
     # multi-line content.
     local model_obj id family version description upstream_id protocols_body
+    # Loop-scoped variables are declared ONCE here, never inside the loops
+    # below: zsh prints "name=<previous value>" when `local` re-declares an
+    # existing local, which corrupts stdout mid-run (and leaked $proto).
+    local proto have_openai have_anthropic proto_csv default_model pname
+    local pair fam fam_id idx j providers_csv __n __base
     while IFS= read -r -d '' model_obj; do
         [[ -z "$model_obj" ]] && continue
         id="$(_qs_json_string "$model_obj" "id")"
@@ -2056,7 +2093,7 @@ _qs_process_v2_file() {
 
         # Compute available protocols intersecting model.protocols with what
         # the file's endpoints declare.
-        local proto have_openai=false have_anthropic=false
+        have_openai=false; have_anthropic=false
         while IFS= read -r proto; do
             [[ -z "$proto" ]] && continue
             case "$proto" in
@@ -2066,7 +2103,7 @@ _qs_process_v2_file() {
         done < <(_qs_extract_string_array "$protocols_body")
 
         # Track for family_latest emission.
-        local proto_csv=""
+        proto_csv=""
         [[ "$have_openai"    == true ]] && proto_csv="openai"
         if [[ "$have_anthropic" == true ]]; then
             [[ -n "$proto_csv" ]] && proto_csv+=","
@@ -2075,15 +2112,15 @@ _qs_process_v2_file() {
         model_ids+=("$id")
         model_protocols+=("$proto_csv")
 
-        local default_model="${upstream_id:-$id}"
+        default_model="${upstream_id:-$id}"
 
         if [[ "$have_openai" == true ]]; then
-            local pname="openai_${vendor_short}_${id}"
+            pname="openai_${vendor_short}_${id}"
             _qs_emit_provider "$user_config" "$pname" "$endpoint_openai" \
                 "$api_key_var" "$default_model" "$description" "openai" "$signup_url"
         fi
         if [[ "$have_anthropic" == true ]]; then
-            local pname="anth_${vendor_short}_${id}"
+            pname="anth_${vendor_short}_${id}"
             _qs_emit_provider "$user_config" "$pname" "$endpoint_anthropic" \
                 "$api_key_var" "$default_model" "$description" "anthropic" "$signup_url"
         fi
@@ -2098,7 +2135,6 @@ _qs_process_v2_file() {
 
     # Family-latest groups.
     if [[ -n "$family_latest_obj" ]]; then
-        local pair fam fam_id idx j providers_csv
         while IFS= read -r pair; do
             [[ -z "$pair" ]] && continue
             fam="${pair%%=*}"
@@ -2112,10 +2148,17 @@ _qs_process_v2_file() {
             fi
             # Look up protocols for this model id from the parallel arrays.
             idx=-1
-            for j in ${model_ids[@]+"${!model_ids[@]}"}; do
+            # ${!arr[@]} is a bash-only index expansion ("bad substitution" in
+            # zsh). Walk by count instead, which is portable. Note zsh arrays
+            # are 1-indexed, hence __base.
+            __n=${#model_ids[@]}
+            if [[ "${CURRENT_SHELL}" == "zsh" ]]; then __base=1; else __base=0; fi
+            j=$__base
+            while [[ $j -lt $((__n + __base)) ]]; do
                 if [[ "${model_ids[$j]}" == "$fam_id" ]]; then
                     idx="$j"; break
                 fi
+                j=$((j + 1))
             done
             if [[ "$idx" -lt 0 ]]; then
                 echo "  ⚠️  family_latest references unknown model id '$fam_id'" >&2
@@ -2216,7 +2259,11 @@ _qs_resolve_selection() {
     # currently available. Build the result preserving caller's order.
     local IFS=','
     local -a tokens
-    read -r -a tokens <<< "$arg"
+    # zsh's `read` has no -a (it spells it -A), so this aborted the whole
+    # sourced file with "bad option: -a". __llm_split works in both shells.
+    __llm_split "$arg"
+    local -a tokens
+    tokens=(${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"})
     local out=""
     local tok
     for tok in ${tokens[@]+"${tokens[@]}"}; do
@@ -2281,7 +2328,9 @@ _qs_key_already_set() {
     local var="$1" rc_file="$2"
     [[ -z "$var" ]] && return 1
     # Env check.
-    if [[ -n "${!var:-}" ]]; then
+    # ${!var} is bash-only indirect expansion ("bad substitution" in zsh).
+    get_var_value "$var"
+    if [[ -n "$__LLM_REPLY" ]]; then
         return 0
     fi
     # rc-file check.
@@ -2376,6 +2425,15 @@ cmd_quickstart() {
     echo "🚀 Quickstart - Adding provider definitions from quickstart JSON files"
     echo
 
+    # Declare every loop-scoped local ONCE, here, before any loop runs.
+    #
+    # zsh prints "name=<previous value>" when `local name` re-declares an
+    # existing local, so declaring these inside the per-source loop leaked
+    # their contents to the terminal on the second and later iterations. For
+    # $key that value came from `read -s` -- the API key, in cleartext.
+    local src="" json_file="" api_key_var="" signup_url="" verify_provider=""
+    local key="" rc_file=""
+
     # Locate quickstart JSON files. LLM_ENV_QUICKSTART_DIR overrides the
     # script directory (used by tests and advanced setups).
     local quickstart_dir="${LLM_ENV_QUICKSTART_DIR:-$(get_script_dir)}"
@@ -2417,7 +2475,8 @@ cmd_quickstart() {
     fi
 
     # Detect shell rc once up-front (empty for unsupported shells).
-    local rc_file
+    # rc_file is declared at the top of the function; re-declaring it here
+    # would make zsh print its current value.
     rc_file="$(_qs_detect_shell_rc)"
 
     _qs_added_names=()
@@ -2427,12 +2486,20 @@ cmd_quickstart() {
         interactive=true
     fi
 
-    local src
+    # (src is declared at the top of the function; re-declaring it here made
+    # zsh print "src=''" to stdout.)
     local IFS_old="$IFS"
     IFS=','
-    for src in $selection; do
+    # zsh does not word-split an unquoted expansion, so this iterated ONCE
+    # with the whole "synthetic,alibaba" string, matched no case arm, and left
+    # json_file empty -- the visible symptom was "Quickstart file is empty:".
+    __llm_split "$selection"
+    for src in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
         IFS="$IFS_old"
-        local json_file="" api_key_var="" signup_url="" verify_provider=""
+        # (json_file/api_key_var/signup_url/verify_provider are declared once
+        # at the top of the function -- see the note there about zsh printing
+        # a re-declared local.)
+        json_file=""; api_key_var=""; signup_url=""; verify_provider=""
         case "$src" in
             synthetic)
                 json_file="$synthetic_json"
@@ -2466,7 +2533,12 @@ cmd_quickstart() {
                 echo
                 printf '   Press Enter once you have your key (or '\''s'\'' + Enter to skip): '
                 read -r _   # discard; just a pause
-                local key
+                # NOTE: `key` is declared once at the top of this function,
+                # not here. Re-declaring an existing local inside a loop makes
+                # zsh PRINT "key=<previous value>" -- and the previous value
+                # came from _qs_prompt_api_key's `read -s`, so the API key was
+                # echoed to the terminal in cleartext from the second source
+                # onward.
                 if key="$(_qs_prompt_api_key "$api_key_var")"; then
                     if [[ -n "$rc_file" ]]; then
                         if _qs_append_export_to_rc "$api_key_var" "$key" "$rc_file"; then

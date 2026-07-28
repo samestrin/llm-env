@@ -133,9 +133,35 @@ _zsh() {
 }
 
 @test "zsh: quickstart adds providers to the config" {
-    _zsh "source '$SUT' quickstart all </dev/null >/dev/null 2>&1
-          grep -c '^\\[openai_' \"\$XDG_CONFIG_HOME/llm-env/config.conf\" 2>/dev/null || print -r -- 0"
-    [ "$output" -gt 0 ]
+    _zsh "source '$SUT' quickstart all </dev/null >/dev/null 2>&1"
+    local cfg="$XDG_CONFIG_HOME/llm-env/config.conf"
+    [ -f "$cfg" ]
+    local n
+    n="$(grep -c '^\[openai_' "$cfg" 2>/dev/null || true)"
+    [ "${n:-0}" -gt 0 ]
+}
+
+@test "zsh: quickstart produces the same provider count as bash" {
+    # Both runs must start from the same state: setup() seeds a config with
+    # [alpha], and quickstart APPENDS, so failing to clear before each run
+    # compares 1+N against N.
+    local cfg="$XDG_CONFIG_HOME/llm-env/config.conf"
+
+    rm -f "$cfg"
+    _zsh "source '$SUT' quickstart all </dev/null >/dev/null 2>&1"
+    local zsh_n
+    zsh_n="$(grep -c '^\[' "$cfg" 2>/dev/null || true)"
+
+    rm -f "$cfg"
+    run env HOME="$HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
+        LLM_ENV_QUICKSTART_DIR="$REPO" bash -c "source '$SUT' quickstart all </dev/null >/dev/null 2>&1"
+    local bash_n
+    bash_n="$(grep -c '^\[' "$cfg" 2>/dev/null || true)"
+
+    [ "${zsh_n:-0}" -gt 0 ]
+    [ "${zsh_n:-0}" -eq "${bash_n:-0}" ] || {
+        echo "zsh emitted ${zsh_n} sections, bash emitted ${bash_n}"; return 1
+    }
 }
 
 @test "zsh: quickstart accepts a single named source" {
@@ -152,27 +178,35 @@ _zsh() {
 
 # ---- secret handling ----
 
-@test "zsh: a read -s secret is never echoed by a loop-local redeclaration" {
-    # In zsh, `local x` on an already-declared local PRINTS "x=previousvalue".
-    # In the quickstart key loop that previous value came from read -s, so the
-    # API key was echoed in cleartext on the second and later iterations.
-    _zsh "source '$SUT' >/dev/null 2>&1
-          f() { local i; for i in 1 2 3; do local secret; secret=sk-live-CANARY-\$i; done; }
-          f"
-    [[ "$output" != *"sk-live-CANARY"* ]]
+@test "zsh: the interactive key prompt never echoes the key" {
+    # In zsh, `local x` on an already-declared local PRINTS "x=<previous>". In
+    # the quickstart per-source loop that previous value came from
+    # _qs_prompt_api_key's `read -s`, so the API key was echoed in cleartext
+    # from the second source onward. Drive the real interactive path with a
+    # canary key and assert it never appears in the output.
+    _zsh "export LLM_ENV_ASSUME_INTERACTIVE=1
+          source '$SUT' quickstart all <<'KEYS' 2>&1
+sk-live-CANARY-0000
+sk-live-CANARY-1111
+KEYS
+"
+    [[ "$output" != *"sk-live-CANARY"* ]] || {
+        echo "API key echoed to the terminal:"; printf '%s\n' "$output"; return 1
+    }
 }
 
-@test "zsh: no function re-declares a local inside a loop body" {
-    # Structural guard: the pattern above is invisible until it leaks a secret.
-    run grep -nE '^\s+local [a-z_]+$' "$BATS_TEST_DIRNAME/../../llm-env"
-    # Any hit must be OUTSIDE a loop. Report them for manual review rather than
-    # failing outright -- see the accompanying comment in llm-env.
-    if [ "$status" -eq 0 ]; then
-        # Declarations hoisted above their loops are fine; the guard exists to
-        # make new ones visible in review.
-        echo "$output" | while read -r line; do echo "# hoisted-local: $line" >&3; done
-    fi
-    true
+@test "zsh: cmd_quickstart declares each loop-scoped local exactly once" {
+    # Structural guard for the class. A second `local key` anywhere inside
+    # cmd_quickstart re-introduces the leak above, and it is invisible in
+    # review because on bash it is harmless.
+    local body
+    body="$(awk '/^cmd_quickstart\(\)/,/^}/' "$BATS_TEST_DIRNAME/../../llm-env")"
+    [ -n "$body" ]
+    local v n
+    for v in key rc_file src json_file api_key_var signup_url verify_provider; do
+        n="$(printf '%s\n' "$body" | grep -cE "^[[:space:]]*local ([a-z_]+=[^ ]* )*${v}\b" || true)"
+        [ "${n:-0}" -le 1 ] || { echo "cmd_quickstart declares '$v' ${n} times"; return 1; }
+    done
 }
 
 # ---- prompts ----
