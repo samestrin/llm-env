@@ -868,9 +868,14 @@ set_single_provider() {
         return 1
     fi
 
-    # Validate provider
-    if ! validate_provider "$provider"; then
-        case $? in
+    # Validate provider.
+    # Capture the status explicitly: inside `if ! cmd`, $? is the status of the
+    # negated pipeline (always 0), so the case below never matched and neither
+    # message could ever print.
+    local validate_rc=0
+    validate_provider "$provider" || validate_rc=$?
+    if [[ $validate_rc -ne 0 ]]; then
+        case $validate_rc in
             1) echo "❌ Unknown provider: $provider" ;;
             2) echo "❌ Provider disabled: $provider" ;;
         esac
@@ -1031,15 +1036,24 @@ set_multiple_providers() {
         # Trim whitespace
         trim "$provider"; provider="$__LLM_REPLY"
         [[ -z "$provider" ]] && continue
-        ((count+=1))
+        count=$((count + 1))
         if ! set_single_provider "$provider"; then
-            ((failed+=1))
+            failed=$((failed + 1))
         fi
     done <<< "$(echo "$provider_list" | tr ',' '\n')"
 
-    if [[ "$count" -gt 1 ]]; then
-        # For multi-provider sets, update LLM_PROVIDER to show all
+    if [[ "$failed" -eq 0 && "$count" -gt 1 ]]; then
+        # Multi-provider set: LLM_PROVIDER shows the whole list.
+        # Gated on failed==0, not just count>1. Previously a group whose
+        # providers had all failed still exported LLM_PROVIDER, so `show`
+        # reported an active provider that had no credentials.
         export LLM_PROVIDER="$provider_list"
+    elif [[ "$failed" -ne 0 && "$count" -gt 1 ]]; then
+        # A partially- or wholly-failed group must not leave a stale
+        # LLM_PROVIDER from an earlier successful set.
+        if [[ "$failed" -eq "$count" ]]; then
+            unset LLM_PROVIDER
+        fi
     fi
 
     echo
@@ -1745,8 +1759,8 @@ _qs_json_object() {
         fi
         case "$ch" in
             '"') in_string=true ;;
-            '{') ((depth++)) ;;
-            '}') ((depth--))
+            '{') depth=$((depth + 1)) ;;
+            '}') depth=$((depth - 1))
                 if [[ $depth -eq 0 ]]; then
                     printf '%s' "$out"
                     return 0
@@ -1789,13 +1803,13 @@ _qs_json_array_body() {
         fi
         case "$ch" in
             '"') in_string=true; out+="$ch" ;;
-            '[') ((depth++)); out+="$ch" ;;
+            '[') depth=$((depth + 1)); out+="$ch" ;;
             ']')
                 if [[ $depth -eq 0 ]]; then
                     printf '%s' "$out"
                     return 0
                 fi
-                ((depth--)); out+="$ch"
+                depth=$((depth - 1)); out+="$ch"
                 ;;
             *) out+="$ch" ;;
         esac
@@ -1829,10 +1843,10 @@ _qs_split_object_array() {
                 if [[ "$started" == false ]]; then
                     started=true; out=""
                 fi
-                ((depth++)); out+="$ch"
+                depth=$((depth + 1)); out+="$ch"
                 ;;
             '}')
-                ((depth--)); out+="$ch"
+                depth=$((depth - 1)); out+="$ch"
                 if [[ $depth -eq 0 ]]; then
                     printf '%s\0' "$out"
                     out=""
@@ -2522,10 +2536,10 @@ cmd_config_validate() {
         # Check required fields
         if [[ -z "$base_url" ]]; then
             echo "  ❌ Missing base_url"
-            ((errors++))
+            errors=$((errors + 1))
         elif [[ ! "$base_url" =~ $url_pattern ]]; then
             echo "  ⚠️  base_url should start with http:// or https://"
-            ((warnings++))
+            warnings=$((warnings + 1))
         else
             echo "  ✅ base_url: $base_url"
         fi
@@ -2534,14 +2548,14 @@ cmd_config_validate() {
         if [[ "$protocol" == "anthropic" ]]; then
             if [[ -z "$api_key_var" && -z "$auth_token_var" ]]; then
                 echo "  ❌ Missing api_key_var or auth_token_var"
-                ((errors++))
+                errors=$((errors + 1))
             else
                 if [[ -n "$api_key_var" ]]; then
                     echo "  ✅ api_key_var: $api_key_var"
                     get_var_value "$api_key_var"; cred_val="$__LLM_REPLY"
                     if [[ -z "$cred_val" ]]; then
                         echo "  ⚠️  API key not set: $api_key_var"
-                        ((warnings++))
+                        warnings=$((warnings + 1))
                     else
                         echo "  ✅ API key is set"
                     fi
@@ -2551,7 +2565,7 @@ cmd_config_validate() {
                     get_var_value "$auth_token_var"; cred_val="$__LLM_REPLY"
                     if [[ -z "$cred_val" ]]; then
                         echo "  ⚠️  Auth token not set: $auth_token_var"
-                        ((warnings++))
+                        warnings=$((warnings + 1))
                     else
                         echo "  ✅ Auth token is set"
                     fi
@@ -2559,7 +2573,7 @@ cmd_config_validate() {
             fi
         elif [[ -z "$api_key_var" ]]; then
             echo "  ❌ Missing api_key_var"
-            ((errors++))
+            errors=$((errors + 1))
         else
             echo "  ✅ api_key_var: $api_key_var"
 
@@ -2567,7 +2581,7 @@ cmd_config_validate() {
             get_var_value "$api_key_var"; cred_val="$__LLM_REPLY"
             if [[ -z "$cred_val" ]]; then
                 echo "  ⚠️  API key not set: $api_key_var"
-                ((warnings++))
+                warnings=$((warnings + 1))
             else
                 echo "  ✅ API key is set"
             fi
@@ -2575,14 +2589,14 @@ cmd_config_validate() {
         
         if [[ -z "$default_model" ]]; then
             echo "  ❌ Missing default_model"
-            ((errors++))
+            errors=$((errors + 1))
         else
             echo "  ✅ default_model: $default_model"
         fi
         
         if [[ "$enabled" != "true" && "$enabled" != "false" ]]; then
             echo "  ⚠️  enabled should be 'true' or 'false', got: $enabled"
-            ((warnings++))
+            warnings=$((warnings + 1))
         fi
         
         echo
@@ -2810,7 +2824,7 @@ cmd_config_bulk() {
         
         if mv "${user_config}.tmp" "${user_config}"; then
             echo "  ✅ ${provider}: ${action}"
-            ((success_count++))
+            success_count=$((success_count + 1))
         else
             failed_providers+=("${provider} (update failed)")
         fi
@@ -2861,6 +2875,10 @@ case "$1" in
         cmd_unset
         ;;
     list)
+        # shift first: without it cmd_list's $1 was the literal string "list",
+        # so `[[ "$1" == "--all" ]]` never matched and disabled providers were
+        # unreachable from the CLI.
+        shift
         cmd_list "$@"
         ;;
     show)
