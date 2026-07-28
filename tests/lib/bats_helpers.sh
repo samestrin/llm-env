@@ -412,6 +412,258 @@ skip_if_no_hires_clock() {
     fi
 }
 
+# ---- Cross-shell execution harness -------------------------------------------
+#
+# bats is #!/usr/bin/env bash and never consults $SHELL, so CI's
+# `shell: [bash, zsh]` matrix runs a byte-identical bash suite twice. Genuine
+# zsh and bash-3.2 coverage requires spawning those interpreters explicitly.
+
+# run_in_shell <shell> <sut-path> [args...]
+# Sources the SUT under the named interpreter and populates bats' $status and
+# $output. Args are single-quoted; they are CLI subcommands and flags, so an
+# embedded apostrophe is out of contract.
+run_in_shell() {
+    local shell_bin="$1"; shift
+    local sut="$1"; shift
+
+    local cmd="source '$sut'" a
+    for a in "$@"; do
+        cmd="$cmd '$a'"
+    done
+
+    local -a pre=()
+    case "$shell_bin" in
+        # -f / --no-rcs: ignore the developer's own rc files so the run is
+        # reproducible and cannot be perturbed by local zsh plugins.
+        *zsh) pre=(-f) ;;
+    esac
+
+    run env HOME="$HOME" XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}" \
+        LLM_ENV_DEBUG="${LLM_ENV_DEBUG:-0}" \
+        "$shell_bin" ${pre[@]+"${pre[@]}"} -c "$cmd"
+}
+
+skip_unless_command() {
+    command -v "$1" >/dev/null 2>&1 || skip "${2:-$1 is not installed}"
+}
+
+# skip_unless_real_bash <major.minor>   e.g. skip_unless_real_bash 3.2
+skip_unless_real_bash() {
+    local want="$1"
+    [[ -x /bin/bash ]] || skip "no /bin/bash"
+    /bin/bash --version 2>/dev/null | head -1 | grep -q "version ${want//./\\.}" \
+        || skip "/bin/bash is not $want"
+}
+
+skip_unless_platform() {
+    local want="$1" have
+    have="$(uname -s 2>/dev/null)"
+    case "$want:$have" in
+        msys:MINGW*|msys:MSYS*) return 0 ;;
+        macos:Darwin)           return 0 ;;
+        linux:Linux)            return 0 ;;
+    esac
+    skip "test requires platform $want (running on $have)"
+}
+
+# ---- Injection sentinels -----------------------------------------------------
+#
+# A filesystem sentinel proves a payload did NOT execute. Output-grepping
+# cannot: the vulnerable evals sit inside command substitutions and redirected
+# blocks where stdout capture is unreliable, and a successful in-process
+# payload can corrupt the bats runner into reporting a pass.
+
+new_sentinel() {
+    local name="${1:-sentinel}"
+    local dir="${BATS_TEST_TMPDIR:-${BATS_TMPDIR:-/tmp}}"
+    mkdir -p "$dir"
+    local path="$dir/pwned-$name.$$"
+    rm -f "$path"
+    printf '%s' "$path"
+}
+
+assert_sentinel_absent() {
+    local path="$1"
+    if [[ -e "$path" ]]; then
+        echo "SECURITY: payload executed -- sentinel $path exists" >&2
+        echo "contents: $(cat "$path" 2>/dev/null)" >&2
+        return 1
+    fi
+    return 0
+}
+
+assert_sentinel_present() {
+    local path="$1"
+    if [[ ! -e "$path" ]]; then
+        echo "CANARY FAILED: payload did not execute even against a" >&2
+        echo "deliberately vulnerable eval. The fixture pipeline is over-" >&2
+        echo "escaping, so every injection regression test is vacuous." >&2
+        return 1
+    fi
+    return 0
+}
+
+# ---- Config fixture builders -------------------------------------------------
+#
+# CRLF and hostile fixtures are generated at run time rather than committed, so
+# no .gitattributes exception exists for a later edit to silently neutralise.
+
+# write_config_with_eol <lf|crlf|cr|mixed|bom-crlf> <content> [config_dir]
+write_config_with_eol() {
+    local eol="$1" content="$2"
+    local config_dir="${3:-${XDG_CONFIG_HOME:-${BATS_TEST_TMPDIR:-$BATS_TMPDIR}}/llm-env}"
+    mkdir -p "$config_dir" || { echo "cannot create $config_dir" >&2; return 1; }
+    local out="$config_dir/config.conf"
+
+    : > "$out"
+    [[ "$eol" == "bom-crlf" ]] && printf '\xEF\xBB\xBF' >> "$out"
+
+    local line n=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        n=$((n + 1))
+        case "$eol" in
+            lf)            printf '%s\n'   "$line" >> "$out" ;;
+            crlf|bom-crlf) printf '%s\r\n' "$line" >> "$out" ;;
+            cr)            printf '%s\r'   "$line" >> "$out" ;;
+            mixed)         if [[ $((n % 2)) -eq 0 ]]
+                           then printf '%s\r\n' "$line" >> "$out"
+                           else printf '%s\n'   "$line" >> "$out"; fi ;;
+            *) echo "write_config_with_eol: unknown eol '$eol'" >&2; return 1 ;;
+        esac
+    done <<< "$content"
+
+    printf '%s' "$out"
+}
+
+# make_hostile_config <vector> [config_dir]
+# Writes a config carrying one injection payload and sets two globals:
+#   LLM_ENV_TEST_CONFIG    -- path to the config file
+#   LLM_ENV_TEST_SENTINEL  -- path the payload creates if it executes
+# Returns via globals rather than stdout: a command substitution would run the
+# function in a subshell and discard the sentinel path along with it.
+make_hostile_config() {
+    local vector="$1"
+    local config_dir="${2:-${XDG_CONFIG_HOME:-${BATS_TEST_TMPDIR:-$BATS_TMPDIR}}/llm-env}"
+    mkdir -p "$config_dir" || { echo "cannot create $config_dir" >&2; return 1; }
+    local out="$config_dir/config.conf"
+
+    LLM_ENV_TEST_SENTINEL="$(new_sentinel "$vector")"
+    export LLM_ENV_TEST_SENTINEL
+    local pay="\$(printf pwned > '$LLM_ENV_TEST_SENTINEL')"
+
+    case "$vector" in
+        value-squote|value-cmdsub)
+            # Breaks out of the single quotes the accessor eval wraps values in.
+            cat > "$out" <<EOF
+[acme]
+base_url=https://a.test/v1
+api_key_var=LLM_ACME_KEY
+default_model=m'${pay}'x
+enabled=true
+EOF
+            ;;
+        value-backtick)
+            cat > "$out" <<EOF
+[acme]
+base_url=https://a.test/v1
+api_key_var=LLM_ACME_KEY
+default_model=m'\`printf pwned > '$LLM_ENV_TEST_SENTINEL'\`'x
+enabled=true
+EOF
+            ;;
+        section-cmdsub)
+            # The key is interpolated into the accessor eval too.
+            cat > "$out" <<EOF
+[acme${pay}]
+base_url=https://a.test/v1
+api_key_var=LLM_ACME_KEY
+default_model=m
+enabled=true
+EOF
+            ;;
+        section-backtick)
+            cat > "$out" <<EOF
+[acme\`printf pwned > '$LLM_ENV_TEST_SENTINEL'\`]
+base_url=https://a.test/v1
+api_key_var=LLM_ACME_KEY
+default_model=m
+enabled=true
+EOF
+            ;;
+        section-brace)
+            cat > "$out" <<EOF
+[acme\${IFS}x]
+base_url=https://a.test/v1
+api_key_var=LLM_ACME_KEY
+default_model=m
+enabled=true
+EOF
+            ;;
+        group-cmdsub)
+            cat > "$out" <<EOF
+[acme]
+base_url=https://a.test/v1
+api_key_var=LLM_ACME_KEY
+default_model=m
+enabled=true
+
+[group:g${pay}]
+providers=acme
+EOF
+            ;;
+        *) echo "make_hostile_config: unknown vector '$vector'" >&2; return 1 ;;
+    esac
+
+    LLM_ENV_TEST_CONFIG="$out"
+    export LLM_ENV_TEST_CONFIG
+    return 0
+}
+
+# ---- Environment capture -----------------------------------------------------
+#
+# bats' `run` collapses an unset variable and an empty one into the same empty
+# $output. Leak tests need to tell those apart.
+
+# dump_env_after <snippet> <VAR>...
+# Runs <snippet> in a fresh bash, then prints one "VAR=value" or "VAR=<unset>"
+# line per named variable. Populates $status/$output like `run`.
+dump_env_after() {
+    local snippet="$1"; shift
+    local varlist="$*"
+    run bash -c "
+$snippet
+for __v in $varlist; do
+    if [ -z \"\${!__v+x}\" ]; then
+        printf '%s=<unset>\n' \"\$__v\"
+    else
+        printf '%s=%s\n' \"\$__v\" \"\${!__v}\"
+    fi
+done
+"
+}
+
+assert_env_unset() {
+    local v
+    for v in "$@"; do
+        if [[ "$output" != *"$v=<unset>"* ]]; then
+            echo "expected $v to be unset; dump was:" >&2
+            printf '%s\n' "$output" >&2
+            return 1
+        fi
+    done
+    return 0
+}
+
+assert_env_is() {
+    local name="$1" want="$2"
+    if [[ "$output" != *"$name=$want"* ]]; then
+        echo "expected $name=$want; dump was:" >&2
+        printf '%s\n' "$output" >&2
+        return 1
+    fi
+    return 0
+}
+
 # ---- Real-HOME protection ----------------------------------------------------
 #
 # setup_test_env overrides HOME and XDG_CONFIG_HOME, but a bug that resolves ~

@@ -205,31 +205,54 @@ base_url=https://a.test/v1")"
     local cfg
     cfg="$(write_config_with_eol lf "[acme]
 base_url=https://a.test/v1")"
+    # Assert the file exists first: grep on a missing file also returns
+    # nonzero, which would make this assertion pass vacuously.
+    [ -f "$cfg" ]
+    [ -s "$cfg" ]
     run grep -c $'\r' "$cfg"
     [ "$status" -ne 0 ]
 }
 
 @test "harness: make_hostile_config emits a config and exports its sentinel" {
-    local cfg
-    cfg="$(make_hostile_config value-cmdsub)"
-    [ -f "$cfg" ]
+    # Must NOT be called in a command substitution: the subshell would discard
+    # the sentinel path. It returns via globals for exactly that reason.
+    make_hostile_config value-cmdsub
+    [ -n "${LLM_ENV_TEST_CONFIG:-}" ]
+    [ -f "$LLM_ENV_TEST_CONFIG" ]
     [ -n "${LLM_ENV_TEST_SENTINEL:-}" ]
     [ ! -e "$LLM_ENV_TEST_SENTINEL" ]
-    grep -q '^\[' "$cfg"
+    grep -q '^\[' "$LLM_ENV_TEST_CONFIG"
+    # The payload must actually be present in the fixture, otherwise every
+    # injection test built on it proves nothing.
+    grep -q 'printf pwned' "$LLM_ENV_TEST_CONFIG"
+}
+
+@test "harness: every make_hostile_config vector writes a payload-bearing config" {
+    local v
+    for v in value-squote value-cmdsub value-backtick section-cmdsub \
+             section-backtick section-brace group-cmdsub; do
+        make_hostile_config "$v"
+        [ -f "$LLM_ENV_TEST_CONFIG" ] || { echo "vector $v produced no file"; return 1; }
+        [ -s "$LLM_ENV_TEST_CONFIG" ] || { echo "vector $v produced an empty file"; return 1; }
+        [ ! -e "$LLM_ENV_TEST_SENTINEL" ] || { echo "vector $v pre-created its sentinel"; return 1; }
+    done
 }
 
 # ---- environment capture ----
 
 @test "harness: dump_env_after distinguishes unset from empty" {
-    run dump_env_after "export SET_AND_EMPTY=''; unset NEVER_SET_VAR" \
+    # dump_env_after already populates $status/$output like `run`; wrapping it
+    # in another `run` would let the inner one swallow the output.
+    dump_env_after "export SET_AND_EMPTY=''; unset NEVER_SET_VAR" \
         SET_AND_EMPTY NEVER_SET_VAR
     [ "$status" -eq 0 ]
     [[ "$output" == *"SET_AND_EMPTY="* ]]
+    [[ "$output" != *"SET_AND_EMPTY=<unset>"* ]]
     [[ "$output" == *"NEVER_SET_VAR=<unset>"* ]]
 }
 
 @test "harness: assert_env_unset and assert_env_is read the dump" {
-    run dump_env_after "export DEMO_VAR=hello; unset OTHER_VAR" DEMO_VAR OTHER_VAR
+    dump_env_after "export DEMO_VAR=hello; unset OTHER_VAR" DEMO_VAR OTHER_VAR
     assert_env_is DEMO_VAR hello
     assert_env_unset OTHER_VAR
 }
