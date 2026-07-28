@@ -36,6 +36,50 @@ jobs:
           LLM_SYNTHETIC_API_KEY: ${{ secrets.LLM_SYNTHETIC_API_KEY }}
         run: python -m scripts.update_quickstart
 
+      # Gate the auto-merge on the refreshed catalog actually working.
+      #
+      # This job scrapes live provider APIs and squash-merges the result with
+      # no human review, and llm-env writes those strings straight into the
+      # user's config. Without this step a scraper or upstream change ships
+      # directly to every user: that is how main came to reference a model id
+      # (kimi-k2.5) the catalog no longer contained, leaving the E2E red and
+      # `llm-env set` pointing at a provider that did not exist.
+      - name: Verify the refreshed catalog parses and emits providers
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/qs-verify"
+          export XDG_CONFIG_HOME="$HOME/.config"
+          mkdir -p "$XDG_CONFIG_HOME"
+          out="$(LLM_ENV_QUICKSTART_DIR="$PWD" bash -c \
+                 'source ./llm-env quickstart all </dev/null' 2>&1)"
+          echo "$out"
+
+          # Any validation rejection or parse failure must block the merge.
+          for bad in "missing required top-level fields" \
+                     "Quickstart file is empty" \
+                     "Unsupported schema_version" \
+                     "unsafe" \
+                     "contains unsafe characters"; do
+            if grep -qF "$bad" <<<"$out"; then
+              echo "::error::refreshed catalog rejected: $bad"
+              exit 1
+            fi
+          done
+
+          cfg="$XDG_CONFIG_HOME/llm-env/config.conf"
+          n="$(grep -c '^\[' "$cfg" 2>/dev/null || echo 0)"
+          echo "emitted $n config sections"
+          if [ "$n" -lt 10 ]; then
+            echo "::error::refreshed catalog emitted only $n sections"
+            exit 1
+          fi
+
+      - name: Run the quickstart test suite against the refreshed catalog
+        run: |
+          git submodule update --init --recursive
+          tests/bats/bin/bats tests/integration/test_quickstart.bats \
+                              tests/integration/test_quickstart_supplychain.bats
+
       - name: Open PR if files changed
         uses: peter-evans/create-pull-request@v6
         with:
