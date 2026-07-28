@@ -348,39 +348,88 @@ ls -la /usr/local/bin/llm-env
    # Check: ~/.profile, ~/.bash_profile, ~/.bashrc
    ```
 
-### Windows (WSL/Git Bash)
+### Windows
 
-1. **Line ending issues:**
+`llm-env` supports two Windows environments: **Git Bash** (MSYS2, bundled with
+Git for Windows) and **WSL2**. Both are exercised by the test suite; Git Bash
+runs in CI on every pull request.
+
+There is deliberately **no PowerShell or CMD support**. `llm-env` works by
+setting environment variables in the shell that sources it, and there is no way
+for a Bash process to modify its parent PowerShell session's environment. An
+earlier version of this document suggested a wrapper like
+
+```powershell
+function llm-env { bash -c "source /usr/local/bin/llm-env '$args'" }
+```
+
+That advice was wrong and has been removed: `bash -c` starts a child process,
+sets the variables there, and exits — the PowerShell session is unchanged. If
+you need `llm-env` from PowerShell, run your LLM tooling inside Git Bash or WSL2
+instead.
+
+#### Git Bash
+
+1. **Line endings.** Git for Windows defaults to `core.autocrlf=true`, which
+   checks out CRLF. A CRLF `llm-env` fails on its very first line, and a CRLF
+   config silently loads zero providers.
+
+   The repository pins `eol=lf` in `.gitattributes`, so a fresh clone is
+   correct. If you cloned before that, fix it with:
+
    ```bash
-   # Convert line endings if needed
-   dos2unix /usr/local/bin/llm-env
+   git config --global core.autocrlf false
+   git rm --cached -r . && git reset --hard
    ```
 
-2. **PATH differences:**
+   `llm-env` also strips carriage returns when reading a config, so editing
+   `config.conf` in Notepad is safe.
+
+2. **Your shell profile.** mintty starts Bash as a *login* shell
+   (`bash --login -i`), which reads `~/.bash_profile`, `~/.bash_login` or
+   `~/.profile` — **not** `~/.bashrc`. `llm-env` and its installer write to a
+   login file on Git Bash for exactly this reason, and add a `~/.bashrc`
+   chain-loader if one exists.
+
+   If `llm-env` is not defined in a new terminal:
+
    ```bash
-   # Windows paths might need adjustment
-   # Use /c/Users/username/ instead of ~
+   grep -n 'llm-env' ~/.bash_profile ~/.bash_login ~/.profile ~/.bashrc 2>/dev/null
    ```
 
-3. **WSL-specific issues:**
-   ```bash
-   # Check WSL version
-   wsl --version
-   
-   # Ensure proper shell configuration
-   echo $SHELL
-   
-   # WSL2 networking issues
-   # May need to restart WSL if API calls fail
-   wsl --shutdown
-   ```
+3. **`sudo` does not exist.** Ignore any instruction to install system-wide.
+   The installer picks `~/.local/bin` automatically.
 
-4. **PowerShell integration:**
-   ```powershell
-   # If using PowerShell, you can create a wrapper function
-   function llm-env { 
-       bash -c "source /usr/local/bin/llm-env '$args'"
-   }
+4. **File permissions.** `chmod` is largely a no-op on NTFS with default mount
+   options, so `llm-env` cannot make your config or rc file owner-only. If you
+   store API keys on a shared Windows machine, use Windows ACLs or BitLocker.
+
+5. **`bc` is not shipped.** Nothing requires it; response timing uses shell
+   arithmetic.
+
+6. **Hyperlinks and emoji.** mintty and Windows Terminal render both. Legacy
+   `conhost` may not — `llm-env` detects a non-capable terminal and falls back
+   to plain text. Force either behaviour with `LLM_ENV_HYPERLINKS=0` or `=1`.
+
+#### WSL2
+
+WSL2 is ordinary Linux and needs no special handling. Two things to know:
+
+1. **Environment variables do not cross the boundary.** Variables set inside
+   WSL2 are invisible to Windows-native programs, and vice versa. Run the tool
+   that consumes them inside WSL2 too.
+
+2. **Clone inside the Linux filesystem.** Cloning to `/mnt/c/...` is slow and
+   reintroduces the Windows line-ending behaviour. Prefer `~/` inside the
+   distribution.
+
+   ```bash
+   # Check you are on WSL and which distro
+   echo "$WSL_DISTRO_NAME"
+   cat /proc/sys/kernel/osrelease   # contains "microsoft" on WSL
+
+   # If API calls hang, restart WSL networking from PowerShell:
+   #   wsl --shutdown
    ```
 
 ## Getting Help

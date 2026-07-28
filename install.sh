@@ -164,19 +164,68 @@ download_script() {
     
     # Install the script
     if mv "$temp_file" "$INSTALL_DIR/$SCRIPT_NAME"; then
-        chmod 755 "$INSTALL_DIR/$SCRIPT_NAME"
+        chmod 755 "$INSTALL_DIR/$SCRIPT_NAME" 2>/dev/null || true
         print_success "Installed to $INSTALL_DIR/$SCRIPT_NAME"
     else
         print_error "Failed to install script to $INSTALL_DIR"
         rm -f "$temp_file"
         exit 1
     fi
+
+    install_runtime_assets
+}
+
+# Install the files llm-env needs at runtime but that were never shipped.
+#
+# Only the single llm-env script was ever installed, so after ANY install:
+#   * $(get_script_dir)/config/llm-env.conf did not exist, removing the
+#     builtin config tier entirely, and
+#   * quickstart-*.json did not exist, so `llm-env quickstart` failed with
+#     "No quickstart JSON files found" -- immediately contradicting the
+#     installer's own closing advice and README's getting-started section.
+install_runtime_assets() {
+    print_step "Installing runtime assets (config template, quickstart catalog)..."
+
+    local asset rc=0
+    mkdir -p "$INSTALL_DIR/config" 2>/dev/null || true
+
+    if [[ -n "$OFFLINE_FILE" ]]; then
+        local src_dir
+        src_dir="$(cd "$(dirname "$OFFLINE_FILE")" && pwd)"
+        for asset in config/llm-env.conf quickstart-synthetic.json quickstart-alibaba.json; do
+            if [[ -f "$src_dir/$asset" ]]; then
+                if cp "$src_dir/$asset" "$INSTALL_DIR/$asset" 2>/dev/null; then
+                    print_success "Installed $asset"
+                else
+                    print_warning "Could not install $asset"
+                    rc=1
+                fi
+            fi
+        done
+    else
+        for asset in config/llm-env.conf quickstart-synthetic.json quickstart-alibaba.json; do
+            if curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPO}/${VERSION}/${asset}" \
+                    -o "$INSTALL_DIR/$asset" 2>/dev/null; then
+                print_success "Installed $asset"
+            else
+                # Not fatal: llm-env still works with a user config, and
+                # quickstart reports the missing catalog clearly.
+                print_warning "Could not fetch $asset (quickstart may be unavailable)"
+                rm -f "$INSTALL_DIR/$asset"
+                rc=1
+            fi
+        done
+    fi
+
+    return 0
 }
 
 install_config_files() {
     print_step "Installing configuration files..."
     
-    local config_dir="$HOME/.config/llm-env"
+    # Honour XDG_CONFIG_HOME: llm-env's get_user_config_path does, so a user
+    # who sets it had the installer write where llm-env would never look.
+    local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/llm-env"
     local config_file="$config_dir/config.conf"
     
     # Create config directory with proper permissions
@@ -377,7 +426,9 @@ uninstall_llm_env() {
     read -p "Remove configuration files? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        local config_dir="$HOME/.config/llm-env"
+        # Honour XDG_CONFIG_HOME: llm-env's get_user_config_path does, so a user
+    # who sets it had the installer write where llm-env would never look.
+    local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/llm-env"
         if [[ -d "$config_dir" ]]; then
             print_step "Creating backup of configuration..."
             local backup_dir

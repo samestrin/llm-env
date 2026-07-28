@@ -47,15 +47,34 @@ stage_fixture() {
 
 # --- _qs_detect_shell_rc ------------------------------------------------------
 
+# CHANGED IN 1.7.0: rc selection follows the RUNNING shell (CURRENT_SHELL),
+# not $SHELL. $SHELL is the LOGIN shell, so a user running bash inside a zsh
+# login shell had their API key appended to ~/.zshrc and was then told to
+# `source ~/.zshrc` -- from bash, where that does not help. $SHELL is still
+# consulted as a fallback when the running shell cannot be determined.
+
 @test "detect_shell_rc: zsh → ~/.zshrc" {
-    SHELL=/bin/zsh run _qs_detect_shell_rc
+    CURRENT_SHELL=zsh run _qs_detect_shell_rc
+    [ "$status" -eq 0 ]
+    [[ "$output" == "$HOME/.zshrc" ]]
+}
+
+@test "detect_shell_rc: the running shell wins over \$SHELL" {
+    : > "$HOME/.bashrc"
+    CURRENT_SHELL=bash SHELL=/bin/zsh run _qs_detect_shell_rc
+    [ "$status" -eq 0 ]
+    [[ "$output" == "$HOME/.bashrc" ]]
+}
+
+@test "detect_shell_rc: \$SHELL is the fallback when the running shell is unknown" {
+    CURRENT_SHELL=unknown SHELL=/bin/zsh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.zshrc" ]]
 }
 
 @test "detect_shell_rc: bash → ~/.bashrc when .bashrc exists" {
     : > "$HOME/.bashrc"
-    SHELL=/bin/bash run _qs_detect_shell_rc
+    CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
 }
@@ -63,30 +82,30 @@ stage_fixture() {
 @test "detect_shell_rc: bash → ~/.bash_profile when .bashrc missing but .bash_profile exists" {
     rm -f "$HOME/.bashrc"
     : > "$HOME/.bash_profile"
-    SHELL=/bin/bash run _qs_detect_shell_rc
+    CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bash_profile" ]]
 }
 
 @test "detect_shell_rc: bash → ~/.bashrc when neither file exists (default)" {
     rm -f "$HOME/.bashrc" "$HOME/.bash_profile"
-    SHELL=/bin/bash run _qs_detect_shell_rc
+    CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
 }
 
 @test "detect_shell_rc: fish → empty (caller falls back to print)" {
-    SHELL=/usr/bin/fish run _qs_detect_shell_rc
+    CURRENT_SHELL=unknown SHELL=/usr/bin/fish run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
 }
 
 @test "detect_shell_rc: csh/tcsh/unknown → empty" {
-    SHELL=/bin/csh run _qs_detect_shell_rc
+    CURRENT_SHELL=unknown SHELL=/bin/csh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
 
-    SHELL=/some/weird/shell run _qs_detect_shell_rc
+    CURRENT_SHELL=unknown SHELL=/some/weird/shell run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
 }
