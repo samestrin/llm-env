@@ -102,6 +102,30 @@ _with_platform() {
     [[ "$output" == *"$XDG_CONFIG_HOME/llm-env/config.conf"* ]]
 }
 
+@test "tiers: the tier list is identical under zsh" {
+    # `local IFS=':'; for d in $sysdirs` does not split under zsh, so the whole
+    # colon-separated list became one malformed path. Caught by the cumulative
+    # adversarial review, not by the bash-only tests above.
+    skip_unless_command zsh
+    local b z
+    b="$(bash    -c "source '$SUT' >/dev/null 2>&1; LLM_ENV_PLATFORM=macos get_config_locations")"
+    z="$(zsh -f  -c "source '$SUT' >/dev/null 2>&1; LLM_ENV_PLATFORM=macos get_config_locations")"
+    [ "$b" = "$z" ] || {
+        echo "bash:"; printf '%s\n' "$b"
+        echo "zsh:";  printf '%s\n' "$z"
+        return 1
+    }
+}
+
+@test "tiers: every emitted path is absolute and contains no colon" {
+    _with_platform macos 'get_config_locations'
+    local line path
+    while IFS= read -r line; do
+        path="${line#*	}"
+        [[ "$path" != *:* ]] || { echo "colon in emitted path: $path"; return 1; }
+    done <<< "$output"
+}
+
 @test "tiers: LLM_ENV_SYSTEM_CONFIG_DIRS overrides the system tier" {
     run env HOME="$HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
         LLM_ENV_SYSTEM_CONFIG_DIRS="$BATS_TEST_TMPDIR/etc" \

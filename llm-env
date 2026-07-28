@@ -237,14 +237,19 @@ if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
     # zsh does NOT word-split unquoted parameter expansions (no SH_WORD_SPLIT
     # by default), so `for x in $space_separated_list` iterates ONCE with the
     # whole string. ${=1} forces the split.
-    __llm_split()     { eval '__LLM_WORDS=(${=1})'; }
+    #
+    # IFS is set locally rather than inherited: a caller using the common
+    # "bash strict mode" idiom `IFS=$'\n\t'` has no space in IFS, so splitting
+    # would not happen at all and every caller of this helper would silently
+    # operate on one giant pseudo-word.
+    __llm_split()     { local IFS=' '; eval '__LLM_WORDS=(${=1})'; }
 else
     __llm_var_get()   { __LLM_REPLY="${!1-}"; }
     __llm_var_isset() { [[ -n "${!1+x}" ]]; }
     # Inputs are our own fixed identifier lists, so there is nothing for
-    # pathname expansion to act on here.
+    # pathname expansion to act on here. IFS is local for the reason above.
     # shellcheck disable=SC2206
-    __llm_split()     { __LLM_WORDS=($1); }
+    __llm_split()     { local IFS=' '; __LLM_WORDS=($1); }
 fi
 
 # Canonical identifier predicate. Provider ids legitimately contain dots and
@@ -393,8 +398,12 @@ get_config_locations() {
     fi
 
     if [[ -n "$sysdirs" ]]; then
-        local IFS=':'
-        for d in $sysdirs; do
+        # Split on ':' portably. `local IFS=':'; for d in $sysdirs` does NOT
+        # work: zsh does not word-split unquoted expansions whatever IFS is,
+        # so the whole "/opt/homebrew/etc:/usr/local/etc" string became one
+        # entry and produced a single malformed path.
+        __llm_split "${sysdirs//:/ }"
+        for d in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
             [[ -n "$d" ]] && printf 'system\t%s/llm-env/config.conf\n' "$d"
         done
     fi
