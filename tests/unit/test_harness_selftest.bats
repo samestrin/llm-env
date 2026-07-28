@@ -125,6 +125,115 @@ STUB
     [ "$status" -eq 0 ]
 }
 
+# ---- cross-shell execution harness ----
+#
+# bats is #!/usr/bin/env bash and never consults $SHELL (verified: no SHELL
+# reference anywhere in tests/bats/libexec/). The CI "shell: [bash, zsh]"
+# matrix therefore runs a byte-identical bash suite twice. Real zsh and real
+# bash-3.2 coverage requires explicitly spawning those interpreters.
+
+@test "harness: run_in_shell executes the SUT under real zsh" {
+    skip_unless_command zsh
+    run_in_shell zsh "$SUT" --version
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"LLM Environment Manager"* ]]
+}
+
+@test "harness: run_in_shell executes the SUT under real bash 3.2" {
+    skip_unless_real_bash 3.2
+    run_in_shell /bin/bash "$SUT" --version
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"LLM Environment Manager"* ]]
+}
+
+@test "harness: run_in_shell surfaces a nonzero exit from the SUT" {
+    run_in_shell bash "$SUT" definitely-not-a-command
+    [ "$status" -ne 0 ]
+}
+
+@test "harness: skip_unless_command skips for a nonexistent binary" {
+    # Runs in a subshell so the skip does not abort this test.
+    run bash -c "source '$HELPERS'; skip() { echo \"SKIPPED: \$1\"; exit 0; }; \
+                 skip_unless_command definitely-not-installed-xyz; echo NOT_SKIPPED"
+    [[ "$output" == *"SKIPPED"* ]]
+    [[ "$output" != *"NOT_SKIPPED"* ]]
+}
+
+# ---- injection sentinels ----
+
+@test "harness: new_sentinel returns a path that does not yet exist" {
+    local s; s="$(new_sentinel demo)"
+    [ -n "$s" ]
+    [ ! -e "$s" ]
+    run assert_sentinel_absent "$s"
+    [ "$status" -eq 0 ]
+}
+
+@test "harness: assert_sentinel_absent fails once the sentinel is created" {
+    local s; s="$(new_sentinel demo2)"
+    printf 'pwned' > "$s"
+    run assert_sentinel_absent "$s"
+    [ "$status" -ne 0 ]
+}
+
+@test "harness canary: the injection payload is genuinely executable" {
+    # If this ever fails, every injection regression test is vacuous -- the
+    # payload got escaped somewhere in the fixture pipeline and proves nothing.
+    # This reproduces the exact shape of the pre-fix accessor eval.
+    local s; s="$(new_sentinel canary)"
+    local payload
+    payload="\$(printf pwned > '$s')"
+    # shellcheck disable=SC2034
+    declare -A CANARY_MAP
+    eval "x=\"\${CANARY_MAP[\"${payload}\"]-}\"" 2>/dev/null || true
+    assert_sentinel_present "$s"
+}
+
+# ---- config fixture builders ----
+
+@test "harness: write_config_with_eol crlf produces CRLF terminators" {
+    local cfg
+    cfg="$(write_config_with_eol crlf "[acme]
+base_url=https://a.test/v1")"
+    [ -f "$cfg" ]
+    # Every line must end CR LF, and there must be at least one CR.
+    run grep -c $'\r$' "$cfg"
+    [ "$output" -ge 2 ]
+}
+
+@test "harness: write_config_with_eol lf produces no CR at all" {
+    local cfg
+    cfg="$(write_config_with_eol lf "[acme]
+base_url=https://a.test/v1")"
+    run grep -c $'\r' "$cfg"
+    [ "$status" -ne 0 ]
+}
+
+@test "harness: make_hostile_config emits a config and exports its sentinel" {
+    local cfg
+    cfg="$(make_hostile_config value-cmdsub)"
+    [ -f "$cfg" ]
+    [ -n "${LLM_ENV_TEST_SENTINEL:-}" ]
+    [ ! -e "$LLM_ENV_TEST_SENTINEL" ]
+    grep -q '^\[' "$cfg"
+}
+
+# ---- environment capture ----
+
+@test "harness: dump_env_after distinguishes unset from empty" {
+    run dump_env_after "export SET_AND_EMPTY=''; unset NEVER_SET_VAR" \
+        SET_AND_EMPTY NEVER_SET_VAR
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"SET_AND_EMPTY="* ]]
+    [[ "$output" == *"NEVER_SET_VAR=<unset>"* ]]
+}
+
+@test "harness: assert_env_unset and assert_env_is read the dump" {
+    run dump_env_after "export DEMO_VAR=hello; unset OTHER_VAR" DEMO_VAR OTHER_VAR
+    assert_env_is DEMO_VAR hello
+    assert_env_unset OTHER_VAR
+}
+
 @test "helpers: assert_no_real_home_writes detects a modified rc file" {
     # Point the snapshot at a scratch "home" so we never touch the real one.
     local fake="$BATS_TEST_TMPDIR/fakehome"
