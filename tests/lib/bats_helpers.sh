@@ -619,6 +619,55 @@ EOF
     return 0
 }
 
+# make_hostile_quickstart <field> [dir]
+# Writes a schema-v2 quickstart catalog whose <field> carries an injection
+# payload, mimicking a compromised or buggy scrape. Sets the same globals as
+# make_hostile_config: LLM_ENV_TEST_CONFIG (the JSON path) and
+# LLM_ENV_TEST_SENTINEL (the path the payload creates if it executes).
+#
+# Fields correspond to the values _qs_emit_provider writes into the user's
+# config without validation.
+make_hostile_quickstart() {
+    local field="$1"
+    local dir="${2:-${BATS_TEST_TMPDIR:-$BATS_TMPDIR}}"
+    mkdir -p "$dir" || return 1
+    local out="$dir/quickstart-synthetic.json"
+
+    LLM_ENV_TEST_SENTINEL="$(new_sentinel "qs-$field")"
+    export LLM_ENV_TEST_SENTINEL
+    local pay="\$(printf pwned > '$LLM_ENV_TEST_SENTINEL')"
+
+    local upstream="hf:vendor/Model" desc="A normal model"
+    local endpoint="https://api.synthetic.test/openai/v1"
+    local signup="https://synthetic.test/signup"
+
+    case "$field" in
+        upstream_id) upstream="m'${pay}'x" ;;
+        description) desc="d'${pay}'x" ;;
+        endpoints)   endpoint="https://api.synthetic.test/'${pay}'/v1" ;;
+        signup_url)  signup="https://synthetic.test/'${pay}'" ;;
+        *) echo "make_hostile_quickstart: unknown field '$field'" >&2; return 1 ;;
+    esac
+
+    cat > "$out" <<EOF
+{
+  "schema_version": "2",
+  "vendor_short": "synth",
+  "api_key_var": "LLM_SYNTHETIC_API_KEY",
+  "signup_url": "$signup",
+  "endpoints": { "openai": "$endpoint" },
+  "models": [
+    { "id": "m1", "upstream_id": "$upstream", "description": "$desc",
+      "protocols": ["openai"] }
+  ]
+}
+EOF
+
+    LLM_ENV_TEST_CONFIG="$out"
+    export LLM_ENV_TEST_CONFIG
+    return 0
+}
+
 # ---- Environment capture -----------------------------------------------------
 #
 # bats' `run` collapses an unset variable and an empty one into the same empty
