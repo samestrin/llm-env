@@ -78,13 +78,15 @@ jobs:
         test -x "$INSTALL_DIR/llm-env"
         "$INSTALL_DIR/llm-env" --version
 
-  # macOS tests on GitHub-hosted runners (need actual macOS)
+  # macOS tests on GitHub-hosted runners (need actual macOS).
+  #
+  # This used to carry a `strategy.matrix.shell: [bash, zsh]` which bought
+  # nothing: bats is #!/usr/bin/env bash and has no $SHELL reference anywhere
+  # in libexec, so both legs ran a byte-identical bash suite at 2x the cost.
+  # Real zsh coverage comes from the dedicated step below, which spawns zsh
+  # explicitly -- and macOS is also where /bin/bash is genuinely 3.2.
   test-macos:
     runs-on: macos-latest
-    strategy:
-      matrix:
-        shell: [bash, zsh]
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -97,15 +99,13 @@ jobs:
         brew install bash || true
         echo "/opt/homebrew/bin" >> $GITHUB_PATH
 
-        if [[ "${{ matrix.shell }}" == "zsh" ]]; then
-          brew install zsh || true
-        fi
 
     - name: Debug environment information
       run: |
         echo "=== Environment Debug Information ==="
-        echo "Shell: ${{ matrix.shell }}"
         echo "Default bash version: $BASH_VERSION"
+        echo "System bash: $(/bin/bash --version | head -1)"
+        echo "zsh: $(zsh --version 2>/dev/null || echo 'not installed')"
 
         if [[ -x "/opt/homebrew/bin/bash" ]]; then
           echo "Homebrew bash version: $(/opt/homebrew/bin/bash --version | head -1)"
@@ -121,39 +121,40 @@ jobs:
     - name: Run unit tests
       run: |
         cd tests
-        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --unit-only
-        else
-          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --unit-only
-        fi
+        ./run_tests.sh --unit-only
 
     - name: Run integration tests
       run: |
         cd tests
-        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --integration-only
-        else
-          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --integration-only
-        fi
+        ./run_tests.sh --integration-only
 
     - name: Run system tests
       run: |
         cd tests
-        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --system-only
-        else
-          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --system-only
-        fi
+        ./run_tests.sh --system-only
+
+    # Genuine zsh coverage: these spawn `zsh -f` and execute the SUT under it.
+    # macOS is the platform whose users default to zsh, so this is where it
+    # matters most.
+    - name: Run zsh support tests
+      run: tests/bats/bin/bats tests/system/test_zsh_support.bats
+
+    # macOS ships bash 3.2.57 as /bin/bash -- the oldest supported interpreter
+    # and the only place it can be tested for real rather than simulated.
+    - name: Verify the script runs under real bash 3.2
+      run: |
+        /bin/bash --version | head -1
+        /bin/bash -c "source ./llm-env --version"
+        /bin/bash -c "source ./llm-env list" >/dev/null
 
     - name: Test installation script
       run: |
         export INSTALL_DIR="$GITHUB_WORKSPACE/test-install"
         mkdir -p "$INSTALL_DIR"
-        sed 's|/usr/local/bin|'"$INSTALL_DIR"'|g' install.sh > test-install.sh
-        chmod +x test-install.sh
-        ./test-install.sh --offline ./llm-env
-        test -x "$INSTALL_DIR/llm-env"
-        "$INSTALL_DIR/llm-env" --version
+        bash install.sh --offline ./llm-env --install-dir "$INSTALL_DIR"
+        test -f "$INSTALL_DIR/llm-env"
+        test -f "$INSTALL_DIR/quickstart-synthetic.json"
+        bash -c "source '$INSTALL_DIR/llm-env' --version"
 
   lint:
     runs-on: [self-hosted, linux]
@@ -206,11 +207,10 @@ jobs:
     - name: Assert .gitattributes pins eol=lf
       run: grep -q 'eol=lf' .gitattributes
 
-  # Windows support via Git Bash (MSYS2). Advisory for now -- promoted to a
-  # required check once the platform work lands.
+  # Windows support via Git Bash (MSYS2). Required: the platform layer,
+  # CRLF handling and rc-file selection are all exercised here.
   test-windows:
     runs-on: windows-latest
-    continue-on-error: true
     defaults:
       run:
         shell: bash
@@ -249,6 +249,22 @@ jobs:
 
     - name: Run integration tests
       run: bash tests/run_tests.sh --integration-only
+
+    - name: Run platform tests
+      run: tests/bats/bin/bats tests/unit/test_platform.bats
+
+    - name: Install smoke test (asserts runtime assets ship)
+      run: |
+        export INSTALL_DIR="$GITHUB_WORKSPACE/test-install"
+        mkdir -p "$INSTALL_DIR"
+        bash install.sh --offline ./llm-env --install-dir "$INSTALL_DIR"
+        test -f "$INSTALL_DIR/llm-env"
+        # quickstart must work immediately after install -- it did not before,
+        # because only the llm-env script itself was ever installed.
+        test -f "$INSTALL_DIR/quickstart-synthetic.json"
+        test -f "$INSTALL_DIR/config/llm-env.conf"
+        bash -c "source '$INSTALL_DIR/llm-env' --version"
+        bash -c "source '$INSTALL_DIR/llm-env' quickstart all" </dev/null
 
   scraper-tests:
     runs-on: ubuntu-latest
