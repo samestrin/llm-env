@@ -91,8 +91,12 @@ _sut() {
     _sut config remove alpha
     _sut config remove beta
     local n
-    n="$(find "$XDG_CONFIG_HOME/llm-env" -name 'config.conf*backup*' -o -name '*.bak*' 2>/dev/null | wc -l | tr -d ' ')"
-    [ "${n:-0}" -ge 2 ]
+    n="$(find "$XDG_CONFIG_HOME/llm-env/backups" -name 'config-*.conf' 2>/dev/null | wc -l | tr -d ' ')"
+    [ "${n:-0}" -ge 2 ] || {
+        echo "expected >=2 distinct backups, found ${n:-0}:"
+        find "$XDG_CONFIG_HOME/llm-env" -type f 2>/dev/null
+        return 1
+    }
 }
 
 @test "config remove: removes a group section too" {
@@ -172,7 +176,8 @@ _sut() {
     # bats exports BATS_TMPDIR to every child, so a production check on it
     # silently disabled the prompt for anyone running under bats -- including
     # developers of this project.
-    run grep -n 'BATS_TMPDIR' "$SUT"
+    # Comments explaining the removed hook are not the hook itself.
+    run bash -c "grep -vE '^[[:space:]]*#' '$SUT' | grep -n 'BATS_TMPDIR'"
     [ "$status" -ne 0 ]
 }
 
