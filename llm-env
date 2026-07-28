@@ -1049,14 +1049,20 @@ set_single_provider() {
     # CLAUDE_CODE_* model overrides still exported -- and Claude Code reads
     # those, so it kept routing to the previous host after the user believed
     # they had switched.
+    # __LLM_SET_ADDITIVE is set by set_multiple_providers, which clears both
+    # protocols ONCE before its loop. A group like
+    # [group:x] providers=openai_x,anth_x exists precisely to configure both
+    # protocols at the same time, so the members must not clear each other.
     local host
     if [[ "$protocol" == "anthropic" ]]; then
-        _clear_protocol_env openai
-        # Clear this protocol's own credentials too, so nothing from a
-        # previously-set provider can survive into this one. Without this,
-        # ${ANTHROPIC_API_KEY:-$auth_token} below silently preserved the
-        # previous provider's key and sent it to this provider's endpoint.
-        _clear_protocol_env anthropic
+        if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
+            _clear_protocol_env openai
+            # Clear this protocol's own credentials too, so nothing from a
+            # previously-set provider can survive into this one. Without this,
+            # ${ANTHROPIC_API_KEY:-$auth_token} below silently preserved the
+            # previous provider's key and sent it to this provider's endpoint.
+            _clear_protocol_env anthropic
+        fi
 
         # Export Anthropic-specific variables (only set what's configured)
         export ANTHROPIC_BASE_URL="$base"
@@ -1106,8 +1112,10 @@ set_single_provider() {
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
         echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL"
     else
-        _clear_protocol_env anthropic
-        _clear_protocol_env openai
+        if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
+            _clear_protocol_env anthropic
+            _clear_protocol_env openai
+        fi
 
         # Export OpenAI-compatible variables (default)
         export OPENAI_API_KEY="$key"
@@ -1128,6 +1136,14 @@ set_multiple_providers() {
     local failed=0
     local count=0
 
+    # Clear both protocols ONCE, then let the members accumulate. A group's
+    # whole purpose is to configure openai and anthropic simultaneously, so
+    # per-member clearing would leave only the last one standing -- but we
+    # still must not inherit a previously-set provider's variables.
+    _clear_protocol_env openai
+    _clear_protocol_env anthropic
+    __LLM_SET_ADDITIVE=1
+
     # Split comma-separated list and set each provider
     local provider
     while IFS= read -r provider; do
@@ -1139,6 +1155,7 @@ set_multiple_providers() {
             failed=$((failed + 1))
         fi
     done <<< "$(echo "$provider_list" | tr ',' '\n')"
+    unset __LLM_SET_ADDITIVE
 
     if [[ "$failed" -eq 0 && "$count" -gt 1 ]]; then
         # Multi-provider set: LLM_PROVIDER shows the whole list.
@@ -1821,15 +1838,83 @@ cmd_test() {
 # Extract a top-level JSON string scalar by key from a JSON document.
 # Usage: _qs_json_string "$json" "schema_version"
 # Echoes the value (without quotes), or empty string if not found.
+# Scan the JSON string literal that starts at index $2 of $1 (which must be the
+# opening quote). Sets __LLM_REPLY to the unescaped value and __LLM_JSON_END to
+# the index just past the closing quote. Returns 1 on an unterminated string.
+#
+# Escape awareness is the whole point: the previous grep -o '"[^"]*"' form
+# stopped at the first quote regardless of a preceding backslash, so any value
+# containing \" was truncated mid-word and the remains -- often ending in a
+# dangling backslash -- were written into the user's config.
+_qs_scan_string() {
+    local s="$1" i="$2"
+    local n=${#s} ch out="" esc=false
+    i=$((i + 1))
+    while [[ $i -lt $n ]]; do
+        ch="${s:$i:1}"
+        if [[ "$esc" == true ]]; then
+            case "$ch" in
+                n)  out="${out}"$'\n' ;;
+                t)  out="${out}"$'\t' ;;
+                r)  out="${out}"$'\r' ;;
+                b)  out="${out}"$'\b' ;;
+                f)  out="${out}"$'\f' ;;
+                # \uXXXX is passed through literally: llm-env never needs to
+                # render it, and decoding would require more machinery than a
+                # config-file value warrants.
+                u)  out="${out}\\u" ;;
+                *)  out="${out}${ch}" ;;
+            esac
+            esc=false
+        elif [[ "$ch" == "\\" ]]; then
+            esc=true
+        elif [[ "$ch" == '"' ]]; then
+            __LLM_REPLY="$out"
+            __LLM_JSON_END=$((i + 1))
+            return 0
+        else
+            out="${out}${ch}"
+        fi
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# Advance past JSON whitespace starting at index $2 of $1; echoes the new index.
+_qs_skip_ws() {
+    local s="$1" i="$2" n=${#1}
+    while [[ $i -lt $n ]]; do
+        case "${s:$i:1}" in
+            ' '|$'\t'|$'\n'|$'\r') i=$((i + 1)) ;;
+            *) break ;;
+        esac
+    done
+    printf '%s' "$i"
+}
+
+# Extract the string value for "key" from a JSON document.
+# Echoes the value (empty when absent or when the value is not a string).
 _qs_json_string() {
     local json="$1" key="$2"
-    # Look for "key": "value" anywhere in the doc. The first occurrence wins,
-    # so callers should isolate sub-objects before calling on inner keys.
-    printf '%s' "$json" \
-        | tr -d '\n' \
-        | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" \
-        | head -n 1 \
-        | sed -E 's/^"[^"]*"[[:space:]]*:[[:space:]]*"//; s/"$//'
+    local target="\"$key\""
+    local tlen=${#target} n=${#json} i=0 j
+    while [[ $i -lt $n ]]; do
+        if [[ "${json:$i:$tlen}" == "$target" ]]; then
+            j="$(_qs_skip_ws "$json" $((i + tlen)))"
+            if [[ "${json:$j:1}" == ":" ]]; then
+                j="$(_qs_skip_ws "$json" $((j + 1)))"
+                if [[ "${json:$j:1}" == '"' ]]; then
+                    if _qs_scan_string "$json" "$j"; then
+                        printf '%s' "$__LLM_REPLY"
+                        return 0
+                    fi
+                fi
+                # Key found but the value is not a string (number, bool, object).
+                return 0
+            fi
+        fi
+        i=$((i + 1))
+    done
 }
 
 # Extract a single JSON object value by key from a top-level document.
@@ -1974,16 +2059,61 @@ _qs_split_object_array() {
 # Extract simple "key": "value" pairs from a flat JSON object.
 # Emits one "key=value" per line. Skips nested objects/arrays.
 # Used for family_latest-style maps.
+# Emit "key=value" for every TOP-LEVEL string pair of a JSON object, one per
+# line. Nested objects and arrays are skipped, as the docstring always claimed:
+# the previous grep ran over the flattened text, so a nested object contributed
+# its own inner pairs and produced bogus [group:*] sections in the user config.
 _qs_extract_string_pairs() {
     local obj="$1"
-    # Strip outer braces.
     obj="${obj#\{}"
     obj="${obj%\}}"
-    # Find all "key": "value" pairs.
-    printf '%s' "$obj" \
-        | tr -d '\n' \
-        | grep -oE '"[^"]+"[[:space:]]*:[[:space:]]*"[^"]*"' \
-        | sed -E 's/^"([^"]+)"[[:space:]]*:[[:space:]]*"([^"]*)"$/\1=\2/'
+    local n=${#obj} i=0 ch key depth
+    while [[ $i -lt $n ]]; do
+        i="$(_qs_skip_ws "$obj" "$i")"
+        [[ $i -lt $n ]] || break
+        ch="${obj:$i:1}"
+        case "$ch" in
+            ','|':') i=$((i + 1)); continue ;;
+            '"')
+                _qs_scan_string "$obj" "$i" || return 0
+                key="$__LLM_REPLY"
+                i="$__LLM_JSON_END"
+                i="$(_qs_skip_ws "$obj" "$i")"
+                [[ "${obj:$i:1}" == ":" ]] || continue
+                i="$(_qs_skip_ws "$obj" $((i + 1)))"
+                case "${obj:$i:1}" in
+                    '"')
+                        _qs_scan_string "$obj" "$i" || return 0
+                        printf '%s=%s\n' "$key" "$__LLM_REPLY"
+                        i="$__LLM_JSON_END"
+                        ;;
+                    '{'|'[')
+                        # Skip the whole nested structure.
+                        depth=0
+                        while [[ $i -lt $n ]]; do
+                            case "${obj:$i:1}" in
+                                '{'|'[') depth=$((depth + 1)) ;;
+                                '}'|']') depth=$((depth - 1)) ;;
+                                '"') _qs_scan_string "$obj" "$i" && i=$((__LLM_JSON_END - 1)) ;;
+                            esac
+                            i=$((i + 1))
+                            [[ $depth -eq 0 ]] && break
+                        done
+                        ;;
+                    *)
+                        # Scalar (number/bool/null): skip to the next delimiter.
+                        while [[ $i -lt $n ]]; do
+                            case "${obj:$i:1}" in
+                                ','|'}'|']') break ;;
+                            esac
+                            i=$((i + 1))
+                        done
+                        ;;
+                esac
+                ;;
+            *) i=$((i + 1)) ;;
+        esac
+    done
 }
 
 # Extract array of strings (e.g. protocols).
@@ -1999,8 +2129,57 @@ _qs_extract_string_array() {
 # Validate that a model id is safe to use as an INI section name.
 # Allowed: alphanumerics, dot, dash, underscore.
 _qs_id_is_safe() {
-    local id="$1"
-    [[ -n "$id" && "$id" =~ ^[a-zA-Z0-9._-]+$ ]]
+    _llm_id_is_safe "$1"
+}
+
+# Validators for the remaining scraped fields.
+#
+# _qs_process_v2_file previously validated only vendor_short, api_key_var and
+# the model id. upstream_id, description, endpoints and signup_url went
+# straight into the user's config via _qs_emit_provider. The store no longer
+# evals values, so these can no longer execute -- but an unvalidated string can
+# still forge a config section (via a newline), point a provider at a
+# non-HTTP URL, or produce a value the INI parser silently mangles.
+
+# A URL that is safe to record as base_url or signup_url.
+_qs_url_is_safe() {
+    local u="$1"
+    [[ -n "$u" ]] || return 1
+    # http(s) only: file://, data:// etc have no business in a provider config.
+    case "$u" in
+        http://*|https://*) ;;
+        *) return 1 ;;
+    esac
+    # A newline or CR would let one value forge additional config lines.
+    case "$u" in
+        *$'\n'*|*$'\r'*) return 1 ;;
+    esac
+    # Quotes and backslashes confuse INI readers and shell display alike, and
+    # have no legitimate place in a provider URL.
+    case "$u" in
+        *[\'\"\\]*) return 1 ;;
+    esac
+    return 0
+}
+
+# A model identifier sent to a provider. Broader than _llm_id_is_safe because
+# upstream ids legitimately contain ':' and '/' (e.g. hf:moonshotai/Kimi-K2.5).
+_qs_model_id_is_safe() {
+    local m="$1"
+    [[ -n "$m" ]] || return 1
+    case "$m" in
+        *[!A-Za-z0-9._:/-]*) return 1 ;;
+    esac
+    return 0
+}
+
+# Free text written as a description/comment. Must stay on one line so it
+# cannot forge a [section] header or a key=value pair.
+_qs_text_is_safe() {
+    case "$1" in
+        *$'\n'*|*$'\r'*) return 1 ;;
+    esac
+    return 0
 }
 
 # Process a single quickstart v2 JSON file. Appends provider and group
@@ -2056,6 +2235,21 @@ _qs_process_v2_file() {
     endpoint_openai="$(_qs_json_string "$endpoints_obj" "openai")"
     endpoint_anthropic="$(_qs_json_string "$endpoints_obj" "anthropic")"
 
+    # Validate the scraped URLs before any of them can reach the config.
+    # These come from a daily scrape that is auto-merged without review.
+    if [[ -n "$endpoint_openai" ]] && ! _qs_url_is_safe "$endpoint_openai"; then
+        echo "❌ Quickstart file has an unsafe openai endpoint: $json_file" >&2
+        return 1
+    fi
+    if [[ -n "$endpoint_anthropic" ]] && ! _qs_url_is_safe "$endpoint_anthropic"; then
+        echo "❌ Quickstart file has an unsafe anthropic endpoint: $json_file" >&2
+        return 1
+    fi
+    if [[ -n "$signup_url" ]] && ! _qs_url_is_safe "$signup_url"; then
+        echo "  ⚠️  Ignoring unsafe signup_url in $json_file" >&2
+        signup_url=""
+    fi
+
     local models_body family_latest_obj
     models_body="$(_qs_json_array_body "$json" "models")"
     family_latest_obj="$(_qs_json_object "$json" "family_latest")"
@@ -2085,6 +2279,14 @@ _qs_process_v2_file() {
         if [[ -z "$id" ]]; then
             echo "  ⚠️  Skipping model with no id" >&2
             continue
+        fi
+        if [[ -n "$upstream_id" ]] && ! _qs_model_id_is_safe "$upstream_id"; then
+            echo "  ⚠️  Skipping model '$id' - upstream_id contains unsafe characters" >&2
+            continue
+        fi
+        if ! _qs_text_is_safe "$description"; then
+            echo "  ⚠️  Model '$id' - dropping multi-line description" >&2
+            description=""
         fi
         if ! _qs_id_is_safe "$id"; then
             echo "  ⚠️  Skipping model '$id' - id contains characters unsafe for config sections" >&2
@@ -2123,6 +2325,14 @@ _qs_process_v2_file() {
             pname="anth_${vendor_short}_${id}"
             _qs_emit_provider "$user_config" "$pname" "$endpoint_anthropic" \
                 "$api_key_var" "$default_model" "$description" "anthropic" "$signup_url"
+        fi
+
+        # A model that matched no endpoint produces nothing. Say so: it was
+        # previously dropped in complete silence, unlike every other skip path
+        # in this loop, so a scraper change that removed an endpoint or a
+        # protocols array looked like a successful run.
+        if [[ "$have_openai" != true && "$have_anthropic" != true ]]; then
+            echo "  ⚠️  Skipping model '$id' - no protocol matches this file's endpoints" >&2
         fi
 
         # Per-model group only when both protocols available.
@@ -2186,7 +2396,10 @@ _qs_emit_provider() {
     local user_config="$1" name="$2" base_url="$3" api_key_var="$4"
     local default_model="$5" description="$6" protocol="$7" signup_url="$8"
 
-    if grep -q "^\[$name\]$" "$user_config" 2>/dev/null; then
+    # -F -x: literal, whole-line. The name used to be interpolated into a basic
+    # regex, so the '.' in an id like glm-5.2 matched any character and
+    # [openai_synth_glm-5X2] counted as already present.
+    if grep -qFx "[$name]" "$user_config" 2>/dev/null; then
         echo "  ⚠️  Skipping provider '$name' - already exists in config"
         return 0
     fi
@@ -2214,7 +2427,7 @@ _qs_emit_provider() {
 # Append a [group:NAME] section to the user config if not already present.
 _qs_emit_group() {
     local user_config="$1" group_name="$2" providers_csv="$3"
-    if grep -q "^\[group:$group_name\]$" "$user_config" 2>/dev/null; then
+    if grep -qFx "[group:$group_name]" "$user_config" 2>/dev/null; then
         echo "  ⚠️  Skipping group '$group_name' - already exists in config"
         return 0
     fi
@@ -2505,22 +2718,38 @@ cmd_quickstart() {
                 json_file="$synthetic_json"
                 api_key_var="LLM_SYNTHETIC_API_KEY"
                 signup_url="https://synthetic.new/?referral=ugceNlJ08A3Eeww"
-                verify_provider="anth_synth_kimi-k2.5"
+                # verify_provider is derived after emission -- see below. It
+                # used to hardcode anth_synth_kimi-k2.5, which the scraper
+                # renamed to kimi-k2.7-code and auto-merged, leaving the id
+                # pointing at a provider that no longer exists.
                 ;;
             alibaba)
                 json_file="$alibaba_json"
                 api_key_var="LLM_ALIBABA_API_KEY"
                 signup_url="https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
-                verify_provider="anth_alibaba_kimi-k2.5"
                 ;;
         esac
 
         echo "🔍 Processing: $json_file"
+        local __before=${#_qs_added_names[@]}
         if ! _qs_process_v2_file "$json_file" "$user_config"; then
             rc=1
             IFS=','
             continue
         fi
+        # Derive the verification target from the sections just emitted, so it
+        # can never drift from the catalog. Prefer an anthropic provider (the
+        # protocol quickstart is primarily used to configure) and fall back to
+        # whatever was added first.
+        local __k __n2=${#_qs_added_names[@]} __i2=$__before
+        while [[ $__i2 -lt $__n2 ]]; do
+            __k="${_qs_added_names[$__i2]}"
+            case "$__k" in
+                anth_*)   verify_provider="$__k"; break ;;
+                openai_*) [[ -z "$verify_provider" ]] && verify_provider="$__k" ;;
+            esac
+            __i2=$((__i2 + 1))
+        done
         echo
 
         if [[ "$interactive" == true ]]; then
@@ -2565,6 +2794,14 @@ cmd_quickstart() {
     done
     IFS="$IFS_old"
 
+    # Re-read the config so the sections just written are visible to this
+    # shell. Without this the in-memory provider set was whatever existed at
+    # source time, so _qs_verify_key always reported the brand-new key as
+    # failing and `list` did not show the new providers until the next command.
+    if [[ ${#_qs_added_names[@]} -gt 0 ]]; then
+        init_config >/dev/null 2>&1 || true
+    fi
+
     if [[ ${#_qs_added_names[@]} -gt 0 ]]; then
         echo "🎉 Added ${#_qs_added_names[@]} new entr$([[ ${#_qs_added_names[@]} -eq 1 ]] && echo y || echo ies) to your configuration."
     else
@@ -2583,7 +2820,13 @@ cmd_quickstart() {
     echo
     echo "💡 Next steps:"
     echo "   llm-env list                       # see what's available"
-    echo "   llm-env set anth_synth_kimi-k2.5   # activate a provider"
+    # Name a provider that was actually emitted. A hardcoded example id goes
+    # stale silently the next time the daily scraper renames a model.
+    if [[ -n "$verify_provider" ]]; then
+        echo "   llm-env set $verify_provider   # activate a provider"
+    else
+        echo "   llm-env set <provider>             # activate a provider"
+    fi
     if [[ "$interactive" == true && -n "$rc_file" ]]; then
         echo "   source $rc_file                    # reload shell so new keys are active"
     fi

@@ -186,7 +186,10 @@ EOF
     # while the scraper renamed that model to kimi-k2.7-code and auto-merged.
     # Any id literal in the source must exist in the shipped JSON.
     local id ids
-    ids="$(grep -oE '(anth|openai)_synth_[A-Za-z0-9._-]+' "$REPO/llm-env" | sort -u || true)"
+    # Strip comment lines: prose explaining a previously-hardcoded id is not
+    # itself a hardcoded id.
+    ids="$(grep -vE '^[[:space:]]*#' "$REPO/llm-env" \
+           | grep -oE '(anth|openai)_synth_[A-Za-z0-9._-]+' | sort -u || true)"
     for id in $ids; do
         local model="${id#*_synth_}"
         grep -q "\"id\": \"$model\"" "$REPO/quickstart-synthetic.json" \
