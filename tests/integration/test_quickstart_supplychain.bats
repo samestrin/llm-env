@@ -197,6 +197,41 @@ EOF
     done
 }
 
+@test "qs: 'all' and a comma-separated list both process every source" {
+    # __llm_split forces IFS=' ' so a caller's strict-mode IFS cannot defeat
+    # it; that broke the selection loop, which had relied on inheriting
+    # IFS=','. The symptom was "Processing: " with an empty filename and zero
+    # providers written. The existing quickstart tests missed it because they
+    # stage a single fixture and select it by name.
+    local cfg="$XDG_CONFIG_HOME/llm-env/config.conf"
+    local sel n
+    for sel in all synthetic,alibaba; do
+        rm -f "$cfg"
+        run env HOME="$HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
+            LLM_ENV_QUICKSTART_DIR="$REPO" \
+            bash -c "source '$SUT' quickstart $sel </dev/null"
+        [ "$status" -eq 0 ] || { echo "selection '$sel' exited $status"; return 1; }
+        [[ "$output" != *"Processing: "$'\n'* ]]
+        [[ "$output" != *"Quickstart file is empty"* ]]
+        n="$(grep -c '^\[' "$cfg" 2>/dev/null || true)"
+        [ "${n:-0}" -gt 10 ] || { echo "selection '$sel' emitted only ${n:-0} sections"; return 1; }
+    done
+}
+
+@test "qs: selection works under zsh and bash 3.2 too" {
+    local cfg="$XDG_CONFIG_HOME/llm-env/config.conf"
+    local sh n
+    for sh in zsh /bin/bash; do
+        command -v "$sh" >/dev/null 2>&1 || continue
+        rm -f "$cfg"
+        run env HOME="$HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
+            LLM_ENV_QUICKSTART_DIR="$REPO" \
+            "$sh" -c "source '$SUT' quickstart all </dev/null"
+        n="$(grep -c '^\[' "$cfg" 2>/dev/null || true)"
+        [ "${n:-0}" -gt 10 ] || { echo "$sh emitted only ${n:-0} sections"; return 1; }
+    done
+}
+
 @test "qs: the shipped catalog files parse and emit providers" {
     # Guards the daily auto-merge: a scraper change that breaks the schema must
     # fail here rather than silently shipping an unusable catalog.
