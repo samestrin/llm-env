@@ -47,46 +47,78 @@ stage_fixture() {
 
 # --- _qs_detect_shell_rc ------------------------------------------------------
 
-@test "detect_shell_rc: zsh → ~/.zshrc" {
-    SHELL=/bin/zsh run _qs_detect_shell_rc
+# CHANGED IN 1.7.0: rc selection follows the RUNNING shell (CURRENT_SHELL),
+# not $SHELL. $SHELL is the LOGIN shell, so a user running bash inside a zsh
+# login shell had their API key appended to ~/.zshrc and was then told to
+# `source ~/.zshrc` -- from bash, where that does not help. $SHELL is still
+# consulted as a fallback when the running shell cannot be determined.
+
+@test "detect_shell_rc: zsh -> ~/.zshrc" {
+    CURRENT_SHELL=zsh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.zshrc" ]]
 }
 
-@test "detect_shell_rc: bash → ~/.bashrc when .bashrc exists" {
+@test "detect_shell_rc: the running shell wins over \$SHELL" {
+    # Pin the platform: on msys, detect_shell_rc correctly prefers a LOGIN file
+    # over .bashrc (mintty runs `bash --login -i`). That behaviour is covered
+    # in tests/unit/test_platform.bats; this test is about shell precedence.
+    #
+    # LLM_ENV_PLATFORM is consumed by detect_platform at SOURCE time, so a
+    # command prefix on detect_shell_rc has no effect -- it reads the already
+    # computed __LLM_PLATFORM. Re-run the detector with the override instead.
     : > "$HOME/.bashrc"
-    SHELL=/bin/bash run _qs_detect_shell_rc
+    LLM_ENV_PLATFORM=linux detect_platform
+    CURRENT_SHELL=bash SHELL=/bin/zsh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
 }
 
-@test "detect_shell_rc: bash → ~/.bash_profile when .bashrc missing but .bash_profile exists" {
+@test "detect_shell_rc: \$SHELL is the fallback when the running shell is unknown" {
+    CURRENT_SHELL=unknown SHELL=/bin/zsh run _qs_detect_shell_rc
+    [ "$status" -eq 0 ]
+    [[ "$output" == "$HOME/.zshrc" ]]
+}
+
+@test "detect_shell_rc: bash -> ~/.bashrc when .bashrc exists" {
+    # See the note above: pin the platform, because on msys a LOGIN file is the
+    # correct answer and this test is about the non-msys layout.
+    : > "$HOME/.bashrc"
+    LLM_ENV_PLATFORM=linux detect_platform
+    CURRENT_SHELL=bash run _qs_detect_shell_rc
+    [ "$status" -eq 0 ]
+    [[ "$output" == "$HOME/.bashrc" ]]
+}
+
+@test "detect_shell_rc: bash -> ~/.bash_profile when .bashrc missing but .bash_profile exists" {
     rm -f "$HOME/.bashrc"
     : > "$HOME/.bash_profile"
-    SHELL=/bin/bash run _qs_detect_shell_rc
+    LLM_ENV_PLATFORM=linux detect_platform
+    CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bash_profile" ]]
 }
 
-@test "detect_shell_rc: bash → ~/.bashrc when neither file exists (default)" {
+@test "detect_shell_rc: bash -> ~/.bashrc when neither file exists (default)" {
     rm -f "$HOME/.bashrc" "$HOME/.bash_profile"
-    SHELL=/bin/bash run _qs_detect_shell_rc
+    LLM_ENV_PLATFORM=linux detect_platform
+    CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
 }
 
-@test "detect_shell_rc: fish → empty (caller falls back to print)" {
-    SHELL=/usr/bin/fish run _qs_detect_shell_rc
+@test "detect_shell_rc: fish -> empty (caller falls back to print)" {
+    CURRENT_SHELL=unknown SHELL=/usr/bin/fish run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
 }
 
-@test "detect_shell_rc: csh/tcsh/unknown → empty" {
-    SHELL=/bin/csh run _qs_detect_shell_rc
+@test "detect_shell_rc: csh/tcsh/unknown -> empty" {
+    CURRENT_SHELL=unknown SHELL=/bin/csh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
 
-    SHELL=/some/weird/shell run _qs_detect_shell_rc
+    CURRENT_SHELL=unknown SHELL=/some/weird/shell run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
 }
@@ -192,14 +224,18 @@ stage_fixture() {
     grep -q "^export LLM_TEST_FAKE_KEY='value'$" "$TEST_RC_FILE"
 }
 
-@test "append_export: rc path is a directory → returns nonzero, does not crash" {
+@test "append_export: rc path is a directory -> returns nonzero, does not crash" {
     local dir_path="$BATS_TEST_TMPDIR/some-dir"
     mkdir -p "$dir_path"
     run _qs_append_export_to_rc "LLM_TEST_FAKE_KEY" "value" "$dir_path"
     [ "$status" -ne 0 ]
 }
 
-@test "append_export: rc path unwritable → returns nonzero gracefully" {
+@test "append_export: rc path unwritable -> returns nonzero gracefully" {
+    # chmod 000 does not make a file unwritable on NTFS under Git Bash, and
+    # root ignores permission bits entirely.
+    skip_unless_posix_perms
+    skip_if_root
     : > "$TEST_RC_FILE"
     chmod 000 "$TEST_RC_FILE"
     run _qs_append_export_to_rc "LLM_TEST_FAKE_KEY" "value" "$TEST_RC_FILE"
@@ -225,7 +261,7 @@ stage_fixture() {
 
 # --- _qs_prompt_api_key -------------------------------------------------------
 
-@test "prompt_api_key: empty input → skip (returns 1)" {
+@test "prompt_api_key: empty input -> skip (returns 1)" {
     run bash -c "
         source '$BATS_TEST_DIRNAME/../../llm-env' >/dev/null 2>&1
         _qs_prompt_api_key 'LLM_TEST_FAKE_KEY'
@@ -233,7 +269,7 @@ stage_fixture() {
     [ "$status" -ne 0 ]
 }
 
-@test "prompt_api_key: 's' input → skip (returns 1)" {
+@test "prompt_api_key: 's' input -> skip (returns 1)" {
     run bash -c "
         source '$BATS_TEST_DIRNAME/../../llm-env' >/dev/null 2>&1
         _qs_prompt_api_key 'LLM_TEST_FAKE_KEY'
@@ -241,7 +277,7 @@ stage_fixture() {
     [ "$status" -ne 0 ]
 }
 
-@test "prompt_api_key: whitespace-only input → skip" {
+@test "prompt_api_key: whitespace-only input -> skip" {
     run bash -c "
         source '$BATS_TEST_DIRNAME/../../llm-env' >/dev/null 2>&1
         _qs_prompt_api_key 'LLM_TEST_FAKE_KEY'

@@ -22,7 +22,13 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BATS="$SCRIPT_DIR/bats/bin/bats"
 TARGET="$PROJECT_ROOT/llm-env"
 OUTDIR="${COVERAGE_OUTDIR:-$SCRIPT_DIR/coverage}"
-COVERAGE_MIN="${COVERAGE_MIN:-50}"
+# Floor. Measured 58.15% on this branch (unit + integration, kcov on Linux);
+# 55 leaves ~3 points of headroom so an unrelated refactor does not trip it.
+#
+# This is the honest figure, not a target. It is NOT 80% -- see
+# docs/technical-debt.md for exactly which code the remaining ~42% is and why
+# the system suite (which does exercise the SUT) contributes nothing here.
+COVERAGE_MIN="${COVERAGE_MIN:-55}"
 
 if ! command -v kcov >/dev/null 2>&1; then
     echo "ERROR: kcov is not installed." >&2

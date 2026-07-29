@@ -1,2 +1,30 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Normalise to LF in the repository AND on checkout.
+#
+# `text=auto` alone only normalises what is stored; on checkout Git still
+# applies the platform's core.eol, and Git for Windows ships with
+# core.autocrlf=true by default. That produced a CRLF working tree on Windows,
+# where `source llm-env` dies immediately ("set: +u\r: invalid option") and the
+# config parser silently loads zero providers. Pinning eol=lf makes the
+# checkout correct regardless of the user's git configuration.
+* text=auto eol=lf
+
+# Explicit pins for everything a shell has to parse. Redundant with the wildcard
+# above by design: these are the files where a CRLF regression is fatal rather
+# than cosmetic, so the intent should survive a future edit to the line above.
+llm-env      text eol=lf
+*.sh         text eol=lf
+*.bash       text eol=lf
+*.bats       text eol=lf
+*.conf       text eol=lf
+*.json       text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.md         text eol=lf
+
+# Binaries must never be touched.
+*.png        binary
+*.jpg        binary
+*.gif        binary
+*.ico        binary
+*.gz         binary
+*.zip        binary

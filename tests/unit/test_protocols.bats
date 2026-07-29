@@ -28,7 +28,7 @@ EOF
 
     # PROVIDER_PROTOCOLS should default to "openai" when not specified
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "test_provider"; protocol="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "test_provider"; protocol="$__LLM_REPLY"
 
     [ "$protocol" == "openai" ]
 }
@@ -48,7 +48,7 @@ EOF
     load_config "$test_config"
 
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "empty_section"; protocol="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "empty_section"; protocol="$__LLM_REPLY"
 
     [ "$protocol" == "openai" ]
 }
@@ -76,9 +76,9 @@ EOF
 
     # Both should default to "openai" when protocol not specified
     local openai_protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "openai"; openai_protocol="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "openai"; openai_protocol="$__LLM_REPLY"
     local groq_protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "groq"; groq_protocol="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "groq"; groq_protocol="$__LLM_REPLY"
 
     [ "$openai_protocol" == "openai" ]
     [ "$groq_protocol" == "openai" ]
@@ -103,7 +103,7 @@ EOF
     load_config "$test_config"
 
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "ant_provider"; protocol="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "ant_provider"; protocol="$__LLM_REPLY"
 
     [ "$protocol" == "anthropic" ]
 }
@@ -123,7 +123,7 @@ EOF
     load_config "$test_config"
 
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "openai_provider"; protocol="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "openai_provider"; protocol="$__LLM_REPLY"
 
     [ "$protocol" == "openai" ]
 }
@@ -152,8 +152,8 @@ EOF
 
     local protocol1
     local protocol2
-    get_provider_value "PROVIDER_PROTOCOLS" "provider1"; protocol1="$REPLY"
-    get_provider_value "PROVIDER_PROTOCOLS" "provider2"; protocol2="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "provider1"; protocol1="$__LLM_REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "provider2"; protocol2="$__LLM_REPLY"
 
     # Both should be lowercase
     [ "$protocol1" == "anthropic" ]
@@ -177,7 +177,7 @@ EOF
 
     # Protocol should default to "openai"
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "bad_provider"; protocol="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "bad_provider"; protocol="$__LLM_REPLY"
 
     [ "$protocol" == "openai" ]
 }
@@ -197,7 +197,7 @@ EOF
     load_config "$test_config"
 
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "empty_proto_provider"; protocol="$REPLY"
+    get_provider_value "PROVIDER_PROTOCOLS" "empty_proto_provider"; protocol="$__LLM_REPLY"
 
     [ "$protocol" == "openai" ]
 }
