@@ -219,6 +219,8 @@ stage_fixture() {
 }
 
 @test "append_export: rc path unwritable → returns nonzero gracefully" {
+    # chmod 000 does not make a file unwritable on NTFS under Git Bash.
+    skip_unless_posix_perms
     : > "$TEST_RC_FILE"
     chmod 000 "$TEST_RC_FILE"
     run _qs_append_export_to_rc "LLM_TEST_FAKE_KEY" "value" "$TEST_RC_FILE"

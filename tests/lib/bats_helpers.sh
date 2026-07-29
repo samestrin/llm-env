@@ -459,6 +459,23 @@ skip_unless_real_bash() {
         || skip "/bin/bash is not $want"
 }
 
+# Skip when the filesystem does not honour POSIX permission bits.
+#
+# chmod is largely a no-op on NTFS with Git Bash's default mount options, so a
+# test that chmods a file and then asserts the mode is testing the filesystem,
+# not llm-env. Probe rather than branch on platform: a Linux CI runner using an
+# exotic mount would hit the same thing.
+skip_unless_posix_perms() {
+    local probe="${BATS_TEST_TMPDIR:-${BATS_TMPDIR:-/tmp}}/permprobe.$$"
+    : > "$probe" 2>/dev/null || skip "cannot create a probe file"
+    chmod 600 "$probe" 2>/dev/null || { rm -f "$probe"; skip "chmod unavailable"; }
+    local mode
+    # shellcheck disable=SC2012
+    mode="$(ls -l "$probe" 2>/dev/null | cut -c1-10)"
+    rm -f "$probe"
+    [[ "$mode" == "-rw-------" ]] || skip "filesystem does not honour POSIX permission bits (got $mode)"
+}
+
 skip_unless_platform() {
     local want="$1" have
     have="$(uname -s 2>/dev/null)"
