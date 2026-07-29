@@ -60,10 +60,17 @@ setup() {
     # Build a PATH that has the ordinary tools but genuinely lacks bc and free.
     local stub="$BATS_TEST_TMPDIR/nobin"
     mkdir -p "$stub"
-    local t
-    for t in bash sh awk sed uptime printf grep cat; do
-        command -v "$t" >/dev/null 2>&1 && ln -sf "$(command -v "$t")" "$stub/$t"
+    local t path
+    for t in bash sh awk sed uptime grep cat; do
+        # Resolve to a real FILE. printf and friends are shell builtins on Git
+        # Bash with no external binary, so command -v returns a bare name and
+        # linking it fails. Copy rather than symlink: Windows symlinks require
+        # Developer Mode or elevation.
+        path="$(command -v "$t" 2>/dev/null)" || continue
+        [ -f "$path" ] || continue
+        cp "$path" "$stub/$t" 2>/dev/null || ln -sf "$path" "$stub/$t" 2>/dev/null || true
     done
+    [ -x "$stub/bash" ] || skip "could not build a minimal PATH on this platform"
     run env PATH="$stub" CI=1 "$stub/bash" -c "source '$HELPERS'; get_system_load_factor"
     [ "$status" -eq 0 ]
     # Must be a bare integer, not empty and not a float or an error string.
@@ -196,9 +203,11 @@ STUB
     cfg="$(write_config_with_eol crlf "[acme]
 base_url=https://a.test/v1")"
     [ -f "$cfg" ]
-    # Every line must end CR LF, and there must be at least one CR.
-    run grep -c $'\r$' "$cfg"
-    [ "$output" -ge 2 ]
+    # Count CR bytes directly with tr. `grep -c $'\r$'` undercounts under
+    # MSYS/Git Bash, where grep applies text-mode carriage-return handling.
+    local crs
+    crs="$(tr -cd '\r' < "$cfg" | wc -c | tr -d ' ')"
+    [ "${crs:-0}" -ge 2 ] || { echo "expected >=2 CR bytes, found ${crs:-0}"; return 1; }
 }
 
 @test "harness: write_config_with_eol lf produces no CR at all" {
@@ -209,8 +218,9 @@ base_url=https://a.test/v1")"
     # nonzero, which would make this assertion pass vacuously.
     [ -f "$cfg" ]
     [ -s "$cfg" ]
-    run grep -c $'\r' "$cfg"
-    [ "$status" -ne 0 ]
+    local crs
+    crs="$(tr -cd '\r' < "$cfg" | wc -c | tr -d ' ')"
+    [ "${crs:-0}" -eq 0 ] || { echo "expected 0 CR bytes, found ${crs:-0}"; return 1; }
 }
 
 @test "harness: make_hostile_config emits a config and exports its sentinel" {
