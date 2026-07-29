@@ -53,7 +53,7 @@ stage_fixture() {
 # `source ~/.zshrc` -- from bash, where that does not help. $SHELL is still
 # consulted as a fallback when the running shell cannot be determined.
 
-@test "detect_shell_rc: zsh → ~/.zshrc" {
+@test "detect_shell_rc: zsh -> ~/.zshrc" {
     CURRENT_SHELL=zsh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.zshrc" ]]
@@ -80,14 +80,14 @@ stage_fixture() {
     [[ "$output" == "$HOME/.zshrc" ]]
 }
 
-@test "detect_shell_rc: bash → ~/.bashrc when .bashrc exists" {
+@test "detect_shell_rc: bash -> ~/.bashrc when .bashrc exists" {
     : > "$HOME/.bashrc"
     CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
 }
 
-@test "detect_shell_rc: bash → ~/.bash_profile when .bashrc missing but .bash_profile exists" {
+@test "detect_shell_rc: bash -> ~/.bash_profile when .bashrc missing but .bash_profile exists" {
     rm -f "$HOME/.bashrc"
     : > "$HOME/.bash_profile"
     CURRENT_SHELL=bash run _qs_detect_shell_rc
@@ -95,20 +95,20 @@ stage_fixture() {
     [[ "$output" == "$HOME/.bash_profile" ]]
 }
 
-@test "detect_shell_rc: bash → ~/.bashrc when neither file exists (default)" {
+@test "detect_shell_rc: bash -> ~/.bashrc when neither file exists (default)" {
     rm -f "$HOME/.bashrc" "$HOME/.bash_profile"
     CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
 }
 
-@test "detect_shell_rc: fish → empty (caller falls back to print)" {
+@test "detect_shell_rc: fish -> empty (caller falls back to print)" {
     CURRENT_SHELL=unknown SHELL=/usr/bin/fish run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
 }
 
-@test "detect_shell_rc: csh/tcsh/unknown → empty" {
+@test "detect_shell_rc: csh/tcsh/unknown -> empty" {
     CURRENT_SHELL=unknown SHELL=/bin/csh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ -z "$output" ]]
@@ -219,14 +219,14 @@ stage_fixture() {
     grep -q "^export LLM_TEST_FAKE_KEY='value'$" "$TEST_RC_FILE"
 }
 
-@test "append_export: rc path is a directory → returns nonzero, does not crash" {
+@test "append_export: rc path is a directory -> returns nonzero, does not crash" {
     local dir_path="$BATS_TEST_TMPDIR/some-dir"
     mkdir -p "$dir_path"
     run _qs_append_export_to_rc "LLM_TEST_FAKE_KEY" "value" "$dir_path"
     [ "$status" -ne 0 ]
 }
 
-@test "append_export: rc path unwritable → returns nonzero gracefully" {
+@test "append_export: rc path unwritable -> returns nonzero gracefully" {
     # chmod 000 does not make a file unwritable on NTFS under Git Bash, and
     # root ignores permission bits entirely.
     skip_unless_posix_perms
@@ -256,7 +256,7 @@ stage_fixture() {
 
 # --- _qs_prompt_api_key -------------------------------------------------------
 
-@test "prompt_api_key: empty input → skip (returns 1)" {
+@test "prompt_api_key: empty input -> skip (returns 1)" {
     run bash -c "
         source '$BATS_TEST_DIRNAME/../../llm-env' >/dev/null 2>&1
         _qs_prompt_api_key 'LLM_TEST_FAKE_KEY'
@@ -264,7 +264,7 @@ stage_fixture() {
     [ "$status" -ne 0 ]
 }
 
-@test "prompt_api_key: 's' input → skip (returns 1)" {
+@test "prompt_api_key: 's' input -> skip (returns 1)" {
     run bash -c "
         source '$BATS_TEST_DIRNAME/../../llm-env' >/dev/null 2>&1
         _qs_prompt_api_key 'LLM_TEST_FAKE_KEY'
@@ -272,7 +272,7 @@ stage_fixture() {
     [ "$status" -ne 0 ]
 }
 
-@test "prompt_api_key: whitespace-only input → skip" {
+@test "prompt_api_key: whitespace-only input -> skip" {
     run bash -c "
         source '$BATS_TEST_DIRNAME/../../llm-env' >/dev/null 2>&1
         _qs_prompt_api_key 'LLM_TEST_FAKE_KEY'
