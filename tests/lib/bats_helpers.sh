@@ -4,8 +4,12 @@
 # Addresses associative array scoping issues in BATS environment
 
 # Global array management helpers for BATS
+# NOTE: these no longer take an array-mode parameter. Nothing has ever passed
+# one -- verified across every .bats file -- so the "${1:-...}" form was dead
+# code that also tripped SC2119/SC2120 once lint coverage was widened from
+# three files to all of them.
 declare_global_arrays() {
-    local array_support="${1:-$BASH_ASSOC_ARRAY_SUPPORT}"
+    local array_support="$BASH_ASSOC_ARRAY_SUPPORT"
     local declare_global_support="${BASH_DECLARE_GLOBAL_SUPPORT:-false}"
     
     if [[ "$array_support" == "true" ]]; then
@@ -49,7 +53,7 @@ declare_global_arrays() {
 
 # Clear all provider arrays for test isolation
 clear_provider_arrays() {
-    local array_support="${1:-$BASH_ASSOC_ARRAY_SUPPORT}"
+    local array_support="$BASH_ASSOC_ARRAY_SUPPORT"
     
     if [[ "$array_support" == "true" ]]; then
         # Clear native associative arrays
