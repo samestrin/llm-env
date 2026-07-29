@@ -138,6 +138,8 @@ teardown() {
 }
 
 @test "install fallback to ~/.local/bin: warns when not on PATH" {
+    skip_unless_posix_perms
+    skip_if_root
     local unwritable="$TEST_TMPDIR/sysdir"
     mkdir -p "$unwritable"
     chmod 555 "$unwritable"
@@ -158,6 +160,8 @@ teardown() {
 }
 
 @test "install fallback to ~/.local/bin: no PATH warning when already on PATH" {
+    skip_unless_posix_perms
+    skip_if_root
     local unwritable="$TEST_TMPDIR/sysdir"
     mkdir -p "$unwritable"
     chmod 555 "$unwritable"
@@ -188,6 +192,8 @@ teardown() {
 }
 
 @test "uninstall finds llm-env at ~/.local/bin when default is unwritable" {
+    skip_unless_posix_perms
+    skip_if_root
     # Simulate prior install at ~/.local/bin
     mkdir -p "$HOME/.local/bin"
     cp "$LLM_ENV_SCRIPT" "$HOME/.local/bin/llm-env"
