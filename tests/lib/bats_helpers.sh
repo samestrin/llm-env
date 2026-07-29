@@ -476,6 +476,15 @@ skip_unless_posix_perms() {
     [[ "$mode" == "-rw-------" ]] || skip "filesystem does not honour POSIX permission bits (got $mode)"
 }
 
+# Several tests establish a precondition by making a path unwritable. Root
+# ignores permission bits, so those tests pass vacuously when the suite runs as
+# root -- a real possibility on a self-hosted runner.
+skip_if_root() {
+    local uid
+    uid="$(id -u 2>/dev/null || echo 1000)"
+    [ "$uid" != "0" ] || skip "running as root; permission preconditions cannot be established"
+}
+
 skip_unless_platform() {
     local want="$1" have
     have="$(uname -s 2>/dev/null)"

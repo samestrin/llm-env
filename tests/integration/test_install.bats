@@ -17,6 +17,10 @@
 # the hardcoded /usr/local/bin default and point at a temp directory we
 # control.
 
+# Loaded for skip_unless_posix_perms / skip_if_root only. This file keeps its
+# own setup(); it does not use setup_test_env.
+load ../lib/bats_helpers
+
 INSTALL_SH="$BATS_TEST_DIRNAME/../../install.sh"
 LLM_ENV_SCRIPT="$BATS_TEST_DIRNAME/../../llm-env"
 
@@ -67,7 +71,7 @@ teardown() {
     mkdir -p "$target"
 
     run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || { echo "installer exited $status:"; printf '%s\n' "$output"; return 1; }
     [ -x "$target/llm-env" ]
 }
 
@@ -76,12 +80,16 @@ teardown() {
     mkdir -p "$target"
 
     run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || { echo "installer exited $status:"; printf '%s\n' "$output"; return 1; }
     ! echo "$output" | grep -q 'Add synthetic providers'
     ! echo "$output" | grep -q 'synthetic model providers'
 }
 
 @test "install --offline (default dir unwritable, non-root): falls back to ~/.local/bin" {
+    # chmod 555 does not restrict anything on NTFS under Git Bash, so the
+    # "unwritable" precondition cannot be established there at all.
+    skip_unless_posix_perms
+    skip_if_root
     # Make the "default" install dir unwritable.
     local unwritable="$TEST_TMPDIR/sysdir"
     mkdir -p "$unwritable"
@@ -103,6 +111,8 @@ teardown() {
 }
 
 @test "install --offline --install-dir <unwritable>: hard-fails (explicit choice respected)" {
+    skip_unless_posix_perms
+    skip_if_root
     local unwritable="$TEST_TMPDIR/blocked"
     mkdir -p "$unwritable"
     chmod 555 "$unwritable"
@@ -123,7 +133,7 @@ teardown() {
     mkdir -p "$target"
 
     run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || { echo "installer exited $status:"; printf '%s\n' "$output"; return 1; }
     echo "$output" | grep -q "llm-env quickstart"
 }
 
@@ -173,7 +183,7 @@ teardown() {
     [ ! -e "$target" ]
 
     run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || { echo "installer exited $status:"; printf '%s\n' "$output"; return 1; }
     [ -x "$target/llm-env" ]
 }
 

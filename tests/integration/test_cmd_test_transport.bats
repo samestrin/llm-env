@@ -136,18 +136,34 @@ _run_test_cmd() {
 
 # ---- timing without GNU date or bc ----
 
-@test "cmd_test: reports a numeric response time without bc on PATH" {
+@test "cmd_test: reports a numeric response time without bc" {
     _stub_curl 200
-    # A PATH with the ordinary tools but genuinely no bc.
-    local nb="$BATS_TEST_TMPDIR/nobc"
-    mkdir -p "$nb"
-    local t
-    for t in bash sh awk sed grep cat date printf; do
-        command -v "$t" >/dev/null 2>&1 && ln -sf "$(command -v "$t")" "$nb/$t"
-    done
-    ln -sf "$STUB/curl" "$nb/curl"
-    run env HOME="$HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" PATH="$nb" \
-        LLM_OAI_KEY=sk-1 "$nb/bash" -c "source '$SUT' test oai"
+    if command -v bc >/dev/null 2>&1; then
+        # bc exists here, so hide it behind a minimal PATH. Resolve to real
+        # FILES and copy: printf is a builtin on Git Bash, and Windows
+        # symlinks need Developer Mode.
+        local nb="$BATS_TEST_TMPDIR/nobc"
+        mkdir -p "$nb"
+        local t path
+        for t in bash sh awk sed grep cat date tr wc; do
+            path="$(command -v "$t" 2>/dev/null)" || continue
+            [ -f "$path" ] || continue
+            cp "$path" "$nb/$t" 2>/dev/null || ln -sf "$path" "$nb/$t" 2>/dev/null || true
+        done
+        cp "$STUB/curl" "$nb/curl" 2>/dev/null || ln -sf "$STUB/curl" "$nb/curl"
+        # Probe that the isolated interpreter genuinely starts: a copied
+        # bash.exe cannot run outside its MSYS install (needs msys-2.0.dll).
+        if [ -x "$nb/bash" ] && env PATH="$nb" "$nb/bash" -c 'exit 0' 2>/dev/null; then
+            run env HOME="$HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" PATH="$nb" \
+                LLM_OAI_KEY=sk-1 "$nb/bash" -c "source '$SUT' test oai"
+        else
+            skip "a minimal PATH is not constructible on this platform"
+        fi
+    else
+        # bc is already absent (Git Bash), so the ambient environment IS the
+        # condition under test -- no stubbing required.
+        _run_test_cmd oai
+    fi
     [[ "$output" != *"N/As"* ]]
     [[ "$output" != *"Ns"* ]]
 }
