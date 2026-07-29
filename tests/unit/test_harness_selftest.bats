@@ -54,26 +54,50 @@ setup() {
 
 # ---- no silent degradation on missing optional tools ----
 
-@test "helpers: get_system_load_factor works without bc or free on PATH" {
-    # Git Bash ships neither bc nor free; macOS ships no free. A helper that
-    # silently returns a wrong factor makes perf-test failures unreproducible.
-    # Build a PATH that has the ordinary tools but genuinely lacks bc and free.
+@test "helpers: the load factor never depends on bc" {
+    # bc is absent on Git Bash entirely. The original implementation piped
+    # through it and swallowed the failure, silently yielding a wrong factor.
+    run grep -nE '\|[[:space:]]*bc([^a-z_]|$)' "$HELPERS"
+    [ "$status" -ne 0 ] || { echo "pipes to bc:"; printf '%s\n' "$output"; return 1; }
+}
+
+@test "helpers: every use of free is gated on it existing" {
+    # free is Linux-only. Any invocation must sit behind a command -v probe,
+    # otherwise the memory branch silently misreads on macOS and Git Bash.
+    local uses guards
+    uses="$(grep -cE '\$\([[:space:]]*free[[:space:]]' "$HELPERS" || true)"
+    guards="$(grep -cE 'command -v free' "$HELPERS" || true)"
+    [ "${uses:-0}" -le "${guards:-0}" ] || {
+        echo "free invoked ${uses} time(s) but guarded ${guards} time(s)"
+        return 1
+    }
+}
+
+@test "helpers: get_system_load_factor works with bc and free absent" {
+    # Behavioural form. Build a PATH that has the ordinary tools but genuinely
+    # lacks bc and free, then verify the factor is still a bare integer.
     local stub="$BATS_TEST_TMPDIR/nobin"
     mkdir -p "$stub"
     local t path
-    for t in bash sh awk sed uptime grep cat; do
-        # Resolve to a real FILE. printf and friends are shell builtins on Git
-        # Bash with no external binary, so command -v returns a bare name and
-        # linking it fails. Copy rather than symlink: Windows symlinks require
-        # Developer Mode or elevation.
+    for t in bash sh awk sed uptime grep cat tr wc; do
+        # Resolve to a real FILE: printf and friends are shell builtins on Git
+        # Bash with no external binary. Copy rather than symlink -- Windows
+        # symlinks need Developer Mode.
         path="$(command -v "$t" 2>/dev/null)" || continue
         [ -f "$path" ] || continue
         cp "$path" "$stub/$t" 2>/dev/null || ln -sf "$path" "$stub/$t" 2>/dev/null || true
     done
-    [ -x "$stub/bash" ] || skip "could not build a minimal PATH on this platform"
+
+    # Probe that the isolated interpreter actually RUNS, not merely that the
+    # file exists. On Git Bash a copied bash.exe cannot start outside its own
+    # installation because it needs msys-2.0.dll alongside it, so a minimal
+    # PATH is not constructible there at all.
+    if [ ! -x "$stub/bash" ] || ! env PATH="$stub" "$stub/bash" -c 'exit 0' 2>/dev/null; then
+        skip "a minimal PATH is not constructible on this platform"
+    fi
+
     run env PATH="$stub" CI=1 "$stub/bash" -c "source '$HELPERS'; get_system_load_factor"
     [ "$status" -eq 0 ]
-    # Must be a bare integer, not empty and not a float or an error string.
     [[ "$output" =~ ^[0-9]+$ ]]
     [ "$output" -ge 100 ]
 }
