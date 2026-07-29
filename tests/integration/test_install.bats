@@ -66,6 +66,41 @@ teardown() {
     [ "$count" -le 1 ]
 }
 
+@test "install --offline: does not require curl" {
+    # install.sh hard-required curl even for an --offline install, which never
+    # touches the network. On Git Bash curl.exe lives in /mingw64/bin rather
+    # than /usr/bin, so any caller with a trimmed PATH -- including this very
+    # suite, which sets PATH=/usr/bin:/bin -- was refused a valid offline
+    # install. Reproduce by mirroring the real PATH minus curl.
+    local nocurl="$TEST_TMPDIR/nocurl"
+    mkdir -p "$nocurl"
+    local d f b
+    for d in /usr/bin /bin; do
+        [ -d "$d" ] || continue
+        for f in "$d"/*; do
+            b="$(basename "$f")"
+            [ "$b" = "curl" ] && continue
+            [ -f "$f" ] && [ ! -e "$nocurl/$b" ] && ln -sf "$f" "$nocurl/$b" 2>/dev/null
+        done
+    done
+    [ -x "$nocurl/bash" ] || skip "could not mirror a PATH on this platform"
+    PATH="$nocurl" command -v curl >/dev/null 2>&1 && skip "curl still resolvable; cannot test its absence"
+
+    local target="$TEST_TMPDIR/nocurl-bin"
+    mkdir -p "$target"
+    run env -i HOME="$HOME" PATH="$nocurl" \
+        "$nocurl/bash" "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
+    [ "$status" -eq 0 ] || { echo "installer exited $status:"; printf '%s\n' "$output"; return 1; }
+    [ -f "$target/llm-env" ]
+    [[ "$output" != *"curl is required"* ]]
+}
+
+@test "install: still requires curl for a NETWORK install" {
+    # The requirement is correct when we actually have to download.
+    run grep -A3 'OFFLINE_FILE" \]\] && ! command -v curl' "$INSTALL_SH"
+    [ "$status" -eq 0 ]
+}
+
 @test "install --offline --install-dir <writable>: succeeds and copies llm-env" {
     local target="$TEST_TMPDIR/explicit-bin"
     mkdir -p "$target"

@@ -63,9 +63,17 @@ print_error() {
 check_requirements() {
     print_step "Checking requirements..."
 
-    # Check if curl is available
-    if ! command -v curl &> /dev/null; then
-        print_error "curl is required but not installed. Please install curl first."
+    # curl is only needed to DOWNLOAD. An --offline install copies from a local
+    # path and never touches the network, so requiring curl there refused a
+    # perfectly valid installation.
+    #
+    # This is not hypothetical: on Git Bash, curl.exe lives in /mingw64/bin
+    # rather than /usr/bin, so any caller with a trimmed PATH -- including this
+    # project's own installer test suite -- hit a hard failure while doing an
+    # offline install that needed nothing from the network.
+    if [[ -z "$OFFLINE_FILE" ]] && ! command -v curl &> /dev/null; then
+        print_error "curl is required to download llm-env. Install curl, or use:"
+        print_error "  $0 --offline /path/to/llm-env"
         exit 1
     fi
 
