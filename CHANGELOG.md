@@ -45,19 +45,23 @@ works for the first time. 172 tests added (250 -> 422).
   code by string interpolation and ran it through `eval`, so an apostrophe in
   any config *value* escaped its quoting and `$(...)` in a *section name* was
   executed -- both on `source llm-env <anything>`, before validation ran. This
-  was reachable as a supply chain: `quickstart-*.json` is scraped from live
-  provider APIs daily and squash-merged with no human review, and those strings
-  were written straight into the user's config. Both backends were replaced
-  with a single `eval`-free flat-scalar store.
+  was reachable as a supply chain: `quickstart-*.json` is regenerated daily by
+  a scraper against live provider APIs, and those strings were written straight
+  into the user's config with no validation. (On `main` that refresh opens a PR
+  for human review; PR #29 proposes auto-merging it, which is only safe with
+  the validation gate added here.) Both backends were replaced with a single
+  `eval`-free flat-scalar store.
 - **API key no longer passed in `curl` argv** by `llm-env test`, where `ps` and
   `/proc/<pid>/cmdline` exposed it on a shared host.
 - **API keys written to shell rc files** are now created with `umask 077`
   rather than the ambient umask, which had produced a world-readable file.
 - **Scraped catalog fields validated.** `upstream_id`, `description`,
   `endpoints` and `signup_url` previously went into the config unchecked.
-- **`update-quickstart.yml` gates its auto-merge** on the refreshed catalog
-  parsing, emitting providers, and passing the quickstart suites. It previously
-  scraped and merged with no gate of any kind.
+- **`update-quickstart.yml` now gates the refresh** on the catalog actually
+  parsing, emitting providers, and passing the quickstart suites before the PR
+  is opened. Previously the only checks were the scraper's own pytest run and a
+  schema assertion -- nothing verified that `llm-env` could still consume the
+  result. This is also the precondition for safely auto-merging it (PR #29).
 - **`mask()` no longer reveals most of a short secret** (`abcd` showed `•bcd`).
 
 ### Added
