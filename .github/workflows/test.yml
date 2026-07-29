@@ -247,6 +247,27 @@ jobs:
     - name: Run unit tests
       run: bash tests/run_tests.sh --unit-only
 
+    # Diagnostic: run the installer standalone with the same sanitized PATH
+    # test_install.bats uses, and show everything. bats does not echo captured
+    # output, and the installer has been exiting 1 with an empty capture on
+    # this platform only.
+    - name: Installer diagnostic (does not fail the job)
+      continue-on-error: true
+      run: |
+        set +e
+        mkdir -p "$RUNNER_TEMP/diag/bin" "$RUNNER_TEMP/diag/home"
+        echo "--- with the suite's sanitized PATH ---"
+        env -i HOME="$RUNNER_TEMP/diag/home" PATH="/usr/bin:/bin" \
+            LLM_ENV_DEFAULT_INSTALL_DIR="$RUNNER_TEMP/diag/bin" \
+            bash ./install.sh --offline ./llm-env --install-dir "$RUNNER_TEMP/diag/bin" 2>&1 | head -40
+        echo "exit=${PIPESTATUS[0]}"
+        echo "--- with the full PATH ---"
+        bash ./install.sh --offline ./llm-env --install-dir "$RUNNER_TEMP/diag/bin2" 2>&1 | head -40
+        echo "exit=${PIPESTATUS[0]}"
+        echo "--- tool availability on the sanitized PATH ---"
+        env PATH="/usr/bin:/bin" bash -c 'for c in bash cp mkdir mv chmod curl dirname sed grep; do
+          command -v "$c" >/dev/null 2>&1 && echo "have $c" || echo "MISSING $c"; done'
+
     - name: Run integration tests
       run: bash tests/run_tests.sh --integration-only
 
