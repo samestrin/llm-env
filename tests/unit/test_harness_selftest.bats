@@ -147,6 +147,32 @@ STUB
     [[ "$output" != *"N"* ]]
 }
 
+# ---- suite hygiene ----
+
+@test "suite: no @test name contains a non-ASCII character" {
+    # bats mangles each test name into a shell function name. That round-trip
+    # does not survive non-ASCII under Git Bash: names containing a U+2192
+    # arrow produced "bats: unknown test name", and the file silently ran 19 of
+    # 30 tests before failing on the count mismatch. ASCII-only names keep the
+    # suite portable.
+    #
+    # LC_ALL=C so the byte class is bytes, not characters, and works on
+    # bash 3.2 (no $'\uXXXX' escapes).
+    # Scope to our own suites: tests/bats is the vendored bats-core submodule
+    # and its fixtures deliberately contain odd names.
+    local hits
+    hits="$(LC_ALL=C grep -rn '^@test.*[^ -~]' \
+              "$BATS_TEST_DIRNAME" \
+              "$BATS_TEST_DIRNAME/../integration" \
+              "$BATS_TEST_DIRNAME/../system" \
+              --include='*.bats' 2>/dev/null || true)"
+    [ -z "$hits" ] || {
+        echo "non-ASCII characters in @test names (bats cannot address these on Windows):"
+        printf '%s\n' "$hits"
+        return 1
+    }
+}
+
 # ---- real-HOME protection ----
 
 @test "helpers: snapshot_real_home records the developer's real rc files" {
