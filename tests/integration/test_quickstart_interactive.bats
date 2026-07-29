@@ -60,8 +60,11 @@ stage_fixture() {
 }
 
 @test "detect_shell_rc: the running shell wins over \$SHELL" {
+    # Pin the platform: on msys, detect_shell_rc correctly prefers a LOGIN file
+    # over .bashrc (mintty runs `bash --login -i`). That behaviour is covered
+    # in tests/unit/test_platform.bats; this test is about shell precedence.
     : > "$HOME/.bashrc"
-    CURRENT_SHELL=bash SHELL=/bin/zsh run _qs_detect_shell_rc
+    LLM_ENV_PLATFORM=linux CURRENT_SHELL=bash SHELL=/bin/zsh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
 }
