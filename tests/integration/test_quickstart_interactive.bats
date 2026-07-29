@@ -81,7 +81,10 @@ stage_fixture() {
 }
 
 @test "detect_shell_rc: bash -> ~/.bashrc when .bashrc exists" {
+    # See the note above: pin the platform, because on msys a LOGIN file is the
+    # correct answer and this test is about the non-msys layout.
     : > "$HOME/.bashrc"
+    LLM_ENV_PLATFORM=linux detect_platform
     CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
@@ -90,6 +93,7 @@ stage_fixture() {
 @test "detect_shell_rc: bash -> ~/.bash_profile when .bashrc missing but .bash_profile exists" {
     rm -f "$HOME/.bashrc"
     : > "$HOME/.bash_profile"
+    LLM_ENV_PLATFORM=linux detect_platform
     CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bash_profile" ]]
@@ -97,6 +101,7 @@ stage_fixture() {
 
 @test "detect_shell_rc: bash -> ~/.bashrc when neither file exists (default)" {
     rm -f "$HOME/.bashrc" "$HOME/.bash_profile"
+    LLM_ENV_PLATFORM=linux detect_platform
     CURRENT_SHELL=bash run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
