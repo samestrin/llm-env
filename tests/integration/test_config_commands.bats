@@ -107,6 +107,7 @@ _sut() {
 }
 
 @test "config remove: preserves file permissions" {
+    skip_unless_posix_perms
     chmod 600 "$CFG"
     _sut config remove alpha
     local perms
@@ -141,6 +142,7 @@ _sut() {
 }
 
 @test "config bulk: preserves file permissions" {
+    skip_unless_posix_perms
     chmod 600 "$CFG"
     _sut config bulk disable alpha
     local perms
