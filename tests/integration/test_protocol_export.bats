@@ -180,60 +180,65 @@ teardown() {
     [ "$ANTHROPIC_MODEL" = "claude-3" ]
 }
 
-@test "Protocol coexistence: switching openai->anthropic preserves OPENAI_ variables" {
-    # Set up environment for both providers
+# INVERTED IN 1.7.0.
+#
+# These two tests previously asserted that switching protocol PRESERVED the
+# other protocol's variables, under the name "Protocol coexistence". That was
+# not a feature: leaving ANTHROPIC_BASE_URL and the CLAUDE_CODE_* overrides
+# exported after switching to an OpenAI provider means Claude Code keeps
+# routing to the old host, using the old credential, while the user believes
+# they have switched. See tests/integration/test_env_isolation.bats for the
+# full contract; these keep the original fixtures and call style.
+
+@test "Protocol switch: openai->anthropic clears OPENAI_ variables" {
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
     export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
-    # First set OpenAI provider
     cmd_set "openai_provider"
     [ -n "$OPENAI_API_KEY" ]
 
-    # Then switch to Anthropic provider
     cmd_set "anthropic_provider"
 
-    # Verify OPENAI_ variables are preserved
-    [ -n "$OPENAI_API_KEY" ]
-    [ -n "$OPENAI_BASE_URL" ]
-    [ -n "$OPENAI_MODEL" ]
+    # The previous protocol must be fully torn down.
+    [ -z "${OPENAI_API_KEY:-}" ]
+    [ -z "${OPENAI_BASE_URL:-}" ]
+    [ -z "${OPENAI_MODEL:-}" ]
 
-    # Verify ANTHROPIC_ variables are set
+    # The newly selected protocol must be fully configured.
     [ -n "$ANTHROPIC_API_KEY" ]
     [ -n "$ANTHROPIC_AUTH_TOKEN" ]
     [ -n "$ANTHROPIC_BASE_URL" ]
     [ -n "$ANTHROPIC_MODEL" ]
 
-    # Verify active provider switched
     [ "$LLM_PROVIDER" = "anthropic_provider" ]
     [ "$LLM_PROTOCOL" = "anthropic" ]
 }
 
-@test "Protocol coexistence: switching anthropic->openai preserves ANTHROPIC_ variables" {
-    # Set up environment for both providers
+@test "Protocol switch: anthropic->openai clears ANTHROPIC_ and CLAUDE_CODE_ variables" {
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
     export ANTHROPIC_TEST_TOKEN="anthropic-test-token-6789"
 
-    # First set Anthropic provider
     cmd_set "anthropic_provider"
     [ -n "$ANTHROPIC_API_KEY" ]
 
-    # Then switch to OpenAI provider
     cmd_set "openai_provider"
 
-    # Verify ANTHROPIC_ variables are preserved
-    [ -n "$ANTHROPIC_API_KEY" ]
-    [ -n "$ANTHROPIC_AUTH_TOKEN" ]
-    [ -n "$ANTHROPIC_BASE_URL" ]
-    [ -n "$ANTHROPIC_MODEL" ]
+    [ -z "${ANTHROPIC_API_KEY:-}" ]
+    [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]
+    [ -z "${ANTHROPIC_BASE_URL:-}" ]
+    [ -z "${ANTHROPIC_MODEL:-}" ]
+    # Claude Code reads these; leaving them set is the actual harm.
+    [ -z "${ANTHROPIC_DEFAULT_OPUS_MODEL:-}" ]
+    [ -z "${ANTHROPIC_DEFAULT_SONNET_MODEL:-}" ]
+    [ -z "${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}" ]
+    [ -z "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ]
 
-    # Verify OPENAI_ variables are set
     [ -n "$OPENAI_API_KEY" ]
     [ -n "$OPENAI_BASE_URL" ]
     [ -n "$OPENAI_MODEL" ]
 
-    # Verify active provider switched
     [ "$LLM_PROVIDER" = "openai_provider" ]
     [ "$LLM_PROTOCOL" = "openai" ]
 }
@@ -283,11 +288,11 @@ teardown() {
     [ "$LLM_PROVIDER" = "anthropic_provider" ]
     [ "$ANTHROPIC_API_KEY" = "anthropic-test-key-12345" ]
 
-    # Set OpenAI again (switches active provider, preserves Anthropic)
+    # Set OpenAI again: switches the active provider AND tears down Anthropic.
     cmd_set "openai_provider"
     [ "$LLM_PROVIDER" = "openai_provider" ]
     [ "$OPENAI_API_KEY" = "sk-test-key-12345" ]
-    [ -n "$ANTHROPIC_API_KEY" ]  # Both protocols coexist
+    [ -z "${ANTHROPIC_API_KEY:-}" ]  # only one protocol is live at a time
 }
 
 @test "OpenAI confirmation message includes protocol" {
@@ -309,7 +314,7 @@ teardown() {
     [[ "$output" =~ "protocol" ]] || [[ "$output" =~ "anthropic" ]]
 }
 
-@test "cmd_show: displays both protocols when both are configured" {
+@test "cmd_show: displays only the active protocol after a switch" {
     # Set up environment for both providers
     export OPENAI_TEST_KEY="sk-test-key-12345"
     export ANTHROPIC_TEST_KEY="anthropic-test-key-12345"
@@ -327,13 +332,15 @@ teardown() {
     [[ "$output" =~ "anthropic_provider" ]]
     [[ "$output" =~ "LLM_PROTOCOL       = anthropic" ]]
 
-    # Both protocols should be displayed
-    [[ "$output" =~ "OPENAI_BASE_URL" ]]
-    [[ "$output" =~ "OPENAI_MODEL" ]]
-    [[ "$output" =~ "OPENAI_API_KEY" ]]
+    # Only the active protocol is shown. This test was named "displays both
+    # protocols" and asserted the OPENAI_* block was still present after
+    # switching -- which was a symptom of the leak, not a feature: those
+    # variables pointed at the previous provider's host and credential.
     [[ "$output" =~ "ANTHROPIC_BASE_URL" ]]
     [[ "$output" =~ "ANTHROPIC_MODEL" ]]
     [[ "$output" =~ "ANTHROPIC_API_KEY" ]]
+    [[ ! "$output" =~ "OPENAI_BASE_URL" ]]
+    [[ ! "$output" =~ "OPENAI_API_KEY" ]]
 }
 
 @test "cmd_show: displays only active protocol when other is not configured" {

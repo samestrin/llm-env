@@ -36,6 +36,54 @@ jobs:
           LLM_SYNTHETIC_API_KEY: ${{ secrets.LLM_SYNTHETIC_API_KEY }}
         run: python -m scripts.update_quickstart
 
+      # Gate the refresh on the resulting catalog actually working.
+      #
+      # This job scrapes live provider APIs, and llm-env writes those strings
+      # straight into the user's config. Until now the only checks were the
+      # scraper's own pytest run and a schema assertion -- nothing verified
+      # that llm-env could still CONSUME the result. That is how a rename
+      # (kimi-k2.5 -> kimi-k2.7-code) landed on main and left the E2E red with
+      # `llm-env set` pointing at a provider that no longer existed.
+      #
+      # This gate is also the precondition for auto-merging the refresh
+      # (proposed separately in PR #29): unattended merges are only safe once
+      # something proves the artifact still works.
+      - name: Verify the refreshed catalog parses and emits providers
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/qs-verify"
+          export XDG_CONFIG_HOME="$HOME/.config"
+          mkdir -p "$XDG_CONFIG_HOME"
+          out="$(LLM_ENV_QUICKSTART_DIR="$PWD" bash -c \
+                 'source ./llm-env quickstart all </dev/null' 2>&1)"
+          echo "$out"
+
+          # Any validation rejection or parse failure must block the merge.
+          for bad in "missing required top-level fields" \
+                     "Quickstart file is empty" \
+                     "Unsupported schema_version" \
+                     "unsafe" \
+                     "contains unsafe characters"; do
+            if grep -qF "$bad" <<<"$out"; then
+              echo "::error::refreshed catalog rejected: $bad"
+              exit 1
+            fi
+          done
+
+          cfg="$XDG_CONFIG_HOME/llm-env/config.conf"
+          n="$(grep -c '^\[' "$cfg" 2>/dev/null || echo 0)"
+          echo "emitted $n config sections"
+          if [ "$n" -lt 10 ]; then
+            echo "::error::refreshed catalog emitted only $n sections"
+            exit 1
+          fi
+
+      - name: Run the quickstart test suite against the refreshed catalog
+        run: |
+          git submodule update --init --recursive
+          tests/bats/bin/bats tests/integration/test_quickstart.bats \
+                              tests/integration/test_quickstart_supplychain.bats
+
       - name: Open PR if files changed
         uses: peter-evans/create-pull-request@v6
         with:

@@ -131,24 +131,38 @@ echo "groups emitted:    $group_count (expected $expected_groups)"
 
 echo "::: list shows new providers :::"
 "$INSTALL_DIR/llm-env" list >/tmp/list.log 2>&1 || true
-grep -q 'openai_synth_kimi-k2.5' /tmp/list.log || {
-    echo "FAIL: openai_synth_kimi-k2.5 not in list output"
+
+# Derive the ids under test from the catalog that was actually installed.
+# These were hardcoded as *_synth_kimi-k2.5, which the daily scraper renamed
+# to kimi-k2.7-code and auto-merged -- leaving this E2E (and therefore main)
+# red against a model that no longer existed.
+MODEL_ID="$(grep -oE '^\[openai_synth_[A-Za-z0-9._-]+\]' "$config" | head -1 \
+            | tr -d '[]' | sed 's/^openai_synth_//')"
+if [ -z "$MODEL_ID" ]; then
+    echo "FAIL: no openai_synth_* provider was emitted"
+    cat /tmp/list.log
+    exit 1
+fi
+echo "derived model id: $MODEL_ID"
+
+grep -q "openai_synth_${MODEL_ID}" /tmp/list.log || {
+    echo "FAIL: openai_synth_${MODEL_ID} not in list output"
     cat /tmp/list.log
     exit 1
 }
-grep -q 'anth_synth_kimi-k2.5' /tmp/list.log || {
-    echo "FAIL: anth_synth_kimi-k2.5 not in list output"
+grep -q "anth_synth_${MODEL_ID}" /tmp/list.log || {
+    echo "FAIL: anth_synth_${MODEL_ID} not in list output"
     cat /tmp/list.log
     exit 1
 }
 
-echo "::: llm-env set synth_kimi-k2.5 activates both protocols :::"
+echo "::: llm-env set synth_${MODEL_ID} activates both protocols :::"
 # Use a fake key for the offline check; live API call comes later.
 export LLM_SYNTHETIC_API_KEY="${LLM_SYNTHETIC_API_KEY:-test-fake-key}"
 
 # Source set inside a sub-shell to capture exported vars.
 output=$(bash -c "
-    source $INSTALL_DIR/llm-env set synth_kimi-k2.5 >/dev/null 2>&1
+    source $INSTALL_DIR/llm-env set synth_${MODEL_ID} >/dev/null 2>&1
     echo openai=\$OPENAI_BASE_URL
     echo anthropic=\$ANTHROPIC_BASE_URL
     echo provider=\$LLM_PROVIDER
@@ -162,7 +176,7 @@ echo "$output" | grep -q '^anthropic=https://api.synthetic.new/anthropic/v1$' ||
     echo "FAIL: ANTHROPIC_BASE_URL not set"
     exit 1
 }
-echo "$output" | grep -q 'openai_synth_kimi-k2.5,anth_synth_kimi-k2.5' || {
+echo "$output" | grep -q "openai_synth_${MODEL_ID},anth_synth_${MODEL_ID}" || {
     echo "FAIL: LLM_PROVIDER did not contain both providers"
     exit 1
 }
@@ -180,13 +194,13 @@ echo "$output" | grep -qiE '^model=.*glm' || {
 }
 
 if [[ "${LLM_ENV_WITH_LIVE_API:-false}" == "true" ]]; then
-    echo "::: LIVE API: running llm-env test against openai_synth_kimi-k2.5 :::"
+    echo "::: LIVE API: running llm-env test against openai_synth_${MODEL_ID} :::"
     if [[ -z "${LLM_SYNTHETIC_API_KEY:-}" || "$LLM_SYNTHETIC_API_KEY" == "test-fake-key" ]]; then
         echo "SKIP: live API requested but no real LLM_SYNTHETIC_API_KEY"
     else
         bash -c "
-            source $INSTALL_DIR/llm-env set openai_synth_kimi-k2.5 >/dev/null 2>&1
-            $INSTALL_DIR/llm-env test openai_synth_kimi-k2.5
+            source $INSTALL_DIR/llm-env set openai_synth_${MODEL_ID} >/dev/null 2>&1
+            $INSTALL_DIR/llm-env test openai_synth_${MODEL_ID}
         " || {
             echo "FAIL: live API test failed"
             exit 1

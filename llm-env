@@ -8,7 +8,7 @@
 #   source ./llm-env config <command>
 
 # Version information
-VERSION="1.6.1"
+LLM_ENV_VERSION="1.7.0"
 
 # llm-env is sourced into the user's shell. A user who has `set -u` (nounset)
 # in their profile would otherwise abort on this script's own unset-variable
@@ -26,8 +26,20 @@ detect_shell() {
     if [[ -n "${ZSH_VERSION:-}" ]]; then
         CURRENT_SHELL="zsh"
         SHELL_VERSION="${ZSH_VERSION}"
-        # Enable bash compatibility for regex matching (BASH_REMATCH array)
-        setopt BASH_REMATCH 2>/dev/null || true
+        # Deliberately NOT `setopt BASH_REMATCH`.
+        #
+        # llm-env is sourced into the user's interactive shell, and setopt
+        # without `localoptions` is permanent for that session. Enabling
+        # BASH_REMATCH changes how every later regex match populates $match and
+        # $MATCH -- they stop being set at all -- silently breaking any zsh
+        # plugin, prompt, or completion that reads them. `localoptions` is not
+        # an alternative here: it would restore the option on return from
+        # detect_shell, long before the matches that need it.
+        #
+        # get_match reads zsh's native $match array instead, which also removes
+        # the fragile index offset the option required (captures landed at
+        # [2]/[3] under BASH_REMATCH but [1]/[2] without it).
+        :
     elif [[ -n "${BASH_VERSION:-}" ]]; then
         CURRENT_SHELL="bash"
         SHELL_VERSION="${BASH_VERSION}"
@@ -36,6 +48,27 @@ detect_shell() {
         SHELL_VERSION="0.0"
     fi
     export CURRENT_SHELL SHELL_VERSION
+}
+
+# Get a regex capture group. Sets the global __LLM_REPLY (no stdout, no fork).
+# Usage: get_match 1; result=$__LLM_REPLY   # first capture group
+# Call immediately after the matching [[ =~ ]] while the captures are current.
+#
+# bash exposes captures in BASH_REMATCH, 0-indexed with the whole match at [0].
+# zsh exposes them in its native $match array, 1-indexed with capture 1 at [1].
+# Reading $match directly means the script no longer has to enable -- and
+# permanently leak into the user's session -- the BASH_REMATCH option purely to
+# borrow bash's names. See detect_shell.
+#
+# The shell test is at call time rather than source time because
+# parse_bash_version calls this while establishing CURRENT_SHELL itself.
+get_match() {
+    if [[ "${CURRENT_SHELL:-}" == "zsh" ]]; then
+        # shellcheck disable=SC2154  # $match is a zsh builtin array
+        eval '__LLM_REPLY="${match[$1]-}"'
+    else
+        __LLM_REPLY="${BASH_REMATCH[$1]-}"
+    fi
 }
 
 # Parse shell version for compatibility features
@@ -53,9 +86,11 @@ parse_bash_version() {
         # Parse zsh version
         version="${ZSH_VERSION:-5.0}"
         if [[ "${version}" =~ ^([0-9]+)\.([0-9]+) ]]; then
-            # With BASH_REMATCH option and 1-indexed arrays: [2] is first capture, [3] is second
-            major="${BASH_REMATCH[2]}"
-            minor="${BASH_REMATCH[3]}"
+            # Read captures via get_match, which uses zsh's native $match. The
+            # old [2]/[3] indices only held while the BASH_REMATCH option was
+            # enabled -- an offset that silently inverted when it was not.
+            get_match 1; major="$__LLM_REPLY"
+            get_match 2; minor="$__LLM_REPLY"
         else
             major=5
             minor=0
@@ -133,175 +168,203 @@ get_script_dir() {
 # Initialize bash version detection
 parse_bash_version
 
-# Helper function to get regex match at index (works in both bash and zsh)
-# Sets the global REPLY to the capture group (no stdout, no subshell fork).
-# Usage: get_match 1; result=$REPLY   # first capture group
-# Call immediately after the matching [[ =~ ]] so BASH_REMATCH is still current.
-# In bash: BASH_REMATCH is 0-indexed, so capture group 1 is at index 1
-# In zsh with BASH_REMATCH option: array is 1-indexed, so capture group 1 is at index 2
-get_match() {
-    local index="$1"
-    if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-        # Zsh arrays are 1-indexed, so add 1 to get equivalent position
-        REPLY="${BASH_REMATCH[$((index + 1))]}"
-    else
-        REPLY="${BASH_REMATCH[$index]}"
-    fi
-}
+# (get_match is defined above, before parse_bash_version needs it.)
 
 # Helper function for indirect variable expansion (works in both bash and zsh)
-# Sets the global REPLY to the named variable's value (empty if unset).
-# Usage: get_var_value "SOME_VAR_NAME"; result=$REPLY
+# Sets the global __LLM_REPLY to the named variable's value (empty if unset).
+# Usage: get_var_value "SOME_VAR_NAME"; result=$__LLM_REPLY
 get_var_value() {
     local var_name="$1"
     if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
         # shellcheck disable=SC2296 # zsh-specific indirect expansion syntax
-        REPLY="${(P)var_name-}"
+        __LLM_REPLY="${(P)var_name-}"
     else
-        REPLY="${!var_name-}"
+        __LLM_REPLY="${!var_name-}"
     fi
 }
 
 # Trim leading/trailing whitespace using parameter expansion (no subshell fork).
-# Sets the global REPLY. Works in both bash and zsh. Usage: trim "$s"; s=$REPLY
+# Sets the global __LLM_REPLY. Works in both bash and zsh. Usage: trim "$s"; s=$__LLM_REPLY
 trim() {
     local s="$1"
     s="${s#"${s%%[![:space:]]*}"}"   # strip leading whitespace
     s="${s%"${s##*[![:space:]]}"}"   # strip trailing whitespace
-    REPLY="$s"
+    __LLM_REPLY="$s"
 }
 
 # Configuration state variables
 CONFIG_SOURCE=""  # none, user, system, builtin
 CONFIG_LOADED=false
 
-# Bash compatibility functions for older bash versions (< 4.0)
-# Provides associative array functionality using parallel indexed arrays
-# Each "associative array" is represented by:
-# - {name}_KEYS: indexed array of keys
-# - {name}_VALUES: indexed array of values (parallel to keys)
+# ---------- Provider store ----------
+#
+# Provider data lives in flat scalar variables, not associative arrays:
+#
+#   __LLM_V_<MAP>__<mangled_key>   the value (set == the key exists)
+#   __LLM_KN_<MAP>                 number of registered keys
+#   __LLM_K_<MAP>__<i>             i-th key, in insertion order
+#
+# This replaced two divergent backends -- native `declare -A` on bash 4+/zsh
+# and parallel KEYS/VALUES arrays on bash 3.2 -- both of which reached values
+# and keys through `eval`. Interpolating config-derived text into eval gave
+# arbitrary code execution from a config file (see tests/unit/test_injection.bats).
+#
+# Nothing here evals. Values are written with `printf -v`, which never re-parses
+# its argument. Keys are validated against [A-Za-z0-9._-] and then mangled to
+# [A-Za-z0-9_], so a storage variable name can never contain `[`, `$`, a quote,
+# or a backtick -- which also closes the `unset 'a[$(cmd)]'` arithmetic-subscript
+# vector.
+#
+# Collapsing to one backend additionally fixes:
+#   * bash 3.2 keeping removed providers after re-init (only the native branch
+#     was ever cleared)
+#   * bash 4.0/4.1 losing every provider, because a bare `declare -A` inside
+#     init_config created function-locals that died on return
+#   * zsh's has_provider_key matching keys as a glob rather than exactly
+#   * key order differing between backends, which made output untestable
 
-if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "false" ]]; then
-    # Set a key-value pair in a compatibility associative array
-    compat_assoc_set() {
-        local array_name="$1"
-        local key="$2"
-        local value="$3"
+# The nine provider maps. Single source of truth: the reset path derives from
+# this list, so it cannot drift from the writers the way the old code did.
+LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS"
 
-        if [[ -z "$array_name" || -z "$key" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-        local values_array="${array_name}_VALUES"
-
-        # Initialize arrays if they don't exist (but don't overwrite existing ones)
-        if ! declare -p "$keys_array" >/dev/null 2>&1; then
-            eval "${keys_array}=()"
-        fi
-        if ! declare -p "$values_array" >/dev/null 2>&1; then
-            eval "${values_array}=()"
-        fi
-
-        # Read the current keys to locate an existing entry (scan only; we no
-        # longer copy+rewrite the whole array, which was the O(N^2) hot spot).
-        local -a keys
-        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || keys=()
-
-        # Look for existing key -> update that element in place (O(1)).
-        # eval assigns a single element with a double-quoted expansion, so the
-        # value's content is never re-parsed (safe for spaces, $ & | ; ' " \ etc).
-        # bash 3.2's `printf -v arr[i]` is unsupported, so eval is required here.
-        local i n="${#keys[@]}"
-        for ((i=0; i<n; i++)); do
-            if [[ "${keys[i]}" == "$key" ]]; then
-                eval "${values_array}[$i]=\"\$value\""
-                return 0
-            fi
-        done
-
-        # Not found: append key/value at the tail index (O(1) each, no rewrite).
-        eval "${keys_array}[$n]=\"\$key\""
-        eval "${values_array}[$n]=\"\$value\""
-    }
-
-    # Get a value from a compatibility associative array
-    # Sets the global REPLY (empty for a missing OR empty key); no stdout.
-    compat_assoc_get() {
-        local array_name="$1"
-        local key="$2"
-
-        REPLY=""
-
-        if [[ -z "$array_name" || -z "$key" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-        local values_array="${array_name}_VALUES"
-
-        # Get current arrays
-        local -a keys
-        local -a values
-        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || keys=()
-        eval "values=(\${${values_array}[@]+\"\${${values_array}[@]}\"})" 2>/dev/null || values=()
-
-        # Look for key
-        local i
-        for ((i=0; i<${#keys[@]}; i++)); do
-            if [[ "${keys[i]}" == "$key" ]]; then
-                REPLY="${values[i]}"
-                return 0
-            fi
-        done
-
-        # Key not found - REPLY already empty. Caller uses has_provider_key for
-        # existence; empty REPLY means missing OR empty (documented invariant).
-        return 0
-    }
-
-    # Get all keys from a compatibility associative array
-    # Populates the global REPLY_KEYS array; no stdout.
-    compat_assoc_keys() {
-        local array_name="$1"
-
-        REPLY_KEYS=()
-
-        if [[ -z "$array_name" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-
-        eval "REPLY_KEYS=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})" 2>/dev/null || REPLY_KEYS=()
-    }
-
-    # Check if a key exists in a compatibility associative array
-    compat_assoc_has_key() {
-        local array_name="$1"
-        local key="$2"
-
-        if [[ -z "$array_name" || -z "$key" ]]; then
-            return 1
-        fi
-
-        local keys_array="${array_name}_KEYS"
-
-        # Get current keys
-        local -a keys
-        eval "keys=(\${${keys_array}[@]+\"\${${keys_array}[@]}\"})"
-
-        # Look for key
-        local i
-        for ((i=0; i<${#keys[@]}; i++)); do
-            if [[ "${keys[i]}" == "$key" ]]; then
-                return 0
-            fi
-        done
-
-        return 1
-    }
+# Shell-specific indirection, resolved once at source time rather than per call.
+# These are the only two shell branches in the whole store.
+if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
+    # shellcheck disable=SC1087,SC2296  # zsh ${(P)} indirect expansion
+    __llm_var_get()   { eval '__LLM_REPLY="${(P)1-}"'; }
+    # shellcheck disable=SC2296
+    __llm_var_isset() { eval '[[ -n "${(P)1+x}" ]]'; }
+    # zsh does NOT word-split unquoted parameter expansions (no SH_WORD_SPLIT
+    # by default), so `for x in $space_separated_list` iterates ONCE with the
+    # whole string. ${=1} forces the split.
+    #
+    # IFS is set locally rather than inherited: a caller using the common
+    # "bash strict mode" idiom `IFS=$'\n\t'` has no space in IFS, so splitting
+    # would not happen at all and every caller of this helper would silently
+    # operate on one giant pseudo-word.
+    __llm_split()     { local IFS=' '; eval '__LLM_WORDS=(${=1})'; }
+else
+    __llm_var_get()   { __LLM_REPLY="${!1-}"; }
+    __llm_var_isset() { [[ -n "${!1+x}" ]]; }
+    # Inputs are our own fixed identifier lists, so there is nothing for
+    # pathname expansion to act on here. IFS is local for the reason above.
+    # shellcheck disable=SC2206
+    __llm_split()     { local IFS=' '; __LLM_WORDS=($1); }
 fi
+
+# Canonical identifier predicate. Provider ids legitimately contain dots and
+# hyphens -- quickstart schema v2 ships ids like kimi-k2.5 and glm-5.1 -- so the
+# charset must allow them. Uses `case` globbing rather than [[ =~ ]] so
+# BASH_REMATCH is never clobbered (load_config depends on it via get_match) and
+# no locale-sensitive character class is involved.
+_llm_id_is_safe() {
+    case "$1" in
+        "")                return 1 ;;
+        *[!A-Za-z0-9._-]*) return 1 ;;
+    esac
+    return 0
+}
+
+# Build the storage variable name for (map, key) into __LLM_VN.
+# Returns 1 for an invalid map or key. Deliberately uses a dedicated slot
+# rather than __LLM_REPLY so a has_provider_key call cannot clobber a value
+# fetch that is still in flight.
+__llm_store_var() {
+    local __m="$1" __k="$2" __x
+    case "$__m" in
+        ""|*[!A-Za-z0-9_]*) __LLM_VN=""; return 1 ;;
+    esac
+    if ! _llm_id_is_safe "$__k"; then
+        __LLM_VN=""
+        return 1
+    fi
+    # Injective mangling to a legal variable name. Order matters: underscore
+    # first, so the escapes introduced below are not themselves re-escaped.
+    # a-b and a_b must not collide.
+    __x="${__k//_/_5f}"
+    __x="${__x//./_2e}"
+    __x="${__x//-/_2d}"
+    __LLM_VN="__LLM_V_${__m}__${__x}"
+}
+
+# Set a value in a provider map. Returns 1 (without storing) for an invalid key.
+set_provider_value() {
+    local __map="$1" __key="$2" __value="$3" __vn __kn __n
+
+    if ! __llm_store_var "$__map" "$__key"; then
+        debug "rejected key '$__key' for map '$__map'"
+        return 1
+    fi
+    __vn="$__LLM_VN"
+
+    # First write for this key: append it to the ordered key registry.
+    if ! __llm_var_isset "$__vn"; then
+        __kn="__LLM_KN_${__map}"
+        __llm_var_get "$__kn"
+        __n="${__LLM_REPLY:-0}"
+        printf -v "__LLM_K_${__map}__${__n}" '%s' "$__key"
+        printf -v "$__kn" '%s' "$((__n + 1))"
+    fi
+
+    # printf -v assigns literally: the value is never parsed as code.
+    printf -v "$__vn" '%s' "$__value"
+}
+
+# Get a value from a provider map.
+# Sets __LLM_REPLY to the value, empty for a missing OR empty key. Existence is
+# decided only by has_provider_key. No stdout, no subshell.
+get_provider_value() {
+    __LLM_REPLY=""
+    __llm_store_var "$1" "$2" || return 1
+    __llm_var_get "$__LLM_VN"
+}
+
+# Exact-match key existence. A key set to the empty string still exists.
+has_provider_key() {
+    __llm_store_var "$1" "$2" || return 1
+    __llm_var_isset "$__LLM_VN"
+}
+
+# Populate __LLM_REPLY_KEYS with a map's keys in insertion order.
+# Insertion order is now identical on every shell, so command output is stable
+# and golden-output assertions are possible for the first time.
+get_provider_keys() {
+    local __map="$1" __n __i=0
+    __LLM_REPLY_KEYS=()
+    case "$__map" in
+        ""|*[!A-Za-z0-9_]*) return 1 ;;
+    esac
+    __llm_var_get "__LLM_KN_${__map}"
+    __n="${__LLM_REPLY:-0}"
+    while [[ $__i -lt $__n ]]; do
+        __llm_var_get "__LLM_K_${__map}__${__i}"
+        # Append rather than assign by index: zsh arrays are 1-indexed, so
+        # __LLM_REPLY_KEYS[0]= is an "invalid subscript" error there. `+=` is
+        # correct in bash 3.1+ and zsh alike.
+        __LLM_REPLY_KEYS+=("$__LLM_REPLY")
+        __i=$((__i + 1))
+    done
+}
+
+# Drop every key/value in a map and reset its registry.
+clear_provider_map() {
+    local __map="$1" __n __i=0 __key
+    case "$__map" in
+        ""|*[!A-Za-z0-9_]*) return 1 ;;
+    esac
+    __llm_var_get "__LLM_KN_${__map}"
+    __n="${__LLM_REPLY:-0}"
+    while [[ $__i -lt $__n ]]; do
+        __llm_var_get "__LLM_K_${__map}__${__i}"
+        __key="$__LLM_REPLY"
+        if __llm_store_var "$__map" "$__key"; then
+            unset "$__LLM_VN"
+        fi
+        unset "__LLM_K_${__map}__${__i}"
+        __i=$((__i + 1))
+    done
+    unset "__LLM_KN_${__map}"
+}
 
 # ---------- Configuration Loading ----------
 
@@ -311,175 +374,48 @@ get_user_config_path() {
 }
 
 # Function to get configuration file locations (in order of precedence)
+# Emit "tier<TAB>path" lines, highest precedence first.
+#
+# The system tier is now platform-derived rather than the single hardcoded
+# /usr/local/etc: that path maps into C:\Program Files\Git on Git Bash and
+# never exists, and it is the wrong prefix for Apple-Silicon Homebrew. Emitting
+# the tier name alongside the path also removes the string comparison
+# init_config used to decide CONFIG_SOURCE, which made "system" unreachable on
+# any other layout.
 get_config_locations() {
-    local locations=(
-        "$(get_user_config_path)"
-        "/usr/local/etc/llm-env/config.conf"
-        "$(get_script_dir)/config/llm-env.conf"
-    )
-    printf '%s\n' ${locations[@]+"${locations[@]}"}
+    local sysdirs d
+    printf 'user\t%s\n' "$(get_user_config_path)"
+
+    if [[ -n "${LLM_ENV_SYSTEM_CONFIG_DIRS:-}" ]]; then
+        sysdirs="$LLM_ENV_SYSTEM_CONFIG_DIRS"
+    else
+        case "${__LLM_PLATFORM:-}" in
+            macos)       sysdirs="/opt/homebrew/etc:/usr/local/etc" ;;
+            linux|wsl)   sysdirs="/etc:/usr/local/etc" ;;
+            msys|cygwin) sysdirs="${MINGW_PREFIX:+$MINGW_PREFIX/etc}" ;;
+            *)           sysdirs="/usr/local/etc" ;;
+        esac
+    fi
+
+    if [[ -n "$sysdirs" ]]; then
+        # Split on ':' portably. `local IFS=':'; for d in $sysdirs` does NOT
+        # work: zsh does not word-split unquoted expansions whatever IFS is,
+        # so the whole "/opt/homebrew/etc:/usr/local/etc" string became one
+        # entry and produced a single malformed path.
+        __llm_split "${sysdirs//:/ }"
+        for d in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
+            [[ -n "$d" ]] && printf 'system\t%s/llm-env/config.conf\n' "$d"
+        done
+    fi
+
+    printf 'builtin\t%s/config/llm-env.conf\n' "$(__llm_normalize_path "$(get_script_dir)")"
 }
 
-# Global arrays for configuration (conditional based on bash version)
-if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-    # Use native associative arrays for bash 4.0+ (only declare if not already declared)
-    if ! declare -p PROVIDER_BASE_URLS >/dev/null 2>&1; then
-        declare -A PROVIDER_BASE_URLS
-    fi
-    if ! declare -p PROVIDER_API_KEY_VARS >/dev/null 2>&1; then
-        declare -A PROVIDER_API_KEY_VARS
-    fi
-    if ! declare -p PROVIDER_DEFAULT_MODELS >/dev/null 2>&1; then
-        declare -A PROVIDER_DEFAULT_MODELS
-    fi
-    if ! declare -p PROVIDER_DESCRIPTIONS >/dev/null 2>&1; then
-        declare -A PROVIDER_DESCRIPTIONS
-    fi
-    if ! declare -p PROVIDER_ENABLED >/dev/null 2>&1; then
-        declare -A PROVIDER_ENABLED
-    fi
-    if ! declare -p PROVIDER_PROTOCOLS >/dev/null 2>&1; then
-        declare -A PROVIDER_PROTOCOLS
-    fi
-    if ! declare -p PROVIDER_AUTH_TOKENS >/dev/null 2>&1; then
-        declare -A PROVIDER_AUTH_TOKENS
-    fi
-    if ! declare -p PROVIDER_SIGNUP_URLS >/dev/null 2>&1; then
-        declare -A PROVIDER_SIGNUP_URLS
-    fi
-else
-    # Initialize compatibility arrays for bash <4.0
-    # These are managed by the compatibility functions
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_BASE_URLS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_BASE_URLS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_API_KEY_VARS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_API_KEY_VARS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_DEFAULT_MODELS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_DEFAULT_MODELS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_DESCRIPTIONS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_DESCRIPTIONS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_ENABLED_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_ENABLED_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_PROTOCOLS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_PROTOCOLS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_AUTH_TOKENS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_AUTH_TOKENS_VALUES=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_SIGNUP_URLS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_SIGNUP_URLS_VALUES=()
-fi
-# Provider groups: map group name → comma-separated provider list
-if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-    if ! declare -p PROVIDER_GROUPS >/dev/null 2>&1; then
-        declare -A PROVIDER_GROUPS
-    fi
-else
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_GROUPS_KEYS=()
-    # shellcheck disable=SC2034  # Used by compatibility functions and tests
-    PROVIDER_GROUPS_VALUES=()
-fi
 declare -a AVAILABLE_PROVIDERS
 declare -a AVAILABLE_GROUPS
 # Output array for get_provider_keys (avoids a subshell per key enumeration)
 # shellcheck disable=SC2034  # populated by get_provider_keys, consumed by callers
-declare -a REPLY_KEYS
-
-# ---------- Array Access Wrappers ----------
-
-# Wrapper functions to provide consistent API for both native and compatibility arrays
-
-# Set a value in a provider array
-set_provider_value() {
-    local array_name="$1"
-    local key="$2"
-    local value="$3"
-
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-            # Zsh associative array assignment
-            eval "${array_name}[${key}]='${value}'"
-        else
-            # Bash associative array assignment
-            eval "${array_name}[\"${key}\"]='${value}'"
-        fi
-    else
-        compat_assoc_set "${array_name}" "${key}" "${value}"
-    fi
-}
-
-# Get a value from a provider array
-# Sets the global REPLY to the value (empty for a missing OR empty key); no
-# stdout, no subshell fork. Usage: get_provider_value ARR KEY; val=$REPLY
-# Existence is decided only by has_provider_key (empty REPLY == missing OR empty).
-get_provider_value() {
-    local array_name="$1"
-    local key="$2"
-
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-            # Zsh associative array access
-            eval "REPLY=\"\${${array_name}[${key}]-}\""
-        else
-            # Bash associative array access
-            eval "REPLY=\"\${${array_name}[\"${key}\"]-}\""
-        fi
-    else
-        compat_assoc_get "${array_name}" "${key}"
-    fi
-}
-
-# Get all keys from a provider array
-# Populates the global REPLY_KEYS array; no stdout, no subshell fork.
-# Usage: get_provider_keys ARR; for k in ${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"}; do ...; done
-get_provider_keys() {
-    local array_name="$1"
-
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-            # Zsh uses ${(k)array} for keys
-            eval "REPLY_KEYS=(\"\${(@k)${array_name}}\")"
-        else
-            # Bash uses ${!array[@]} for keys
-            eval "REPLY_KEYS=(\${${array_name}[@]+\"\${!${array_name}[@]}\"})"
-        fi
-    else
-        compat_assoc_keys "${array_name}"
-    fi
-}
-
-# Check if a key exists in a provider array
-has_provider_key() {
-    local array_name="$1"
-    local key="$2"
-
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        if [[ "${CURRENT_SHELL}" == "zsh" ]]; then
-            # Zsh uses (k) to check keys
-            eval "[[ -n \"\${${array_name}[(I)${key}]}\" ]]"
-        else
-            # Bash uses ${var+set} to check if key exists
-            eval "[[ -n \"\${${array_name}[\"${key}\"]+set}\" ]]"
-        fi
-    else
-        compat_assoc_has_key "${array_name}" "${key}"
-    fi
-}
+declare -a __LLM_REPLY_KEYS
 
 # Load configuration from file
 load_config() {
@@ -495,7 +431,15 @@ load_config() {
     # Read file content and process line by line to avoid subshell issues
     local file_content
     file_content="$(cat "$config_file")"
-    
+
+    # Classic-Mac line endings (lone CR, no LF anywhere) would otherwise arrive
+    # as a single giant line. Convert those up front. CRLF is handled per-line
+    # below instead, which keeps $line_num accurate for diagnostics.
+    case "$file_content" in
+        *$'\n'*) : ;;
+        *$'\r'*) file_content="${file_content//$'\r'/$'\n'}" ;;
+    esac
+
     # Regex patterns stored in variables for cross-shell compatibility
     local comment_pattern="^[[:space:]]*#"
     local empty_pattern="^[[:space:]]*$"
@@ -505,27 +449,56 @@ load_config() {
 
     # Declare loop variables outside the loop for zsh compatibility
     # In zsh, re-declaring local variables inside a loop prints previous values
-    local key value normalized_protocol validated_protocol section_name
+    # ($line included -- it also used to leak into the caller's shell).
+    local line key value normalized_protocol validated_protocol section_name
+    # Tracked so a file that parses to nothing can say so instead of silently
+    # presenting an empty provider list as a successful load.
+    local sections_found=0 meaningful_lines=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        ((line_num+=1))
+        line_num=$((line_num + 1))
+
+        # Strip one trailing CR so CRLF files parse identically to LF ones.
+        # Without this the section regex's `$` anchor never matches (the CR
+        # sits between `]` and end-of-line) and every provider is dropped.
+        line="${line%$'\r'}"
 
         # Skip comments and empty lines
         [[ "$line" =~ $comment_pattern ]] && continue
         [[ "$line" =~ $empty_pattern ]] && continue
 
+        meaningful_lines=$((meaningful_lines + 1))
+
         # Section header
         if [[ "$line" =~ $section_pattern ]]; then
-            get_match 1; section_name="$REPLY"
+            sections_found=$((sections_found + 1))
+            get_match 1; section_name="$__LLM_REPLY"
+            # Validate before the name reaches any store call. The store
+            # rejects unsafe keys on its own, but doing it here means the whole
+            # section is skipped -- otherwise its key=value lines would silently
+            # attach to whichever provider happened to be current -- and the
+            # user gets one clear diagnostic instead of a stream of them.
             if [[ "$section_name" =~ $group_prefix_pattern ]]; then
                 # Group section: [group:name]
                 current_group="${section_name#group:}"
                 current_provider=""
+                if ! _llm_id_is_safe "$current_group"; then
+                    echo "⚠️  Skipping group section '[$section_name]' (line $line_num): invalid name." >&2
+                    echo "   Group names may contain letters, digits, dot, underscore and hyphen only." >&2
+                    current_group=""
+                    continue
+                fi
                 debug "Found group section: $current_group"
             else
                 # Provider section: [name]
                 current_provider="$section_name"
                 current_group=""
+                if ! _llm_id_is_safe "$current_provider"; then
+                    echo "⚠️  Skipping provider section '[$section_name]' (line $line_num): invalid name." >&2
+                    echo "   Provider names may contain letters, digits, dot, underscore and hyphen only." >&2
+                    current_provider=""
+                    continue
+                fi
                 debug "Found provider section: $current_provider"
             fi
             continue
@@ -534,10 +507,10 @@ load_config() {
         # Handle group key=value (only "providers" key supported)
         if [[ -n "$current_group" ]]; then
             if [[ "$line" =~ $keyval_pattern ]]; then
-                get_match 1; key="$REPLY"
-                get_match 2; value="$REPLY"
-                trim "$key"; key="$REPLY"
-                trim "$value"; value="$REPLY"
+                get_match 1; key="$__LLM_REPLY"
+                get_match 2; value="$__LLM_REPLY"
+                trim "$key"; key="$__LLM_REPLY"
+                trim "$value"; value="$__LLM_REPLY"
                 if [[ "$key" == "providers" ]]; then
                     set_provider_value "PROVIDER_GROUPS" "$current_group" "$value"
                     debug "PROVIDER_GROUPS[$current_group] = $value"
@@ -551,12 +524,12 @@ load_config() {
 
         # Parse key=value pairs
         if [[ "$line" =~ $keyval_pattern ]]; then
-            get_match 1; key="$REPLY"
-            get_match 2; value="$REPLY"
+            get_match 1; key="$__LLM_REPLY"
+            get_match 2; value="$__LLM_REPLY"
 
             # Trim whitespace (fork-free)
-            trim "$key"; key="$REPLY"
-            trim "$value"; value="$REPLY"
+            trim "$key"; key="$__LLM_REPLY"
+            trim "$value"; value="$__LLM_REPLY"
 
             debug "Setting $current_provider.$key = $value"
 
@@ -595,6 +568,15 @@ load_config() {
         fi
     done <<< "$file_content"
 
+    # A file with real content that yielded no sections parsed to nothing. Say
+    # so: silently reporting an empty provider list as a successful load is how
+    # the CRLF defect stayed invisible. Comment-only and empty files are
+    # legitimately section-free and must not warn.
+    if [[ $sections_found -eq 0 && $meaningful_lines -gt 0 ]]; then
+        echo "⚠️  Found no provider sections in $config_file (${meaningful_lines} non-comment lines)." >&2
+        echo "   Check the file uses [section] headers and is not corrupted." >&2
+    fi
+
     # Set default protocol for providers that don't have one explicitly set
     # Only applies to enabled providers
     apply_default_protocols
@@ -606,35 +588,38 @@ load_config() {
 init_config() {
     debug "Initializing configuration"
     
-    # Clear existing configuration
-    if [[ "${BASH_ASSOC_ARRAY_SUPPORT}" == "true" ]]; then
-        unset PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
-        if [[ "${BASH_DECLARE_GLOBAL_SUPPORT}" == "true" ]]; then
-            declare -gA PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
-        else
-            declare -A PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS
-        fi
-    else
-        unset AVAILABLE_PROVIDERS
-        AVAILABLE_PROVIDERS=()
-    fi
+    # Clear existing configuration.
+    #
+    # Derived from LLM_PROVIDER_MAPS so the reset can never drift from the set
+    # of maps that writers actually use. The previous version reset only the
+    # native associative arrays, leaving the bash-3.2 parallel arrays to
+    # accumulate forever -- so on macOS's system bash, `config remove` followed
+    # by `list` still showed the removed provider. It also re-declared the
+    # arrays with a bare `declare -A` when `declare -g` was unavailable
+    # (bash 4.0/4.1), which created function-locals that were destroyed on
+    # return, emptying the whole provider set.
+    local __m
+    __llm_split "$LLM_PROVIDER_MAPS"
+    for __m in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
+        clear_provider_map "$__m"
+    done
+    AVAILABLE_PROVIDERS=()
     AVAILABLE_GROUPS=()
     
     local config_loaded=false
     
     # Try to load configuration files in order of precedence
-    while IFS= read -r config_file; do
+    # get_config_locations emits "tier<TAB>path". Taking the tier from the data
+    # rather than string-comparing the path is what makes CONFIG_SOURCE=system
+    # reachable on layouts other than /usr/local/etc. Tab is the separator so a
+    # Windows-style path can never split a field.
+    local config_tier
+    while IFS=$'\t' read -r config_tier config_file; do
+        [[ -n "$config_file" ]] || continue
         if load_config "$config_file"; then
-            debug "Successfully loaded config from: $config_file"
+            debug "Successfully loaded config from: $config_file (tier=$config_tier)"
             config_loaded=true
-            # Set configuration source based on file location
-            if [[ "$config_file" == "$(get_user_config_path)" ]]; then
-                CONFIG_SOURCE="user"
-            elif [[ "$config_file" == "/usr/local/etc/llm-env/config.conf" ]]; then
-                CONFIG_SOURCE="system"
-            else
-                CONFIG_SOURCE="builtin"
-            fi
+            CONFIG_SOURCE="$config_tier"
             break
         fi
     done < <(get_config_locations)
@@ -665,21 +650,21 @@ init_config() {
     # Get all provider keys using wrapper function
     local -a provider_keys
     get_provider_keys "PROVIDER_BASE_URLS"
-    provider_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    provider_keys=(${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"})
     debug "PROVIDER_BASE_URLS keys: ${provider_keys[*]-}"
 
     # Declare loop variables outside the loop for zsh compatibility
     local provider_enabled has_base_url has_api_key_var has_model has_protocol has_auth_token_var
     for provider in ${provider_keys[@]+"${provider_keys[@]}"}; do
         [[ -n "$provider" ]] || continue
-        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
+        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$__LLM_REPLY"
         debug "Checking provider: $provider, enabled: ${provider_enabled:-true}"
 
         # Check if provider has all required fields
-        get_provider_value "PROVIDER_BASE_URLS" "$provider"; has_base_url="$REPLY"
-        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; has_api_key_var="$REPLY"
-        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; has_model="$REPLY"
-        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; has_protocol="$REPLY"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; has_base_url="$__LLM_REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; has_api_key_var="$__LLM_REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; has_model="$__LLM_REPLY"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; has_protocol="$__LLM_REPLY"
         has_protocol="${has_protocol:-openai}"
 
         # base_url and model are always required
@@ -690,7 +675,7 @@ init_config() {
 
         # Credential validation: anthropic protocol accepts api_key_var or auth_token_var
         if [[ "$has_protocol" == "anthropic" ]]; then
-            get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; has_auth_token_var="$REPLY"
+            get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; has_auth_token_var="$__LLM_REPLY"
             if [[ -z "$has_api_key_var" && -z "$has_auth_token_var" ]]; then
                 debug "Skipping incomplete anthropic provider $provider: no api_key_var or auth_token_var"
                 continue
@@ -720,7 +705,7 @@ init_config() {
     AVAILABLE_GROUPS=()
     local -a group_keys
     get_provider_keys "PROVIDER_GROUPS"
-    group_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    group_keys=(${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"})
     local group_name
     for group_name in ${group_keys[@]+"${group_keys[@]}"}; do
         [[ -n "$group_name" ]] || continue
@@ -765,14 +750,53 @@ load_builtin_config() {
 # Create a clickable terminal hyperlink using OSC 8 escape sequence
 # Falls back to plain "label (url)" if terminal doesn't support it
 # Usage: link "https://example.com" "Click here"
+# Decide once, at source time, whether OSC 8 hyperlinks are safe to emit.
+#
+# This CANNOT be decided inside link(): every caller wraps it in $(...), where
+# stdout is a pipe, so an inline [[ -t 1 ]] would always say "not a terminal".
+# Capturing it here -- before any command substitution exists -- is what makes
+# the check meaningful. llm-env is re-sourced per invocation, so the value is
+# never stale across commands.
+__llm_init_terminal() {
+    if [[ -n "${LLM_ENV_TTY:-}" ]]; then
+        __LLM_STDOUT_TTY="$LLM_ENV_TTY"
+    elif [[ -t 1 ]]; then
+        __LLM_STDOUT_TTY=1
+    else
+        __LLM_STDOUT_TTY=0
+    fi
+
+    case "${LLM_ENV_HYPERLINKS:-}" in
+        1) __LLM_LINK_MODE="osc8";  return 0 ;;
+        0) __LLM_LINK_MODE="plain"; return 0 ;;
+    esac
+
+    __LLM_LINK_MODE="plain"
+    [[ "$__LLM_STDOUT_TTY" == 1 ]] || return 0
+    # https://no-color.org/
+    [[ -n "${NO_COLOR+x}" ]] && return 0
+    case "${TERM:-}" in ''|dumb) return 0 ;; esac
+    __LLM_LINK_MODE="osc8"
+    return 0
+}
+__llm_init_terminal
+
+# Render a hyperlink. Falls back to plain text when the terminal cannot show
+# one -- which the docstring has always promised and the code never did, so
+# raw OSC 8 bytes ended up in pipes, redirected files and CI logs.
 link() {
     local url="$1"
     local label="${2:-$url}"
-    # OSC 8 hyperlink: supported by most modern terminals.
-    # The trailing \\ is part of the ST (string terminator), not an attempt
-    # to escape a single quote, so disable the SC1003 false positive.
-    # shellcheck disable=SC1003
-    printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$url" "$label"
+    if [[ "${__LLM_LINK_MODE:-plain}" == "osc8" ]]; then
+        # The trailing \\ is part of the ST (string terminator), not an attempt
+        # to escape a single quote, so disable the SC1003 false positive.
+        # shellcheck disable=SC1003
+        printf '\033]8;;%s\033\\%s\033]8;;\033\\' "$url" "$label"
+    elif [[ "$label" == "$url" ]]; then
+        printf '%s' "$url"
+    else
+        printf '%s (%s)' "$label" "$url"
+    fi
 }
 
 # Normalize protocol value: trim whitespace and convert to lowercase
@@ -783,10 +807,16 @@ normalize_protocol() {
     # Return empty for empty string
     [[ -z "$value" && -n "${value+x}" ]] && { echo ""; return 0; }
 
-    # Trim whitespace and convert to lowercase using bash 3.2 compatible approach
-    # Using parameter expansion for trimming (available in bash 3.2)
-    local trimmed="${value##[[:space:]]*}"  # Remove leading whitespace
-    trimmed="${trimmed%%[[:space:]]*}"     # Remove trailing whitespace
+    # Trim via the shared trim() helper.
+    #
+    # This used to hand-roll it as ${value##[[:space:]]*} / %%[[:space:]]*,
+    # which are GLOB patterns, not character-class trims: [[:space:]] followed
+    # by * matches "whitespace then anything", so a leading-space value was
+    # deleted entirely ("  anthropic" -> "") and an inner space truncated it
+    # ("open ai" -> "open"). Either way validate_protocol then silently fell
+    # back to openai, so a provider configured for anthropic exported OPENAI_*.
+    local trimmed
+    trim "$value"; trimmed="$__LLM_REPLY"
 
     # Return empty for whitespace-only input
     [[ -z "$trimmed" ]] && { echo ""; return 0; }
@@ -830,19 +860,19 @@ apply_default_protocols() {
 
     local -a base_url_keys
     get_provider_keys "PROVIDER_BASE_URLS"
-    base_url_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    base_url_keys=(${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"})
     for provider in ${base_url_keys[@]+"${base_url_keys[@]}"}; do
         [[ -z "$provider" ]] && continue
 
         # Check if provider has a protocol set
-        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; existing_protocol="$REPLY"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; existing_protocol="$__LLM_REPLY"
 
         # Only set default if protocol is empty and provider is enabled
         # Check if provider is enabled (defaults to true if not set)
         if [[ -z "$existing_protocol" ]]; then
             # Preserve original semantics: the old `|| echo "true"` fired only on a
             # nonzero exit (which never occurred here), so an unset enabled -> empty.
-            get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
+            get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$__LLM_REPLY"
 
             # Only set default for enabled providers
             if [[ "$provider_enabled" == "true" ]]; then
@@ -855,57 +885,79 @@ apply_default_protocols() {
     done
 }
 
+# Render a secret for display.
+#
+# Reveals at most the last 4 characters, and only when the secret is long
+# enough that 4 characters are a small fraction of it. The previous version
+# masked only the FIRST character of anything up to 4 long ("abcd" -> "•bcd")
+# and revealed 4 of 5 for a 5-character secret -- enough to make a short token
+# or a test key trivially guessable from a screenshot or a shared log.
 mask() {
     local input="$1"
+    local n=${#input}
     [[ -z "$input" ]] && { echo "∅"; return; }
-    [[ ${#input} -le 2 ]] && { echo "$input"; return; }
 
-    # For strings of 3-4 characters, mask first character only
-    if [[ ${#input} -le 4 ]]; then
-        echo "•${input:1}"
-        return
+    local reveal=0
+    # Only show a tail once the secret is comfortably longer than the tail.
+    if [[ $n -ge 12 ]]; then
+        reveal=4
+    elif [[ $n -ge 8 ]]; then
+        reveal=2
     fi
 
-    # For strings > 4 characters, mask all but last 4 characters
-    local masked=""
-    local i
-    for ((i=0; i<${#input}-4; i++)); do
+    local masked="" i
+    for ((i = 0; i < n - reveal; i++)); do
         masked+="•"
     done
-    masked+="${input: -4}"
+    if [[ $reveal -gt 0 ]]; then
+        masked+="${input: -$reveal}"
+    fi
     echo "$masked"
 }
 
+# Extract the host from a URL. Pure parameter expansion: the previous
+# `awk -F/ '{print $3}'` forked a process on every set/unset, and silently
+# returned empty for a scheme-less URL.
 host_from_url() {
-    awk -F/ '{print $3}' <<<"$1"
+    local url="$1"
+    [[ -z "$url" ]] && { echo ""; return 0; }
+    # Strip scheme:// if present; tolerate a bare host[:port]/path too.
+    local rest="${url#*://}"
+    # Drop everything from the first / onward, then any userinfo prefix.
+    rest="${rest%%/*}"
+    rest="${rest##*@}"
+    echo "$rest"
 }
 
 # Validate provider name format. Allows letters, digits, underscore, hyphen,
 # and dot. Dots are required to express version-bearing model ids like
 # `kimi-k2.5` and `glm-5.1` introduced by quickstart schema v2.
+#
+# Delegates to _llm_id_is_safe so the charset rule lives in exactly one place;
+# it previously existed here, in _qs_id_is_safe, and implicitly in the store.
 validate_provider_name() {
     local name="$1"
-    local valid_name_pattern="^[a-zA-Z0-9._-]+$"
-    # Use C locale for consistent ASCII-only character class matching
-    if LC_ALL=C; [[ ! "$name" =~ $valid_name_pattern ]]; then
+    if ! _llm_id_is_safe "$name"; then
         echo "Error: Invalid provider name '$name'. Only letters, numbers, dots, underscores, and hyphens are allowed." >&2
         return 1
     fi
     return 0
 }
 
-# Sanitize configuration values to prevent injection
-sanitize_config_value() {
-    local value="$1"
-    # Remove potential command substitution and other dangerous patterns
-    value="${value//\$(/}"
-    value="${value//\`/}"
-    value="${value//\$/}"
-    value="${value//;/}"
-    value="${value//&/}"
-    value="${value//|/}"
-    echo "$value"
-}
+# NOTE: sanitize_config_value was removed in 1.7.0.
+#
+# It stripped $ ` ; & | from values, which was both unsafe and lossy:
+#
+#   * it did NOT strip the apostrophe, the one character that actually broke
+#     out of the accessor's eval quoting, so it never blocked the injection it
+#     was named for;
+#   * it silently corrupted legitimate values -- any URL with a query string
+#     lost its &, including this project's own Alibaba signup URL; and
+#   * it ran only on the `config add` path, not on load or quickstart.
+#
+# Values no longer need sanitising because they are never re-parsed: the store
+# writes them with printf -v. Identifiers are validated (and rejected) by
+# _llm_id_is_safe rather than silently mutated.
 
 # Validate provider exists and is enabled
 validate_provider() {
@@ -920,7 +972,7 @@ validate_provider() {
     
     # Check if provider is enabled
     local provider_enabled
-    get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
+    get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$__LLM_REPLY"
     if [[ "${provider_enabled:-true}" != "true" ]]; then
         debug "Provider disabled: $provider"
         return 2
@@ -928,6 +980,271 @@ validate_provider() {
     
     debug "Provider validation successful: $provider"
     return 0
+}
+
+# ---------- Platform detection ----------
+#
+# Sets __LLM_PLATFORM to one of: linux macos wsl msys cygwin bsd unknown.
+#
+# Deliberately NOT exported. llm-env already exports CURRENT_SHELL and the
+# BASH_* capability flags into every child process, which is itself a defect;
+# the platform layer does not add to it.
+#
+# Every dependent decision has an env override so bats can force a platform
+# without running on it, matching the repo's existing convention
+# (LLM_ENV_QUICKSTART_DIR, LLM_ENV_DEFAULT_INSTALL_DIR).
+
+detect_platform() {
+    local osrel
+    case "${LLM_ENV_PLATFORM:-}" in
+        linux|macos|wsl|msys|cygwin|bsd|unknown)
+            __LLM_PLATFORM="$LLM_ENV_PLATFORM"
+            return 0
+            ;;
+    esac
+
+    # $OSTYPE first: it is free and set by both bash and zsh.
+    case "${OSTYPE:-}" in
+        darwin*)      __LLM_PLATFORM="macos" ;;
+        msys*|mingw*) __LLM_PLATFORM="msys" ;;   # Git Bash reports "msys"
+        cygwin*)      __LLM_PLATFORM="cygwin" ;;
+        freebsd*|openbsd*|netbsd*|dragonfly*) __LLM_PLATFORM="bsd" ;;
+        linux*)
+            # WSL2 is Linux, but its filesystem and interop behaviour differ
+            # enough to be worth naming. The env vars are free but absent in
+            # some contexts (systemd units, `wsl -u root`), so /proc is the
+            # authority. Read with the builtin -- no grep fork.
+            if [[ -n "${WSL_DISTRO_NAME:-}${WSL_INTEROP:-}" ]]; then
+                __LLM_PLATFORM="wsl"
+            elif [[ -r /proc/sys/kernel/osrelease ]] \
+                 && read -r osrel < /proc/sys/kernel/osrelease 2>/dev/null; then
+                case "$osrel" in
+                    *icrosoft*|*WSL*) __LLM_PLATFORM="wsl" ;;
+                    *)                __LLM_PLATFORM="linux" ;;
+                esac
+            else
+                __LLM_PLATFORM="linux"
+            fi
+            ;;
+        *)
+            # Only fork uname when $OSTYPE was absent or unrecognised.
+            case "$(uname -s 2>/dev/null)" in
+                Darwin)       __LLM_PLATFORM="macos" ;;
+                MINGW*|MSYS*) __LLM_PLATFORM="msys" ;;
+                CYGWIN*)      __LLM_PLATFORM="cygwin" ;;
+                Linux)        __LLM_PLATFORM="linux" ;;
+                *BSD)         __LLM_PLATFORM="bsd" ;;
+                *)            __LLM_PLATFORM="unknown" ;;
+            esac
+            ;;
+    esac
+}
+detect_platform
+
+# Normalise a possibly Windows-style path to forward slashes.
+# `dirname 'C:\repo\llm-env'` finds no '/' and returns '.', which silently
+# resolved the builtin config tier relative to $PWD.
+__llm_normalize_path() {
+    local p="$1"
+    printf '%s' "${p//\\//}"
+}
+
+# Echo the rc file that exports should be appended to (empty = unsupported).
+#
+# Two fixes over the previous copy-pasted logic:
+#   * it branches on the RUNNING shell, not $SHELL. $SHELL is the LOGIN shell,
+#     so a user running bash inside a zsh login shell had their key written to
+#     ~/.zshrc and was then told to source it from bash.
+#   * on msys/cygwin it targets a LOGIN file. Git Bash's mintty starts
+#     `bash --login -i`, which reads ~/.bash_profile, ~/.bash_login or
+#     ~/.profile and never ~/.bashrc on its own -- so appending to ~/.bashrc
+#     reported success and did nothing.
+detect_shell_rc() {
+    __LLM_RC_NEEDS_CHAIN=0
+    if [[ -n "${LLM_ENV_RC_FILE:-}" ]]; then
+        printf '%s' "$LLM_ENV_RC_FILE"
+        return 0
+    fi
+
+    local sh="${CURRENT_SHELL:-}"
+    if [[ -z "$sh" || "$sh" == "unknown" ]]; then
+        case "${SHELL:-}" in
+            */zsh)  sh=zsh ;;
+            */bash) sh=bash ;;
+            *)      sh=other ;;
+        esac
+    fi
+
+    case "$sh" in
+        zsh) printf '%s' "$HOME/.zshrc" ;;
+        bash)
+            case "${__LLM_PLATFORM:-}" in
+                msys|cygwin)
+                    if   [[ -f "$HOME/.bash_profile" ]]; then printf '%s' "$HOME/.bash_profile"
+                    elif [[ -f "$HOME/.bash_login"   ]]; then printf '%s' "$HOME/.bash_login"
+                    elif [[ -f "$HOME/.profile"      ]]; then printf '%s' "$HOME/.profile"
+                    else
+                        # Nothing exists yet: create the login file, and note
+                        # that it may need to chain-load ~/.bashrc.
+                        __LLM_RC_NEEDS_CHAIN=1
+                        printf '%s' "$HOME/.bash_profile"
+                    fi
+                    ;;
+                *)
+                    if [[ ! -f "$HOME/.bashrc" && -f "$HOME/.bash_profile" ]]; then
+                        printf '%s' "$HOME/.bash_profile"
+                    else
+                        printf '%s' "$HOME/.bashrc"
+                    fi
+                    ;;
+            esac
+            ;;
+        *) printf '' ;;
+    esac
+}
+
+# ---------- Portable timing ----------
+#
+# `date +%s.%N` is a GNU extension: BSD date (stock macOS) emits a literal "N",
+# and the result was piped to bc, which Git Bash does not ship at all. Both
+# failure modes were swallowed by `|| echo "N/A"`, so response time rendered as
+# "N/As" on two of the three supported platforms.
+#
+# Prefer bash 5's EPOCHREALTIME, then zsh's datetime module, then a verified
+# `date +%s%N`, then whole seconds. All arithmetic is integer.
+
+__llm_now_ms() {
+    local t frac
+    if [[ -n "${EPOCHREALTIME:-}" ]]; then
+        # EPOCHREALTIME uses the locale's decimal separator, hence [.,].
+        t="${EPOCHREALTIME%%[.,]*}"
+        frac="${EPOCHREALTIME#*[.,]}000"
+        printf '%s%s' "$t" "${frac:0:3}"
+        return 0
+    fi
+    t="$(date +%s%N 2>/dev/null)"
+    if [[ "$t" =~ ^[0-9]+$ ]] && [[ ${#t} -gt 10 ]]; then
+        # ns -> ms by string truncation, so there is no 64-bit overflow
+        # question on any bash.
+        printf '%s' "${t%??????}"
+        return 0
+    fi
+    t="$(date +%s 2>/dev/null)"
+    [[ "$t" =~ ^[0-9]+$ ]] || t=0
+    printf '%s000' "$t"
+}
+
+# $1 = start ms, $2 = end ms -> "S.mmm"
+__llm_fmt_duration() {
+    local a="${1:-0}" b="${2:-0}" d
+    [[ "$a" =~ ^[0-9]+$ ]] || a=0
+    [[ "$b" =~ ^[0-9]+$ ]] || b=0
+    d=$((b - a))
+    [[ $d -lt 0 ]] && d=0
+    printf '%d.%03d' "$((d / 1000))" "$((d % 1000))"
+}
+
+# zsh needs its datetime module loaded before EPOCHREALTIME exists.
+if [[ "${CURRENT_SHELL}" == "zsh" ]] && [[ -z "${EPOCHREALTIME:-}" ]]; then
+    zmodload zsh/datetime 2>/dev/null || true
+fi
+
+# ---------- Safe config rewriting ----------
+#
+# Every command that edits the config went through
+#     transform ... "$config.backup" > "$config"
+# or
+#     transform ... "$config" > "$config.tmp" && mv "$config.tmp" "$config"
+#
+# The first form is unrecoverable: the shell truncates "$config" when it opens
+# the redirect, before the transform writes a byte, so any failure leaves an
+# empty config. The second never checked the transform's exit status, and mv
+# from a fresh umask-created temp silently dropped the original's permissions
+# (a chmod 600 config became 644).
+
+# Directory holding timestamped backups. Honours XDG_CONFIG_HOME, which
+# get_user_config_path already does -- the previous hardcoded $HOME/.config
+# orphaned backups from the config they belonged to.
+_config_backup_dir() {
+    printf '%s' "$(dirname "$(get_user_config_path)")/backups"
+}
+
+# Copy the config to a timestamped backup; echoes the path.
+# Includes $$ so two operations in the same second cannot collide.
+_config_backup_file() {
+    local src="$1" dir stamp out
+    dir="$(_config_backup_dir)"
+    mkdir -p "$dir" 2>/dev/null || return 1
+    stamp="$(date +%Y%m%d_%H%M%S)"
+    out="$dir/config-${stamp}-$$.conf"
+    cp "$src" "$out" 2>/dev/null || return 1
+    printf '%s' "$out"
+}
+
+# Rewrite $1 by piping it through the command in "$@" (from $2 on).
+# The transform reads the ORIGINAL on stdin and writes the new content on
+# stdout. The target is replaced only if the transform succeeds and produced
+# output; permissions and ownership of the original are preserved because we
+# write through the existing inode rather than mv-ing a new file over it.
+_config_atomic_write() {
+    local target="$1"; shift
+    local tmp rc
+
+    [[ -f "$target" ]] || return 1
+    tmp="$(mktemp "${target}.XXXXXX")" || return 1
+
+    if ! "$@" < "$target" > "$tmp"; then
+        rc=$?
+        rm -f "$tmp"
+        debug "config rewrite failed (rc=$rc); '$target' left untouched"
+        return 1
+    fi
+
+    # A transform that produced nothing is treated as a failure: no config
+    # command has a legitimate reason to empty the file.
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        debug "config rewrite produced empty output; '$target' left untouched"
+        return 1
+    fi
+
+    # Overwrite in place so mode, owner and any ACL survive.
+    if ! cat "$tmp" > "$target"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    rm -f "$tmp"
+    return 0
+}
+
+# ---------- Managed environment ----------
+#
+# Single source of truth for the variables llm-env owns, per protocol. Both
+# set_single_provider and cmd_unset consume these lists, so the two can no
+# longer disagree about what "clearing" means -- which is how switching
+# protocols used to leave the previous provider's host and credentials
+# exported.
+#
+# CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is deliberately NOT listed. It is a
+# user preference that set_single_provider only defaults (via :-false) rather
+# than owns, so unsetting it would destroy a value from the user's own profile.
+LLM_MANAGED_VARS_OPENAI="OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL"
+LLM_MANAGED_VARS_ANTHROPIC="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL"
+# Protocol-agnostic variables llm-env owns outright.
+LLM_MANAGED_VARS_COMMON="LLM_PROVIDER LLM_PROTOCOL OPENAI_MODEL_OVERRIDE"
+
+# Unset every variable belonging to a protocol. $1 = openai | anthropic
+_clear_protocol_env() {
+    local __proto="$1" __vars __v
+    case "$__proto" in
+        openai)    __vars="$LLM_MANAGED_VARS_OPENAI" ;;
+        anthropic) __vars="$LLM_MANAGED_VARS_ANTHROPIC" ;;
+        *)         return 1 ;;
+    esac
+    __llm_split "$__vars"
+    for __v in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
+        unset "$__v"
+    done
 }
 
 # ---------- Commands ----------
@@ -942,9 +1259,14 @@ set_single_provider() {
         return 1
     fi
 
-    # Validate provider
-    if ! validate_provider "$provider"; then
-        case $? in
+    # Validate provider.
+    # Capture the status explicitly: inside `if ! cmd`, $? is the status of the
+    # negated pipeline (always 0), so the case below never matched and neither
+    # message could ever print.
+    local validate_rc=0
+    validate_provider "$provider" || validate_rc=$?
+    if [[ $validate_rc -ne 0 ]]; then
+        case $validate_rc in
             1) echo "❌ Unknown provider: $provider" ;;
             2) echo "❌ Provider disabled: $provider" ;;
         esac
@@ -955,23 +1277,23 @@ set_single_provider() {
 
     # Get protocol for this provider (defaults to "openai")
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
+    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
 
     local key_var model base key auth_token_var auth_token
-    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
-    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$REPLY"
-    get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="${OPENAI_MODEL_OVERRIDE:-$REPLY}"
+    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$__LLM_REPLY"
+    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$__LLM_REPLY"
+    get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="${OPENAI_MODEL_OVERRIDE:-$__LLM_REPLY}"
     if [[ -n "$key_var" ]]; then
-        get_var_value "$key_var"; key="$REPLY"
+        get_var_value "$key_var"; key="$__LLM_REPLY"
     else
         key=""
     fi
 
     # Get auth token for Anthropic protocol
     if [[ "$protocol" == "anthropic" ]]; then
-        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$REPLY"
+        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
         if [[ -n "$auth_token_var" ]]; then
-            get_var_value "$auth_token_var"; auth_token="$REPLY"
+            get_var_value "$auth_token_var"; auth_token="$__LLM_REPLY"
         fi
     fi
 
@@ -1003,7 +1325,7 @@ set_single_provider() {
             }
             echo "⚠️  No credentials found for $provider. Set $missing_vars in your shell profile."
             local signup_url
-            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$REPLY"
+            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$__LLM_REPLY"
             if [[ -n "$signup_url" ]]; then
                 printf '   🔑 Get an API key: %s\n' "$(link "$signup_url" "$signup_url")"
             fi
@@ -1019,7 +1341,7 @@ set_single_provider() {
         elif [[ -z "$key" ]]; then
             echo "⚠️  No API key found for $provider. Set $key_var in your shell profile."
             local signup_url
-            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$REPLY"
+            get_provider_value "PROVIDER_SIGNUP_URLS" "$provider"; signup_url="$__LLM_REPLY"
             if [[ -n "$signup_url" ]]; then
                 printf '   🔑 Get an API key: %s\n' "$(link "$signup_url" "$signup_url")"
             fi
@@ -1034,9 +1356,29 @@ set_single_provider() {
         return 1
     fi
 
-    # Export protocol-specific variables
+    # Export protocol-specific variables.
+    #
+    # Clear the OTHER protocol first. Previously each branch only exported its
+    # own variables, so `set openai` after an Anthropic provider left
+    # ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and the
+    # CLAUDE_CODE_* model overrides still exported -- and Claude Code reads
+    # those, so it kept routing to the previous host after the user believed
+    # they had switched.
+    # __LLM_SET_ADDITIVE is set by set_multiple_providers, which clears both
+    # protocols ONCE before its loop. A group like
+    # [group:x] providers=openai_x,anth_x exists precisely to configure both
+    # protocols at the same time, so the members must not clear each other.
     local host
     if [[ "$protocol" == "anthropic" ]]; then
+        if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
+            _clear_protocol_env openai
+            # Clear this protocol's own credentials too, so nothing from a
+            # previously-set provider can survive into this one. Without this,
+            # ${ANTHROPIC_API_KEY:-$auth_token} below silently preserved the
+            # previous provider's key and sent it to this provider's endpoint.
+            _clear_protocol_env anthropic
+        fi
+
         # Export Anthropic-specific variables (only set what's configured)
         export ANTHROPIC_BASE_URL="$base"
         export ANTHROPIC_MODEL="$model"
@@ -1052,8 +1394,13 @@ set_single_provider() {
         fi
         if [[ -n "$auth_token" ]]; then
             export ANTHROPIC_AUTH_TOKEN="$auth_token"
-            # Also set ANTHROPIC_API_KEY from auth_token if not already set
-            export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$auth_token}"
+            # Fall back to the auth token only when THIS provider supplied no
+            # api_key. The previous ${ANTHROPIC_API_KEY:-$auth_token} form read
+            # a variable that a previously-set provider may have exported, so
+            # provider A's key was sent to provider B's endpoint.
+            if [[ -z "$key" ]]; then
+                export ANTHROPIC_API_KEY="$auth_token"
+            fi
         fi
         # Third-party Anthropic-compatible gateways (e.g. synthetic, alibaba)
         # authenticate via the Authorization: Bearer header, which Claude Code
@@ -1080,6 +1427,11 @@ set_single_provider() {
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
         echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL"
     else
+        if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
+            _clear_protocol_env anthropic
+            _clear_protocol_env openai
+        fi
+
         # Export OpenAI-compatible variables (default)
         export OPENAI_API_KEY="$key"
         export OPENAI_BASE_URL="$base"
@@ -1099,21 +1451,39 @@ set_multiple_providers() {
     local failed=0
     local count=0
 
+    # Clear both protocols ONCE, then let the members accumulate. A group's
+    # whole purpose is to configure openai and anthropic simultaneously, so
+    # per-member clearing would leave only the last one standing -- but we
+    # still must not inherit a previously-set provider's variables.
+    _clear_protocol_env openai
+    _clear_protocol_env anthropic
+    __LLM_SET_ADDITIVE=1
+
     # Split comma-separated list and set each provider
     local provider
     while IFS= read -r provider; do
         # Trim whitespace
-        trim "$provider"; provider="$REPLY"
+        trim "$provider"; provider="$__LLM_REPLY"
         [[ -z "$provider" ]] && continue
-        ((count+=1))
+        count=$((count + 1))
         if ! set_single_provider "$provider"; then
-            ((failed+=1))
+            failed=$((failed + 1))
         fi
     done <<< "$(echo "$provider_list" | tr ',' '\n')"
+    unset __LLM_SET_ADDITIVE
 
-    if [[ "$count" -gt 1 ]]; then
-        # For multi-provider sets, update LLM_PROVIDER to show all
+    if [[ "$failed" -eq 0 && "$count" -gt 1 ]]; then
+        # Multi-provider set: LLM_PROVIDER shows the whole list.
+        # Gated on failed==0, not just count>1. Previously a group whose
+        # providers had all failed still exported LLM_PROVIDER, so `show`
+        # reported an active provider that had no credentials.
         export LLM_PROVIDER="$provider_list"
+    elif [[ "$failed" -ne 0 && "$count" -gt 1 ]]; then
+        # A partially- or wholly-failed group must not leave a stale
+        # LLM_PROVIDER from an earlier successful set.
+        if [[ "$failed" -eq "$count" ]]; then
+            unset LLM_PROVIDER
+        fi
     fi
 
     echo
@@ -1134,7 +1504,7 @@ cmd_set() {
 
     # Check if input is a group name
     local group_providers
-    get_provider_value "PROVIDER_GROUPS" "$input"; group_providers="$REPLY"
+    get_provider_value "PROVIDER_GROUPS" "$input"; group_providers="$__LLM_REPLY"
     if [[ -n "$group_providers" ]]; then
         debug "Setting group '$input' with providers: $group_providers"
         set_multiple_providers "$group_providers"
@@ -1177,12 +1547,23 @@ cmd_unset() {
     prev_anthropic_host=$(host_from_url "${ANTHROPIC_BASE_URL:-}")
     prev_anthropic_model="${ANTHROPIC_MODEL:-}"
 
-    # Unset all protocol variables (both OpenAI and Anthropic)
-    unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL
-    unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
-    unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
-    unset CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
-    unset LLM_PROVIDER LLM_PROTOCOL
+    # Unset everything llm-env owns, from the same lists set_single_provider
+    # uses, so set and unset cannot disagree about the managed surface.
+    #
+    # Two deliberate changes from the previous hand-written list:
+    #   * CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is no longer unset. set only
+    #     DEFAULTS it (via :-false) rather than owning it, so unsetting it
+    #     destroyed a value the user had put in their own profile.
+    #   * OPENAI_MODEL_OVERRIDE is now unset. It is documented in cmd_help and
+    #     honoured by set_single_provider, but was never cleared -- so it kept
+    #     silently overriding the model on every subsequent set.
+    _clear_protocol_env openai
+    _clear_protocol_env anthropic
+    local __v
+    __llm_split "$LLM_MANAGED_VARS_COMMON"
+    for __v in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
+        unset "$__v"
+    done
 
     echo "🗑️ Unset LLM environment variables."
     if [[ -n "$prev_p" ]]; then
@@ -1212,7 +1593,7 @@ cmd_list() {
         # Show all providers (enabled and disabled)
         get_provider_keys "PROVIDER_BASE_URLS"
         local _p
-        for _p in ${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"}; do
+        for _p in ${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"}; do
             [[ -n "$_p" ]] && providers_to_show+=("$_p")
         done
     else
@@ -1226,21 +1607,21 @@ cmd_list() {
         mark=" "
         [[ "$provider" == "${LLM_PROVIDER:-}" ]] && mark="*"
 
-        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$REPLY"
-        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="$REPLY"
-        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
-        get_provider_value "PROVIDER_DESCRIPTIONS" "$provider"; description="$REPLY"
-        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base="$__LLM_REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; model="$__LLM_REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$__LLM_REPLY"
+        get_provider_value "PROVIDER_DESCRIPTIONS" "$provider"; description="$__LLM_REPLY"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
 
         have_key="no"
         if [[ -n "$key_var" ]]; then
-            get_var_value "$key_var"; key_val="$REPLY"
+            get_var_value "$key_var"; key_val="$__LLM_REPLY"
             [[ -n "$key_val" ]] && have_key="yes"
         fi
 
         # Show disabled status if showing all providers
         enabled_status=""
-        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$REPLY"
+        get_provider_value "PROVIDER_ENABLED" "$provider"; provider_enabled="$__LLM_REPLY"
         if $show_all && [[ "${provider_enabled:-true}" != "true" ]]; then
             enabled_status=" (disabled)"
         fi
@@ -1257,7 +1638,7 @@ cmd_list() {
         echo
         local group_name group_providers
         for group_name in ${AVAILABLE_GROUPS[@]+"${AVAILABLE_GROUPS[@]}"}; do
-            get_provider_value "PROVIDER_GROUPS" "$group_name"; group_providers="$REPLY"
+            get_provider_value "PROVIDER_GROUPS" "$group_name"; group_providers="$__LLM_REPLY"
             printf "   %-12s  → %s\n" "$group_name" "$group_providers"
         done
     fi
@@ -1294,7 +1675,7 @@ cmd_show() {
     fi
 
     # Show configuration source
-    while IFS= read -r config_file; do
+    while IFS=$'\t' read -r _tier config_file; do
         if [[ -f "$config_file" ]]; then
             echo "  Config file        = $config_file"
             break
@@ -1356,6 +1737,11 @@ cmd_config_init() {
         echo
         echo
         local yes_pattern="^[Yy]$"
+        # $REPLY here is the `read` builtin's own output slot, deliberately NOT
+        # the accessors' __LLM_REPLY. They used to be the same variable, so a
+        # failed `read` (zsh has no -p/-n) left whatever value an accessor had
+        # last written -- and a config value of "y" silently answered the
+        # prompt. If `read` fails now, $REPLY is empty and this aborts.
         [[ ! $REPLY =~ $yes_pattern ]] && return 1
     fi
 
@@ -1472,12 +1858,25 @@ cmd_config_add() {
     read -r -t $TMOUT -p "Default Model: " default_model || { echo "Timeout reached"; return 1; }
     read -r -t $TMOUT -p "Description (optional): " description || { echo "Timeout reached"; return 1; }
     
-    # Sanitize input values
-    base_url=$(sanitize_config_value "$base_url")
-    api_key_var=$(sanitize_config_value "$api_key_var")
-    default_model=$(sanitize_config_value "$default_model")
-    description=$(sanitize_config_value "$description")
-    
+    # Validate rather than mutate. sanitize_config_value used to strip & $ ; |
+    # here, corrupting any URL with a query string while missing the apostrophe
+    # that was the actual injection vector. A newline would let a value forge a
+    # new [section] when written to the config, so reject that outright.
+    local field
+    for field in base_url api_key_var default_model description; do
+        get_var_value "$field"
+        case "$__LLM_REPLY" in
+            *$'\n'*|*$'\r'*)
+                echo "❌ $field may not contain a newline." >&2
+                return 1
+                ;;
+        esac
+    done
+    if [[ -n "$api_key_var" ]] && ! [[ "$api_key_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "❌ API key variable '$api_key_var' is not a valid environment variable name." >&2
+        return 1
+    fi
+
     local user_config
     user_config="$(get_user_config_path)"
     
@@ -1485,7 +1884,24 @@ cmd_config_add() {
     if [[ ! -f "$user_config" ]]; then
         cmd_config_init || return 1
     fi
-    
+
+    # Refuse a duplicate rather than appending a second [provider] section.
+    # Two sections with the same name meant the later one silently won at load
+    # time while the earlier sat there as dead weight. _qs_emit_provider has
+    # always checked this; config add did not.
+    if grep -qFx "[$provider]" "$user_config"; then
+        echo "❌ Provider '$provider' already exists in $user_config" >&2
+        echo "   Use 'config remove $provider' first, or pick another name." >&2
+        return 1
+    fi
+
+    # Required fields must be non-empty, otherwise load_config drops the
+    # provider with only a debug message and the user never learns why.
+    if [[ -z "$base_url" || -z "$api_key_var" || -z "$default_model" ]]; then
+        echo "❌ base_url, api_key_var and default_model are all required." >&2
+        return 1
+    fi
+
     # Append new provider
     {
         echo ""
@@ -1508,38 +1924,83 @@ cmd_config_remove() {
         return 1
     fi
     
-    # Validate provider name format
-    if ! validate_provider_name "$provider"; then
-        return 1
-    fi
-    
+    # Accept "group:name" as well as a plain provider. Group sections were
+    # previously unremovable, so quickstart-created groups accumulated forever.
+    local section_kind="provider" section_name="$provider"
+    case "$provider" in
+        group:*)
+            section_kind="group"
+            section_name="${provider#group:}"
+            if ! _llm_id_is_safe "$section_name"; then
+                echo "Error: Invalid group name '$section_name'." >&2
+                return 1
+            fi
+            ;;
+        *)
+            if ! validate_provider_name "$provider"; then
+                return 1
+            fi
+            ;;
+    esac
+
     local user_config
     user_config="$(get_user_config_path)"
-    
+
     if [[ ! -f "$user_config" ]]; then
         echo "❌ User configuration not found: $user_config"
         return 1
     fi
-    
-    # Create backup
-    cp "$user_config" "$user_config.backup"
-    
-    # Remove provider section
-    awk -v provider="$provider" '
-        BEGIN { in_section = 0 }
-        /^\[/ { 
-            if ($0 == "[" provider "]") {
-                in_section = 1
-                next
-            } else {
-                in_section = 0
-            }
+
+    # Refuse rather than report a phantom success. This used to print
+    # "✅ Removed" unconditionally, so a typo looked like a removal.
+    if ! grep -qFx "[$provider]" "$user_config"; then
+        echo "❌ No such $section_kind in $user_config: $provider" >&2
+        return 1
+    fi
+
+    local backup
+    backup="$(_config_backup_file "$user_config")" || {
+        echo "❌ Could not create a backup; refusing to modify the config." >&2
+        return 1
+    }
+
+    # Also drops the "# <description>" comment _qs_emit_provider writes
+    # directly above each section, which otherwise accumulated as orphans.
+    # $0 below is awk's own field variable and must NOT be expanded by the
+    # shell; the section name is passed in safely via -v.
+    # shellcheck disable=SC2016
+    if ! _config_atomic_write "$user_config" awk -v section="[$provider]" '
+        BEGIN { in_section = 0; pending = "" }
+        {
+            line = $0
+            sub(/\r$/, "", line)
         }
-        !in_section { print }
-    ' "$user_config.backup" > "$user_config"
-    
-    echo "✅ Removed provider '$provider' from $user_config"
-    echo "💡 Backup saved as $user_config.backup"
+        line ~ /^\[/ {
+            if (line == section) { in_section = 1; pending = ""; next }
+            in_section = 0
+            if (pending != "") { print pending; pending = "" }
+            print
+            next
+        }
+        in_section { next }
+        # Hold a lone comment: it belongs to whatever section follows.
+        line ~ /^#/ && pending == "" { pending = $0; next }
+        {
+            if (pending != "") { print pending; pending = "" }
+            print
+        }
+        END { if (pending != "") print pending }
+    '; then
+        echo "❌ Failed to rewrite $user_config; it is unchanged." >&2
+        echo "   A backup of the current contents is at $backup" >&2
+        return 1
+    fi
+
+    # Refresh the in-memory view so `list` does not keep showing the removal.
+    init_config >/dev/null 2>&1 || true
+
+    echo "✅ Removed $section_kind '$provider' from $user_config"
+    echo "💡 Backup saved as $backup"
 }
 
 cmd_test() {
@@ -1569,15 +2030,15 @@ cmd_test() {
 
     # Get protocol for this provider (defaults to "openai")
     local protocol
-    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
+    get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
 
     echo "🧪 Testing provider: $provider (protocol: $protocol)"
 
     local key_var base_url api_key auth_token_var auth_token
-    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$REPLY"
-    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$REPLY"
+    get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; key_var="$__LLM_REPLY"
+    get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$__LLM_REPLY"
     if [[ -n "$key_var" ]]; then
-        get_var_value "$key_var"; api_key="$REPLY"
+        get_var_value "$key_var"; api_key="$__LLM_REPLY"
     else
         api_key=""
     fi
@@ -1586,9 +2047,9 @@ cmd_test() {
     auth_token_var=""
     auth_token=""
     if [[ "$protocol" == "anthropic" ]]; then
-        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$REPLY"
+        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
         if [[ -n "$auth_token_var" ]]; then
-            get_var_value "$auth_token_var"; auth_token="$REPLY"
+            get_var_value "$auth_token_var"; auth_token="$__LLM_REPLY"
         fi
     fi
 
@@ -1621,7 +2082,12 @@ cmd_test() {
     echo "🔗 Base URL: $base_url"
 
     # Determine endpoint and auth headers based on protocol
-    local test_endpoint auth_headers
+    local test_endpoint
+    # curl reads its headers from stdin via --config so the API key never
+    # enters argv, where ps and /proc/<pid>/cmdline expose it on a shared host.
+    # auth_headers is retained only for the wget fallback and debug output,
+    # with the credential redacted.
+    local -a auth_headers curl_cfg_lines
     # Strip trailing slash from base_url if present
     base_url="${base_url%/}"
 
@@ -1633,27 +2099,42 @@ cmd_test() {
         else
             test_endpoint="${base_url}/v1/messages"
         fi
-        auth_headers=(-H "x-api-key: $api_key" -H "anthropic-version: 2023-06-01")
+        auth_headers=(-H "x-api-key: <redacted>" -H "anthropic-version: 2023-06-01")
+        curl_cfg_lines=(
+            "url = \"$test_endpoint\""
+            "header = \"x-api-key: $api_key\""
+            "header = \"anthropic-version: 2023-06-01\""
+            "header = \"Content-Type: application/json\""
+        )
     else
         # OpenAI uses Authorization: Bearer header
         # Endpoint: base_url/models
         test_endpoint="${base_url}/models"
-        auth_headers=(-H "Authorization: Bearer $api_key")
+        auth_headers=(-H "Authorization: Bearer <redacted>")
+        curl_cfg_lines=(
+            "url = \"$test_endpoint\""
+            "header = \"Authorization: Bearer $api_key\""
+            "header = \"Content-Type: application/json\""
+        )
     fi
 
     echo "🌐 Testing connectivity to: $test_endpoint"
 
     local start_time
-    start_time=$(date +%s.%N)
+    start_time="$(__llm_now_ms)"
     local response
 
     # Use curl or wget to test API endpoint
     if command -v curl >/dev/null 2>&1; then
-        response=$(curl -s -w "%{http_code}" -o /dev/null \
-            --max-time 10 \
-            ${auth_headers[@]+"${auth_headers[@]}"} \
-            -H "Content-Type: application/json" \
-            "$test_endpoint" 2>/dev/null)
+        # Headers go in on stdin via --config, NOT in argv. As -H arguments the
+        # API key was visible to any process that could read ps output or
+        # /proc/<pid>/cmdline on a shared host.
+        #
+        # -L follows redirects: a provider that 30x's /models otherwise
+        # reported "Unexpected response".
+        response=$(printf '%s\n' "${curl_cfg_lines[@]}" \
+            | curl -s -L -w "%{http_code}" -o /dev/null \
+                   --max-time 10 --config - 2>/dev/null)
     elif command -v wget >/dev/null 2>&1; then
         # Construct wget headers
         local wget_headers=()
@@ -1677,10 +2158,19 @@ cmd_test() {
         return 1
     fi
 
-    local end_time
-    end_time=$(date +%s.%N)
-    local duration
-    duration=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
+    local end_time duration
+    end_time="$(__llm_now_ms)"
+    duration="$(__llm_fmt_duration "$start_time" "$end_time")"
+
+    # curl -w '%{http_code}' prints 000 when it never got a response at all
+    # (DNS failure, refused connection, timeout). That is a connection error,
+    # not an HTTP status -- treating it as one made the empty-string arm below
+    # unreachable and reported an unreachable host as exit 0. wget yields an
+    # empty string in the same situation, so normalise both here and let the
+    # single arm handle it.
+    case "$response" in
+        000|"") response="" ;;
+    esac
 
     case "$response" in
         200)
@@ -1704,6 +2194,11 @@ cmd_test() {
             echo "⚠️  $provider: Endpoint not found (protocol: $protocol, HTTP $response)"
             echo "💡 Provider may use different API path"
             echo
+            # A 404 means the endpoint under test does not exist, so the
+            # connectivity check has not succeeded. This arm alone fell through
+            # to exit 0, unlike 401/403/5xx, so a scripted caller could not tell
+            # a misconfigured base_url from a working provider.
+            return 1
             ;;
         405)
             # For Anthropic, /v1/messages returns 405 for GET requests (it requires POST)
@@ -1754,15 +2249,83 @@ cmd_test() {
 # Extract a top-level JSON string scalar by key from a JSON document.
 # Usage: _qs_json_string "$json" "schema_version"
 # Echoes the value (without quotes), or empty string if not found.
+# Scan the JSON string literal that starts at index $2 of $1 (which must be the
+# opening quote). Sets __LLM_REPLY to the unescaped value and __LLM_JSON_END to
+# the index just past the closing quote. Returns 1 on an unterminated string.
+#
+# Escape awareness is the whole point: the previous grep -o '"[^"]*"' form
+# stopped at the first quote regardless of a preceding backslash, so any value
+# containing \" was truncated mid-word and the remains -- often ending in a
+# dangling backslash -- were written into the user's config.
+_qs_scan_string() {
+    local s="$1" i="$2"
+    local n=${#s} ch out="" esc=false
+    i=$((i + 1))
+    while [[ $i -lt $n ]]; do
+        ch="${s:$i:1}"
+        if [[ "$esc" == true ]]; then
+            case "$ch" in
+                n)  out="${out}"$'\n' ;;
+                t)  out="${out}"$'\t' ;;
+                r)  out="${out}"$'\r' ;;
+                b)  out="${out}"$'\b' ;;
+                f)  out="${out}"$'\f' ;;
+                # \uXXXX is passed through literally: llm-env never needs to
+                # render it, and decoding would require more machinery than a
+                # config-file value warrants.
+                u)  out="${out}\\u" ;;
+                *)  out="${out}${ch}" ;;
+            esac
+            esc=false
+        elif [[ "$ch" == "\\" ]]; then
+            esc=true
+        elif [[ "$ch" == '"' ]]; then
+            __LLM_REPLY="$out"
+            __LLM_JSON_END=$((i + 1))
+            return 0
+        else
+            out="${out}${ch}"
+        fi
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# Advance past JSON whitespace starting at index $2 of $1; echoes the new index.
+_qs_skip_ws() {
+    local s="$1" i="$2" n=${#1}
+    while [[ $i -lt $n ]]; do
+        case "${s:$i:1}" in
+            ' '|$'\t'|$'\n'|$'\r') i=$((i + 1)) ;;
+            *) break ;;
+        esac
+    done
+    printf '%s' "$i"
+}
+
+# Extract the string value for "key" from a JSON document.
+# Echoes the value (empty when absent or when the value is not a string).
 _qs_json_string() {
     local json="$1" key="$2"
-    # Look for "key": "value" anywhere in the doc. The first occurrence wins,
-    # so callers should isolate sub-objects before calling on inner keys.
-    printf '%s' "$json" \
-        | tr -d '\n' \
-        | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" \
-        | head -n 1 \
-        | sed -E 's/^"[^"]*"[[:space:]]*:[[:space:]]*"//; s/"$//'
+    local target="\"$key\""
+    local tlen=${#target} n=${#json} i=0 j
+    while [[ $i -lt $n ]]; do
+        if [[ "${json:$i:$tlen}" == "$target" ]]; then
+            j="$(_qs_skip_ws "$json" $((i + tlen)))"
+            if [[ "${json:$j:1}" == ":" ]]; then
+                j="$(_qs_skip_ws "$json" $((j + 1)))"
+                if [[ "${json:$j:1}" == '"' ]]; then
+                    if _qs_scan_string "$json" "$j"; then
+                        printf '%s' "$__LLM_REPLY"
+                        return 0
+                    fi
+                fi
+                # Key found but the value is not a string (number, bool, object).
+                return 0
+            fi
+        fi
+        i=$((i + 1))
+    done
 }
 
 # Extract a single JSON object value by key from a top-level document.
@@ -1787,7 +2350,7 @@ _qs_json_object() {
     # Walk the object respecting nested braces and strings.
     local in_string=false esc=false
     for (( i=0; i<${#rest}; i++ )); do
-        ch="${rest:i:1}"
+        ch="${rest:$i:1}"
         out+="$ch"
         if [[ "$in_string" == true ]]; then
             if [[ "$esc" == true ]]; then
@@ -1801,8 +2364,8 @@ _qs_json_object() {
         fi
         case "$ch" in
             '"') in_string=true ;;
-            '{') ((depth++)) ;;
-            '}') ((depth--))
+            '{') depth=$((depth + 1)) ;;
+            '}') depth=$((depth - 1))
                 if [[ $depth -eq 0 ]]; then
                     printf '%s' "$out"
                     return 0
@@ -1831,7 +2394,7 @@ _qs_json_array_body() {
     # Skip the opening [.
     rest="${rest:1}"
     for (( i=0; i<${#rest}; i++ )); do
-        ch="${rest:i:1}"
+        ch="${rest:$i:1}"
         if [[ "$in_string" == true ]]; then
             out+="$ch"
             if [[ "$esc" == true ]]; then
@@ -1845,13 +2408,13 @@ _qs_json_array_body() {
         fi
         case "$ch" in
             '"') in_string=true; out+="$ch" ;;
-            '[') ((depth++)); out+="$ch" ;;
+            '[') depth=$((depth + 1)); out+="$ch" ;;
             ']')
                 if [[ $depth -eq 0 ]]; then
                     printf '%s' "$out"
                     return 0
                 fi
-                ((depth--)); out+="$ch"
+                depth=$((depth - 1)); out+="$ch"
                 ;;
             *) out+="$ch" ;;
         esac
@@ -1867,7 +2430,7 @@ _qs_split_object_array() {
     local body="$1"
     local depth=0 i ch out="" in_string=false esc=false started=false
     for (( i=0; i<${#body}; i++ )); do
-        ch="${body:i:1}"
+        ch="${body:$i:1}"
         if [[ "$in_string" == true ]]; then
             out+="$ch"
             if [[ "$esc" == true ]]; then
@@ -1885,10 +2448,10 @@ _qs_split_object_array() {
                 if [[ "$started" == false ]]; then
                     started=true; out=""
                 fi
-                ((depth++)); out+="$ch"
+                depth=$((depth + 1)); out+="$ch"
                 ;;
             '}')
-                ((depth--)); out+="$ch"
+                depth=$((depth - 1)); out+="$ch"
                 if [[ $depth -eq 0 ]]; then
                     printf '%s\0' "$out"
                     out=""
@@ -1907,16 +2470,61 @@ _qs_split_object_array() {
 # Extract simple "key": "value" pairs from a flat JSON object.
 # Emits one "key=value" per line. Skips nested objects/arrays.
 # Used for family_latest-style maps.
+# Emit "key=value" for every TOP-LEVEL string pair of a JSON object, one per
+# line. Nested objects and arrays are skipped, as the docstring always claimed:
+# the previous grep ran over the flattened text, so a nested object contributed
+# its own inner pairs and produced bogus [group:*] sections in the user config.
 _qs_extract_string_pairs() {
     local obj="$1"
-    # Strip outer braces.
     obj="${obj#\{}"
     obj="${obj%\}}"
-    # Find all "key": "value" pairs.
-    printf '%s' "$obj" \
-        | tr -d '\n' \
-        | grep -oE '"[^"]+"[[:space:]]*:[[:space:]]*"[^"]*"' \
-        | sed -E 's/^"([^"]+)"[[:space:]]*:[[:space:]]*"([^"]*)"$/\1=\2/'
+    local n=${#obj} i=0 ch key depth
+    while [[ $i -lt $n ]]; do
+        i="$(_qs_skip_ws "$obj" "$i")"
+        [[ $i -lt $n ]] || break
+        ch="${obj:$i:1}"
+        case "$ch" in
+            ','|':') i=$((i + 1)); continue ;;
+            '"')
+                _qs_scan_string "$obj" "$i" || return 0
+                key="$__LLM_REPLY"
+                i="$__LLM_JSON_END"
+                i="$(_qs_skip_ws "$obj" "$i")"
+                [[ "${obj:$i:1}" == ":" ]] || continue
+                i="$(_qs_skip_ws "$obj" $((i + 1)))"
+                case "${obj:$i:1}" in
+                    '"')
+                        _qs_scan_string "$obj" "$i" || return 0
+                        printf '%s=%s\n' "$key" "$__LLM_REPLY"
+                        i="$__LLM_JSON_END"
+                        ;;
+                    '{'|'[')
+                        # Skip the whole nested structure.
+                        depth=0
+                        while [[ $i -lt $n ]]; do
+                            case "${obj:$i:1}" in
+                                '{'|'[') depth=$((depth + 1)) ;;
+                                '}'|']') depth=$((depth - 1)) ;;
+                                '"') _qs_scan_string "$obj" "$i" && i=$((__LLM_JSON_END - 1)) ;;
+                            esac
+                            i=$((i + 1))
+                            [[ $depth -eq 0 ]] && break
+                        done
+                        ;;
+                    *)
+                        # Scalar (number/bool/null): skip to the next delimiter.
+                        while [[ $i -lt $n ]]; do
+                            case "${obj:$i:1}" in
+                                ','|'}'|']') break ;;
+                            esac
+                            i=$((i + 1))
+                        done
+                        ;;
+                esac
+                ;;
+            *) i=$((i + 1)) ;;
+        esac
+    done
 }
 
 # Extract array of strings (e.g. protocols).
@@ -1932,8 +2540,57 @@ _qs_extract_string_array() {
 # Validate that a model id is safe to use as an INI section name.
 # Allowed: alphanumerics, dot, dash, underscore.
 _qs_id_is_safe() {
-    local id="$1"
-    [[ -n "$id" && "$id" =~ ^[a-zA-Z0-9._-]+$ ]]
+    _llm_id_is_safe "$1"
+}
+
+# Validators for the remaining scraped fields.
+#
+# _qs_process_v2_file previously validated only vendor_short, api_key_var and
+# the model id. upstream_id, description, endpoints and signup_url went
+# straight into the user's config via _qs_emit_provider. The store no longer
+# evals values, so these can no longer execute -- but an unvalidated string can
+# still forge a config section (via a newline), point a provider at a
+# non-HTTP URL, or produce a value the INI parser silently mangles.
+
+# A URL that is safe to record as base_url or signup_url.
+_qs_url_is_safe() {
+    local u="$1"
+    [[ -n "$u" ]] || return 1
+    # http(s) only: file://, data:// etc have no business in a provider config.
+    case "$u" in
+        http://*|https://*) ;;
+        *) return 1 ;;
+    esac
+    # A newline or CR would let one value forge additional config lines.
+    case "$u" in
+        *$'\n'*|*$'\r'*) return 1 ;;
+    esac
+    # Quotes and backslashes confuse INI readers and shell display alike, and
+    # have no legitimate place in a provider URL.
+    case "$u" in
+        *[\'\"\\]*) return 1 ;;
+    esac
+    return 0
+}
+
+# A model identifier sent to a provider. Broader than _llm_id_is_safe because
+# upstream ids legitimately contain ':' and '/' (e.g. hf:moonshotai/Kimi-K2.5).
+_qs_model_id_is_safe() {
+    local m="$1"
+    [[ -n "$m" ]] || return 1
+    case "$m" in
+        *[!A-Za-z0-9._:/-]*) return 1 ;;
+    esac
+    return 0
+}
+
+# Free text written as a description/comment. Must stay on one line so it
+# cannot forge a [section] header or a key=value pair.
+_qs_text_is_safe() {
+    case "$1" in
+        *$'\n'*|*$'\r'*) return 1 ;;
+    esac
+    return 0
 }
 
 # Process a single quickstart v2 JSON file. Appends provider and group
@@ -1989,6 +2646,21 @@ _qs_process_v2_file() {
     endpoint_openai="$(_qs_json_string "$endpoints_obj" "openai")"
     endpoint_anthropic="$(_qs_json_string "$endpoints_obj" "anthropic")"
 
+    # Validate the scraped URLs before any of them can reach the config.
+    # These come from a daily scrape that is auto-merged without review.
+    if [[ -n "$endpoint_openai" ]] && ! _qs_url_is_safe "$endpoint_openai"; then
+        echo "❌ Quickstart file has an unsafe openai endpoint: $json_file" >&2
+        return 1
+    fi
+    if [[ -n "$endpoint_anthropic" ]] && ! _qs_url_is_safe "$endpoint_anthropic"; then
+        echo "❌ Quickstart file has an unsafe anthropic endpoint: $json_file" >&2
+        return 1
+    fi
+    if [[ -n "$signup_url" ]] && ! _qs_url_is_safe "$signup_url"; then
+        echo "  ⚠️  Ignoring unsafe signup_url in $json_file" >&2
+        signup_url=""
+    fi
+
     local models_body family_latest_obj
     models_body="$(_qs_json_array_body "$json" "models")"
     family_latest_obj="$(_qs_json_object "$json" "family_latest")"
@@ -2001,6 +2673,11 @@ _qs_process_v2_file() {
     # Parse models[] block by block. Objects are NUL-delimited to survive
     # multi-line content.
     local model_obj id family version description upstream_id protocols_body
+    # Loop-scoped variables are declared ONCE here, never inside the loops
+    # below: zsh prints "name=<previous value>" when `local` re-declares an
+    # existing local, which corrupts stdout mid-run (and leaked $proto).
+    local proto have_openai have_anthropic proto_csv default_model pname
+    local pair fam fam_id idx j providers_csv __n __base
     while IFS= read -r -d '' model_obj; do
         [[ -z "$model_obj" ]] && continue
         id="$(_qs_json_string "$model_obj" "id")"
@@ -2014,6 +2691,14 @@ _qs_process_v2_file() {
             echo "  ⚠️  Skipping model with no id" >&2
             continue
         fi
+        if [[ -n "$upstream_id" ]] && ! _qs_model_id_is_safe "$upstream_id"; then
+            echo "  ⚠️  Skipping model '$id' - upstream_id contains unsafe characters" >&2
+            continue
+        fi
+        if ! _qs_text_is_safe "$description"; then
+            echo "  ⚠️  Model '$id' - dropping multi-line description" >&2
+            description=""
+        fi
         if ! _qs_id_is_safe "$id"; then
             echo "  ⚠️  Skipping model '$id' - id contains characters unsafe for config sections" >&2
             continue
@@ -2021,7 +2706,7 @@ _qs_process_v2_file() {
 
         # Compute available protocols intersecting model.protocols with what
         # the file's endpoints declare.
-        local proto have_openai=false have_anthropic=false
+        have_openai=false; have_anthropic=false
         while IFS= read -r proto; do
             [[ -z "$proto" ]] && continue
             case "$proto" in
@@ -2031,7 +2716,7 @@ _qs_process_v2_file() {
         done < <(_qs_extract_string_array "$protocols_body")
 
         # Track for family_latest emission.
-        local proto_csv=""
+        proto_csv=""
         [[ "$have_openai"    == true ]] && proto_csv="openai"
         if [[ "$have_anthropic" == true ]]; then
             [[ -n "$proto_csv" ]] && proto_csv+=","
@@ -2040,17 +2725,25 @@ _qs_process_v2_file() {
         model_ids+=("$id")
         model_protocols+=("$proto_csv")
 
-        local default_model="${upstream_id:-$id}"
+        default_model="${upstream_id:-$id}"
 
         if [[ "$have_openai" == true ]]; then
-            local pname="openai_${vendor_short}_${id}"
+            pname="openai_${vendor_short}_${id}"
             _qs_emit_provider "$user_config" "$pname" "$endpoint_openai" \
                 "$api_key_var" "$default_model" "$description" "openai" "$signup_url"
         fi
         if [[ "$have_anthropic" == true ]]; then
-            local pname="anth_${vendor_short}_${id}"
+            pname="anth_${vendor_short}_${id}"
             _qs_emit_provider "$user_config" "$pname" "$endpoint_anthropic" \
                 "$api_key_var" "$default_model" "$description" "anthropic" "$signup_url"
+        fi
+
+        # A model that matched no endpoint produces nothing. Say so: it was
+        # previously dropped in complete silence, unlike every other skip path
+        # in this loop, so a scraper change that removed an endpoint or a
+        # protocols array looked like a successful run.
+        if [[ "$have_openai" != true && "$have_anthropic" != true ]]; then
+            echo "  ⚠️  Skipping model '$id' - no protocol matches this file's endpoints" >&2
         fi
 
         # Per-model group only when both protocols available.
@@ -2063,7 +2756,6 @@ _qs_process_v2_file() {
 
     # Family-latest groups.
     if [[ -n "$family_latest_obj" ]]; then
-        local pair fam fam_id idx j providers_csv
         while IFS= read -r pair; do
             [[ -z "$pair" ]] && continue
             fam="${pair%%=*}"
@@ -2077,10 +2769,17 @@ _qs_process_v2_file() {
             fi
             # Look up protocols for this model id from the parallel arrays.
             idx=-1
-            for j in ${model_ids[@]+"${!model_ids[@]}"}; do
+            # ${!arr[@]} is a bash-only index expansion ("bad substitution" in
+            # zsh). Walk by count instead, which is portable. Note zsh arrays
+            # are 1-indexed, hence __base.
+            __n=${#model_ids[@]}
+            if [[ "${CURRENT_SHELL}" == "zsh" ]]; then __base=1; else __base=0; fi
+            j=$__base
+            while [[ $j -lt $((__n + __base)) ]]; do
                 if [[ "${model_ids[$j]}" == "$fam_id" ]]; then
                     idx="$j"; break
                 fi
+                j=$((j + 1))
             done
             if [[ "$idx" -lt 0 ]]; then
                 echo "  ⚠️  family_latest references unknown model id '$fam_id'" >&2
@@ -2108,7 +2807,10 @@ _qs_emit_provider() {
     local user_config="$1" name="$2" base_url="$3" api_key_var="$4"
     local default_model="$5" description="$6" protocol="$7" signup_url="$8"
 
-    if grep -q "^\[$name\]$" "$user_config" 2>/dev/null; then
+    # -F -x: literal, whole-line. The name used to be interpolated into a basic
+    # regex, so the '.' in an id like glm-5.2 matched any character and
+    # [openai_synth_glm-5X2] counted as already present.
+    if grep -qFx "[$name]" "$user_config" 2>/dev/null; then
         echo "  ⚠️  Skipping provider '$name' - already exists in config"
         return 0
     fi
@@ -2136,7 +2838,7 @@ _qs_emit_provider() {
 # Append a [group:NAME] section to the user config if not already present.
 _qs_emit_group() {
     local user_config="$1" group_name="$2" providers_csv="$3"
-    if grep -q "^\[group:$group_name\]$" "$user_config" 2>/dev/null; then
+    if grep -qFx "[group:$group_name]" "$user_config" 2>/dev/null; then
         echo "  ⚠️  Skipping group '$group_name' - already exists in config"
         return 0
     fi
@@ -2181,7 +2883,13 @@ _qs_resolve_selection() {
     # currently available. Build the result preserving caller's order.
     local IFS=','
     local -a tokens
-    read -r -a tokens <<< "$arg"
+    # zsh's `read` has no -a (it spells it -A), so this aborted the whole
+    # sourced file with "bad option: -a". __llm_split works in both shells.
+    # __llm_split deliberately forces IFS=' ' so a caller's strict-mode IFS
+    # cannot defeat it, which means comma inputs must be converted first.
+    __llm_split "${arg//,/ }"
+    local -a tokens
+    tokens=(${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"})
     local out=""
     local tok
     for tok in ${tokens[@]+"${tokens[@]}"}; do
@@ -2217,24 +2925,11 @@ _qs_is_interactive() {
 # write).
 # zsh → ~/.zshrc.
 # fish/csh/tcsh/other → empty (caller prints the export line manually).
+# Retained as the name quickstart and its tests already call. The logic lives
+# in detect_shell_rc so llm-env and install.sh cannot drift apart -- they
+# previously carried the same rules copy-pasted, including the same bug.
 _qs_detect_shell_rc() {
-    local current_shell="${SHELL:-/bin/bash}"
-    case "$current_shell" in
-        */zsh)
-            printf '%s' "$HOME/.zshrc"
-            ;;
-        */bash)
-            if [[ ! -f "$HOME/.bashrc" && -f "$HOME/.bash_profile" ]]; then
-                printf '%s' "$HOME/.bash_profile"
-            else
-                printf '%s' "$HOME/.bashrc"
-            fi
-            ;;
-        *)
-            # fish, csh, tcsh, sh, or anything unrecognized.
-            printf ''
-            ;;
-    esac
+    detect_shell_rc
 }
 
 # True (return 0) when the named env var is already set in the current
@@ -2246,7 +2941,9 @@ _qs_key_already_set() {
     local var="$1" rc_file="$2"
     [[ -z "$var" ]] && return 1
     # Env check.
-    if [[ -n "${!var:-}" ]]; then
+    # ${!var} is bash-only indirect expansion ("bad substitution" in zsh).
+    get_var_value "$var"
+    if [[ -n "$__LLM_REPLY" ]]; then
         return 0
     fi
     # rc-file check.
@@ -2293,24 +2990,64 @@ _qs_append_export_to_rc() {
     if [[ -z "$rc_file" ]]; then
         return 1
     fi
-    # Don't duplicate.
-    if [[ -f "$rc_file" ]] && grep -qE "^[[:space:]]*export[[:space:]]+${var}=" "$rc_file"; then
+
+    # Don't duplicate. Recognise the other common spellings too: the old
+    # anchored `export VAR=` pattern missed `VAR=x; export VAR` and
+    # `export  VAR =`, so a second run appended a duplicate export.
+    if [[ -f "$rc_file" ]] && grep -qE "(^|;)[[:space:]]*(export[[:space:]]+)?${var}[[:space:]]*=" "$rc_file"; then
         return 1
     fi
-    # Ensure the file exists and ends with a newline before appending.
+
+    # Create with a restrictive umask: this file is about to hold an API key,
+    # and it was previously created world-readable under the ambient umask.
     if [[ ! -f "$rc_file" ]]; then
-        : > "$rc_file" || return 1
+        local old_umask
+        old_umask="$(umask)"
+        umask 077
+        : > "$rc_file" || { umask "$old_umask"; return 1; }
+        umask "$old_umask"
     elif [[ -s "$rc_file" ]]; then
-        # If file is non-empty and lacks trailing newline, add one.
-        local last
-        last=$(tail -c 1 "$rc_file" 2>/dev/null || true)
-        if [[ "$last" != $'\n' ]]; then
+        # Append a newline only if the file does not already end with one.
+        #
+        # The previous check was `[[ "$(tail -c 1 ...)" != $'\n' ]]`, but
+        # command substitution strips trailing newlines, so the comparison was
+        # ALWAYS true and a blank line accumulated on every run.
+        if [[ "$(tail -c 1 "$rc_file" | wc -l | tr -d ' ')" == "0" ]]; then
             printf '\n' >> "$rc_file" || return 1
         fi
     fi
+
+    # Warn, but do NOT silently re-chmod a pre-existing rc file. Changing
+    # permissions the user chose is surprising, and doing it before the append
+    # would also make a deliberately-unwritable file writable, defeating the
+    # graceful-failure path below. Files we create ourselves are already 600
+    # via the umask above.
+    if [[ -r "$rc_file" ]]; then
+        local mode
+        # The path is a known rc file we just resolved, not arbitrary input.
+        # shellcheck disable=SC2012
+        mode="$(ls -l "$rc_file" 2>/dev/null | cut -c5-10)"
+        case "$mode" in
+            *[rwx]*)
+                echo "   ⚠️  $rc_file is readable by others; it will contain an API key." >&2
+                echo "      Consider: chmod 600 $rc_file" >&2
+                ;;
+        esac
+    fi
+
     # Single-quote-escape the value: every ' becomes '"'"'.
     local escaped="${value//\'/\'\"\'\"\'}"
     printf "export %s='%s'\n" "$var" "$escaped" >> "$rc_file" || return 1
+
+    # On Git Bash, mintty starts `bash --login -i`, which reads a login file
+    # and never ~/.bashrc. If we just created the login file and a ~/.bashrc
+    # already exists, chain-load it so the user's existing setup still runs.
+    if [[ "${__LLM_RC_NEEDS_CHAIN:-0}" == "1" && -f "$HOME/.bashrc" ]]; then
+        if ! grep -q '\.bashrc' "$rc_file" 2>/dev/null; then
+            printf '\n# Load ~/.bashrc for interactive login shells (added by llm-env)\n' >> "$rc_file"
+            printf '[ -f ~/.bashrc ] && . ~/.bashrc\n' >> "$rc_file"
+        fi
+    fi
     return 0
 }
 
@@ -2340,6 +3077,15 @@ _qs_verify_key() {
 cmd_quickstart() {
     echo "🚀 Quickstart - Adding provider definitions from quickstart JSON files"
     echo
+
+    # Declare every loop-scoped local ONCE, here, before any loop runs.
+    #
+    # zsh prints "name=<previous value>" when `local name` re-declares an
+    # existing local, so declaring these inside the per-source loop leaked
+    # their contents to the terminal on the second and later iterations. For
+    # $key that value came from `read -s` -- the API key, in cleartext.
+    local src="" json_file="" api_key_var="" signup_url="" verify_provider=""
+    local key="" rc_file=""
 
     # Locate quickstart JSON files. LLM_ENV_QUICKSTART_DIR overrides the
     # script directory (used by tests and advanced setups).
@@ -2382,7 +3128,8 @@ cmd_quickstart() {
     fi
 
     # Detect shell rc once up-front (empty for unsupported shells).
-    local rc_file
+    # rc_file is declared at the top of the function; re-declaring it here
+    # would make zsh print its current value.
     rc_file="$(_qs_detect_shell_rc)"
 
     _qs_added_names=()
@@ -2392,33 +3139,57 @@ cmd_quickstart() {
         interactive=true
     fi
 
-    local src
+    # (src is declared at the top of the function; re-declaring it here made
+    # zsh print "src=''" to stdout.)
     local IFS_old="$IFS"
     IFS=','
-    for src in $selection; do
+    # zsh does not word-split an unquoted expansion, so this iterated ONCE
+    # with the whole "synthetic,alibaba" string, matched no case arm, and left
+    # json_file empty -- the visible symptom was "Quickstart file is empty:".
+    __llm_split "${selection//,/ }"
+    for src in ${__LLM_WORDS[@]+"${__LLM_WORDS[@]}"}; do
         IFS="$IFS_old"
-        local json_file="" api_key_var="" signup_url="" verify_provider=""
+        # (json_file/api_key_var/signup_url/verify_provider are declared once
+        # at the top of the function -- see the note there about zsh printing
+        # a re-declared local.)
+        json_file=""; api_key_var=""; signup_url=""; verify_provider=""
         case "$src" in
             synthetic)
                 json_file="$synthetic_json"
                 api_key_var="LLM_SYNTHETIC_API_KEY"
                 signup_url="https://synthetic.new/?referral=ugceNlJ08A3Eeww"
-                verify_provider="anth_synth_kimi-k2.5"
+                # verify_provider is derived after emission -- see below. It
+                # used to hardcode anth_synth_kimi-k2.5, which the scraper
+                # renamed to kimi-k2.7-code and auto-merged, leaving the id
+                # pointing at a provider that no longer exists.
                 ;;
             alibaba)
                 json_file="$alibaba_json"
                 api_key_var="LLM_ALIBABA_API_KEY"
                 signup_url="https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX"
-                verify_provider="anth_alibaba_kimi-k2.5"
                 ;;
         esac
 
         echo "🔍 Processing: $json_file"
+        local __before=${#_qs_added_names[@]}
         if ! _qs_process_v2_file "$json_file" "$user_config"; then
             rc=1
             IFS=','
             continue
         fi
+        # Derive the verification target from the sections just emitted, so it
+        # can never drift from the catalog. Prefer an anthropic provider (the
+        # protocol quickstart is primarily used to configure) and fall back to
+        # whatever was added first.
+        local __k __n2=${#_qs_added_names[@]} __i2=$__before
+        while [[ $__i2 -lt $__n2 ]]; do
+            __k="${_qs_added_names[$__i2]}"
+            case "$__k" in
+                anth_*)   verify_provider="$__k"; break ;;
+                openai_*) [[ -z "$verify_provider" ]] && verify_provider="$__k" ;;
+            esac
+            __i2=$((__i2 + 1))
+        done
         echo
 
         if [[ "$interactive" == true ]]; then
@@ -2431,7 +3202,12 @@ cmd_quickstart() {
                 echo
                 printf '   Press Enter once you have your key (or '\''s'\'' + Enter to skip): '
                 read -r _   # discard; just a pause
-                local key
+                # NOTE: `key` is declared once at the top of this function,
+                # not here. Re-declaring an existing local inside a loop makes
+                # zsh PRINT "key=<previous value>" -- and the previous value
+                # came from _qs_prompt_api_key's `read -s`, so the API key was
+                # echoed to the terminal in cleartext from the second source
+                # onward.
                 if key="$(_qs_prompt_api_key "$api_key_var")"; then
                     if [[ -n "$rc_file" ]]; then
                         if _qs_append_export_to_rc "$api_key_var" "$key" "$rc_file"; then
@@ -2458,6 +3234,14 @@ cmd_quickstart() {
     done
     IFS="$IFS_old"
 
+    # Re-read the config so the sections just written are visible to this
+    # shell. Without this the in-memory provider set was whatever existed at
+    # source time, so _qs_verify_key always reported the brand-new key as
+    # failing and `list` did not show the new providers until the next command.
+    if [[ ${#_qs_added_names[@]} -gt 0 ]]; then
+        init_config >/dev/null 2>&1 || true
+    fi
+
     if [[ ${#_qs_added_names[@]} -gt 0 ]]; then
         echo "🎉 Added ${#_qs_added_names[@]} new entr$([[ ${#_qs_added_names[@]} -eq 1 ]] && echo y || echo ies) to your configuration."
     else
@@ -2476,7 +3260,13 @@ cmd_quickstart() {
     echo
     echo "💡 Next steps:"
     echo "   llm-env list                       # see what's available"
-    echo "   llm-env set anth_synth_kimi-k2.5   # activate a provider"
+    # Name a provider that was actually emitted. A hardcoded example id goes
+    # stale silently the next time the daily scraper renames a model.
+    if [[ -n "$verify_provider" ]]; then
+        echo "   llm-env set $verify_provider   # activate a provider"
+    else
+        echo "   llm-env set <provider>             # activate a provider"
+    fi
     if [[ "$interactive" == true && -n "$rc_file" ]]; then
         echo "   source $rc_file                    # reload shell so new keys are active"
     fi
@@ -2486,7 +3276,7 @@ cmd_quickstart() {
 }
 
 cmd_help() {
-    echo "llm-env - LLM Environment Manager v$VERSION"
+    echo "llm-env - LLM Environment Manager v${LLM_ENV_VERSION}"
     echo
     echo "Usage:"
     echo "    source llm-env <command> [options]"
@@ -2563,25 +3353,25 @@ cmd_config_validate() {
 
     # Check each provider
     get_provider_keys "PROVIDER_BASE_URLS"
-    local -a validate_keys=(${REPLY_KEYS[@]+"${REPLY_KEYS[@]}"})
+    local -a validate_keys=(${__LLM_REPLY_KEYS[@]+"${__LLM_REPLY_KEYS[@]}"})
     for provider in ${validate_keys[@]+"${validate_keys[@]}"}; do
         [[ -z "$provider" ]] && continue
-        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$REPLY"
-        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; api_key_var="$REPLY"
-        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$REPLY"
-        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; default_model="$REPLY"
-        get_provider_value "PROVIDER_ENABLED" "$provider"; enabled="${REPLY:-true}"
-        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${REPLY:-openai}"
+        get_provider_value "PROVIDER_BASE_URLS" "$provider"; base_url="$__LLM_REPLY"
+        get_provider_value "PROVIDER_API_KEY_VARS" "$provider"; api_key_var="$__LLM_REPLY"
+        get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
+        get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; default_model="$__LLM_REPLY"
+        get_provider_value "PROVIDER_ENABLED" "$provider"; enabled="${__LLM_REPLY:-true}"
+        get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
 
         echo "Checking provider: $provider"
 
         # Check required fields
         if [[ -z "$base_url" ]]; then
             echo "  ❌ Missing base_url"
-            ((errors++))
+            errors=$((errors + 1))
         elif [[ ! "$base_url" =~ $url_pattern ]]; then
             echo "  ⚠️  base_url should start with http:// or https://"
-            ((warnings++))
+            warnings=$((warnings + 1))
         else
             echo "  ✅ base_url: $base_url"
         fi
@@ -2590,24 +3380,24 @@ cmd_config_validate() {
         if [[ "$protocol" == "anthropic" ]]; then
             if [[ -z "$api_key_var" && -z "$auth_token_var" ]]; then
                 echo "  ❌ Missing api_key_var or auth_token_var"
-                ((errors++))
+                errors=$((errors + 1))
             else
                 if [[ -n "$api_key_var" ]]; then
                     echo "  ✅ api_key_var: $api_key_var"
-                    get_var_value "$api_key_var"; cred_val="$REPLY"
+                    get_var_value "$api_key_var"; cred_val="$__LLM_REPLY"
                     if [[ -z "$cred_val" ]]; then
                         echo "  ⚠️  API key not set: $api_key_var"
-                        ((warnings++))
+                        warnings=$((warnings + 1))
                     else
                         echo "  ✅ API key is set"
                     fi
                 fi
                 if [[ -n "$auth_token_var" ]]; then
                     echo "  ✅ auth_token_var: $auth_token_var"
-                    get_var_value "$auth_token_var"; cred_val="$REPLY"
+                    get_var_value "$auth_token_var"; cred_val="$__LLM_REPLY"
                     if [[ -z "$cred_val" ]]; then
                         echo "  ⚠️  Auth token not set: $auth_token_var"
-                        ((warnings++))
+                        warnings=$((warnings + 1))
                     else
                         echo "  ✅ Auth token is set"
                     fi
@@ -2615,15 +3405,15 @@ cmd_config_validate() {
             fi
         elif [[ -z "$api_key_var" ]]; then
             echo "  ❌ Missing api_key_var"
-            ((errors++))
+            errors=$((errors + 1))
         else
             echo "  ✅ api_key_var: $api_key_var"
 
             # Check if API key is set
-            get_var_value "$api_key_var"; cred_val="$REPLY"
+            get_var_value "$api_key_var"; cred_val="$__LLM_REPLY"
             if [[ -z "$cred_val" ]]; then
                 echo "  ⚠️  API key not set: $api_key_var"
-                ((warnings++))
+                warnings=$((warnings + 1))
             else
                 echo "  ✅ API key is set"
             fi
@@ -2631,14 +3421,14 @@ cmd_config_validate() {
         
         if [[ -z "$default_model" ]]; then
             echo "  ❌ Missing default_model"
-            ((errors++))
+            errors=$((errors + 1))
         else
             echo "  ✅ default_model: $default_model"
         fi
         
         if [[ "$enabled" != "true" && "$enabled" != "false" ]]; then
             echo "  ⚠️  enabled should be 'true' or 'false', got: $enabled"
-            ((warnings++))
+            warnings=$((warnings + 1))
         fi
         
         echo
@@ -2646,7 +3436,7 @@ cmd_config_validate() {
 
     get_provider_keys "PROVIDER_BASE_URLS"
     echo "Validation complete:"
-    echo "  Providers: ${#REPLY_KEYS[@]}"
+    echo "  Providers: ${#__LLM_REPLY_KEYS[@]}"
     echo "  Enabled: ${#AVAILABLE_PROVIDERS[@]}"
     echo "  Errors: $errors"
     echo "  Warnings: $warnings"
@@ -2677,7 +3467,8 @@ cmd_config_backup() {
     fi
     
     # Create backup directory if it doesn't exist
-    local backup_dir="$HOME/.config/llm-env/backups"
+    local backup_dir
+    backup_dir="$(_config_backup_dir)"
     mkdir -p "$backup_dir"
     
     # Generate timestamp for backup filename
@@ -2713,7 +3504,8 @@ cmd_config_restore() {
         echo "Usage: source llm-env config restore <backup_file>"
         echo ""
         echo "Available backups:"
-        local backup_dir="$HOME/.config/llm-env/backups"
+        local backup_dir
+    backup_dir="$(_config_backup_dir)"
         if [[ -d "$backup_dir" ]]; then
             find "$backup_dir" -name "*.conf" -type f -exec ls -lt {} + 2>/dev/null | head -10 | while read -r line; do
                 echo "  $line"
@@ -2730,7 +3522,11 @@ cmd_config_restore() {
     fi
     
     # Confirm before restoring (skip in test environment)
-    if [[ -z "$BATS_TMPDIR" ]]; then
+    # Confirmation is skipped only on an explicit opt-in. This used to test
+    # $BATS_TMPDIR, which bats exports to every child process -- so anyone
+    # running under bats, including this project's own developers, silently
+    # lost the prompt before their config was overwritten.
+    if [[ "${LLM_ENV_ASSUME_YES:-}" != "1" ]]; then
         echo "⚠️  This will overwrite your current configuration:"
         echo "   Current: $user_config"
         echo "   Restore from: $backup_file"
@@ -2738,6 +3534,7 @@ cmd_config_restore() {
         read -p "Continue? (y/N): " -n 1 -r
         echo
         local yes_pattern="^[Yy]$"
+        # See cmd_config_init: $REPLY is `read`'s slot, not the accessors'.
         [[ ! $REPLY =~ $yes_pattern ]] && { echo "Restore cancelled"; return 1; }
     fi
     
@@ -2784,7 +3581,7 @@ cmd_config_bulk() {
     if [[ ${#providers[@]} -eq 0 ]]; then
         echo "❌ No providers specified"
         get_provider_keys "PROVIDER_BASE_URLS"
-        echo "Available providers: ${REPLY_KEYS[*]-}"
+        echo "Available providers: ${__LLM_REPLY_KEYS[*]-}"
         return 1
     fi
     
@@ -2835,11 +3632,35 @@ cmd_config_bulk() {
         esac
         
         # Update configuration file
-        # Use awk to update the enabled value for the provider
-        awk -v provider="${provider}" -v enabled="${enabled_value}" '
+        # Check against the FILE being edited, not the in-memory config: the
+        # loaded config may have come from a different precedence tier, in
+        # which case awk found nothing and this still reported success.
+        if ! grep -qFx "[${provider}]" "${user_config}"; then
+            failed_providers+=("${provider} (not found in ${user_config})")
+            continue
+        fi
+
+        # Rewrite atomically. Previously awk's exit status was never checked
+        # before an unconditional mv, so a failed or missing awk replaced the
+        # config with an empty file and still printed a success line; and mv
+        # from a fresh temp dropped the original's mode (600 -> 644).
+        #
+        # The section/enabled matching tolerates leading whitespace and a
+        # trailing CR: /^enabled=/ missed "  enabled=true" and appended a
+        # duplicate key instead of updating the existing one.
+        # $0 is awk's field variable; values are passed via -v.
+        # shellcheck disable=SC2016
+        if _config_atomic_write "${user_config}" \
+            awk -v section="[${provider}]" -v enabled="${enabled_value}" '
             BEGIN { in_section = 0; found = 0; found_enabled = 0 }
-            /^\[/ { 
-                if ($0 == "[" provider "]") {
+            {
+                line = $0
+                sub(/\r$/, "", line)
+                stripped = line
+                sub(/^[ \t]+/, "", stripped)
+            }
+            stripped ~ /^\[/ {
+                if (stripped == section) {
                     in_section = 1
                     found = 1
                 } else {
@@ -2849,8 +3670,10 @@ cmd_config_bulk() {
                     }
                     in_section = 0
                 }
+                print
+                next
             }
-            in_section && /^enabled=/ { 
+            in_section && stripped ~ /^enabled=/ {
                 print "enabled=" enabled
                 found_enabled = 1
                 next
@@ -2861,13 +3684,11 @@ cmd_config_bulk() {
                     print "enabled=" enabled
                 }
             }
-        ' "${user_config}" > "${user_config}.tmp"
-        
-        if mv "${user_config}.tmp" "${user_config}"; then
+        '; then
             echo "  ✅ ${provider}: ${action}"
-            ((success_count++))
+            success_count=$((success_count + 1))
         else
-            failed_providers+=("${provider} (update failed)")
+            failed_providers+=("${provider} (update failed; config unchanged)")
         fi
     done
     
@@ -2888,6 +3709,10 @@ cmd_config_bulk() {
     echo ""
     echo "💡 Run 'source llm-env config validate' to verify changes"
     echo "💡 Run 'source llm-env list' to see updated provider list"
+
+    # Report failure to the caller. It always returned 0, so a scripted bulk
+    # operation could not tell that nothing had been changed.
+    [[ ${#failed_providers[@]} -eq 0 ]]
 }
 
 # ---------- Entry Point ----------
@@ -2903,7 +3728,7 @@ init_config
 if [[ $# -gt 0 ]] && [[ "$1" != test_* ]]; then
 case "$1" in
     --version)
-        echo "llm-env - LLM Environment Manager v${VERSION}"
+        echo "llm-env - LLM Environment Manager v${LLM_ENV_VERSION}"
         ;;
     --help|help)
         cmd_help
@@ -2916,6 +3741,10 @@ case "$1" in
         cmd_unset
         ;;
     list)
+        # shift first: without it cmd_list's $1 was the literal string "list",
+        # so `[[ "$1" == "--all" ]]` never matched and disabled providers were
+        # unreachable from the CLI.
+        shift
         cmd_list "$@"
         ;;
     show)

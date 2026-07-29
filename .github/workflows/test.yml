@@ -78,13 +78,15 @@ jobs:
         test -x "$INSTALL_DIR/llm-env"
         "$INSTALL_DIR/llm-env" --version
 
-  # macOS tests on GitHub-hosted runners (need actual macOS)
+  # macOS tests on GitHub-hosted runners (need actual macOS).
+  #
+  # This used to carry a `strategy.matrix.shell: [bash, zsh]` which bought
+  # nothing: bats is #!/usr/bin/env bash and has no $SHELL reference anywhere
+  # in libexec, so both legs ran a byte-identical bash suite at 2x the cost.
+  # Real zsh coverage comes from the dedicated step below, which spawns zsh
+  # explicitly -- and macOS is also where /bin/bash is genuinely 3.2.
   test-macos:
     runs-on: macos-latest
-    strategy:
-      matrix:
-        shell: [bash, zsh]
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -97,15 +99,13 @@ jobs:
         brew install bash || true
         echo "/opt/homebrew/bin" >> $GITHUB_PATH
 
-        if [[ "${{ matrix.shell }}" == "zsh" ]]; then
-          brew install zsh || true
-        fi
 
     - name: Debug environment information
       run: |
         echo "=== Environment Debug Information ==="
-        echo "Shell: ${{ matrix.shell }}"
         echo "Default bash version: $BASH_VERSION"
+        echo "System bash: $(/bin/bash --version | head -1)"
+        echo "zsh: $(zsh --version 2>/dev/null || echo 'not installed')"
 
         if [[ -x "/opt/homebrew/bin/bash" ]]; then
           echo "Homebrew bash version: $(/opt/homebrew/bin/bash --version | head -1)"
@@ -121,39 +121,40 @@ jobs:
     - name: Run unit tests
       run: |
         cd tests
-        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --unit-only
-        else
-          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --unit-only
-        fi
+        ./run_tests.sh --unit-only
 
     - name: Run integration tests
       run: |
         cd tests
-        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --integration-only
-        else
-          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --integration-only
-        fi
+        ./run_tests.sh --integration-only
 
     - name: Run system tests
       run: |
         cd tests
-        if [[ -x "/opt/homebrew/bin/bash" ]] && [[ "${{ matrix.shell }}" == "bash" ]]; then
-          SHELL=/opt/homebrew/bin/bash ./run_tests.sh --system-only
-        else
-          SHELL=/bin/${{ matrix.shell }} ./run_tests.sh --system-only
-        fi
+        ./run_tests.sh --system-only
+
+    # Genuine zsh coverage: these spawn `zsh -f` and execute the SUT under it.
+    # macOS is the platform whose users default to zsh, so this is where it
+    # matters most.
+    - name: Run zsh support tests
+      run: tests/bats/bin/bats tests/system/test_zsh_support.bats
+
+    # macOS ships bash 3.2.57 as /bin/bash -- the oldest supported interpreter
+    # and the only place it can be tested for real rather than simulated.
+    - name: Verify the script runs under real bash 3.2
+      run: |
+        /bin/bash --version | head -1
+        /bin/bash -c "source ./llm-env --version"
+        /bin/bash -c "source ./llm-env list" >/dev/null
 
     - name: Test installation script
       run: |
         export INSTALL_DIR="$GITHUB_WORKSPACE/test-install"
         mkdir -p "$INSTALL_DIR"
-        sed 's|/usr/local/bin|'"$INSTALL_DIR"'|g' install.sh > test-install.sh
-        chmod +x test-install.sh
-        ./test-install.sh --offline ./llm-env
-        test -x "$INSTALL_DIR/llm-env"
-        "$INSTALL_DIR/llm-env" --version
+        bash install.sh --offline ./llm-env --install-dir "$INSTALL_DIR"
+        test -f "$INSTALL_DIR/llm-env"
+        test -f "$INSTALL_DIR/quickstart-synthetic.json"
+        bash -c "source '$INSTALL_DIR/llm-env' --version"
 
   lint:
     runs-on: [self-hosted, linux]
@@ -168,14 +169,123 @@ jobs:
           sudo apt-get install -y shellcheck
         fi
 
-    - name: Run ShellCheck on main script
-      run: shellcheck llm-env
+    # Discover every shell file rather than naming three. The previous form
+    # left tests/lib/bats_helpers.sh, tests/coverage.sh and the system runners
+    # unlinted -- which is how a `local -n` (bash 4.3+) landed in the helper
+    # whose whole purpose is exercising the bash-3.2 path.
+    # .bats files are excluded: `@test "..." {` is not valid sh and produces
+    # only noise.
+    - name: Run ShellCheck
+      run: |
+        mapfile -t files < <(git ls-files '*.sh' '*.bash')
+        files+=(llm-env)
+        printf 'linting %d files\n' "${#files[@]}"
+        shellcheck --shell=bash "${files[@]}"
 
-    - name: Run ShellCheck on installer
-      run: shellcheck install.sh
+  # Guard the LF invariant that Windows support depends on. A CRLF checkout
+  # makes `source llm-env` die on its first line and makes run_tests.sh die on
+  # its own heredoc terminator, so this must fail loudly rather than surface as
+  # a confusing downstream error.
+  crlf-guard:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: Run ShellCheck on test runner
-      run: shellcheck tests/run_tests.sh
+    - name: Assert no CR in shell-parsed files
+      run: |
+        bad=0
+        while IFS= read -r f; do
+          [ -f "$f" ] || continue
+          if grep -qU $'\r' "$f"; then
+            echo "::error file=$f::contains a carriage return"
+            bad=1
+          fi
+        done < <(git ls-files 'llm-env' '*.sh' '*.bash' '*.bats' '*.conf' '*.json' '*.yml')
+        exit "$bad"
+
+    - name: Assert .gitattributes pins eol=lf
+      run: grep -q 'eol=lf' .gitattributes
+
+  # Windows support via Git Bash (MSYS2). Required: the platform layer,
+  # CRLF handling and rc-file selection are all exercised here.
+  test-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+    # MUST precede checkout. Git for Windows defaults to core.autocrlf=true;
+    # without this the working tree lands CRLF and run_tests.sh dies before a
+    # single test runs (its `cat << 'EOF'` terminator becomes "EOF\r").
+    # `git config --global` needs no repository, so it is safe here.
+    - name: Force an LF checkout
+      run: |
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Assert the checkout really is LF
+      run: |
+        for f in llm-env install.sh tests/run_tests.sh tests/bats/bin/bats; do
+          if grep -qU $'\r' "$f"; then echo "CRLF in $f"; exit 1; fi
+        done
+        tests/bats/bin/bats --version
+
+    - name: Environment probe
+      run: |
+        uname -s
+        echo "BASH_VERSION=$BASH_VERSION"
+        for c in bc free awk sed curl wget zsh; do
+          if command -v "$c" >/dev/null 2>&1; then echo "have $c"; else echo "MISSING $c"; fi
+        done
+
+    - name: Run unit tests
+      run: bash tests/run_tests.sh --unit-only
+
+    # Diagnostic: run the installer standalone with the same sanitized PATH
+    # test_install.bats uses, and show everything. bats does not echo captured
+    # output, and the installer has been exiting 1 with an empty capture on
+    # this platform only.
+    - name: Installer diagnostic (does not fail the job)
+      continue-on-error: true
+      run: |
+        set +e
+        mkdir -p "$RUNNER_TEMP/diag/bin" "$RUNNER_TEMP/diag/home"
+        echo "--- with the suite's sanitized PATH ---"
+        env -i HOME="$RUNNER_TEMP/diag/home" PATH="/usr/bin:/bin" \
+            LLM_ENV_DEFAULT_INSTALL_DIR="$RUNNER_TEMP/diag/bin" \
+            bash ./install.sh --offline ./llm-env --install-dir "$RUNNER_TEMP/diag/bin" 2>&1 | head -40
+        echo "exit=${PIPESTATUS[0]}"
+        echo "--- with the full PATH ---"
+        bash ./install.sh --offline ./llm-env --install-dir "$RUNNER_TEMP/diag/bin2" 2>&1 | head -40
+        echo "exit=${PIPESTATUS[0]}"
+        echo "--- tool availability on the sanitized PATH ---"
+        env PATH="/usr/bin:/bin" bash -c 'for c in bash cp mkdir mv chmod curl dirname sed grep; do
+          command -v "$c" >/dev/null 2>&1 && echo "have $c" || echo "MISSING $c"; done'
+
+    - name: Run integration tests
+      run: bash tests/run_tests.sh --integration-only
+
+    - name: Run platform tests
+      run: tests/bats/bin/bats tests/unit/test_platform.bats
+
+    - name: Install smoke test (asserts runtime assets ship)
+      run: |
+        export INSTALL_DIR="$GITHUB_WORKSPACE/test-install"
+        mkdir -p "$INSTALL_DIR"
+        bash install.sh --offline ./llm-env --install-dir "$INSTALL_DIR"
+        test -f "$INSTALL_DIR/llm-env"
+        # quickstart must work immediately after install -- it did not before,
+        # because only the llm-env script itself was ever installed.
+        test -f "$INSTALL_DIR/quickstart-synthetic.json"
+        test -f "$INSTALL_DIR/config/llm-env.conf"
+        bash -c "source '$INSTALL_DIR/llm-env' --version"
+        bash -c "source '$INSTALL_DIR/llm-env' quickstart all" </dev/null
 
   scraper-tests:
     runs-on: ubuntu-latest
@@ -226,8 +336,10 @@ jobs:
   # kcov is not packaged in modern Ubuntu apt repos, so build it from source
   # (the persistent self-hosted runner keeps the built binary, so the guard
   # skips the build on subsequent runs). The gate is a realistic floor, not an
-  # aspirational target: full-suite coverage is ~55%, so 50% guards against
-  # regressions without demanding command-surface tests that don't exist yet.
+  # aspirational target: measured coverage is 58.15% as of 1.7.0, so 55% guards
+  # against regressions with a little headroom. docs/technical-debt.md records
+  # what the remaining ~42% is and why it is not cheaply reachable -- notably
+  # that tests/system/ exercises the SUT but is excluded from this measurement.
   coverage:
     runs-on: [self-hosted, linux]
     steps:
@@ -256,7 +368,7 @@ jobs:
         fi
         tests/bats/bin/bats --version
 
-    - name: "Measure coverage (floor 50 percent)"
+    - name: "Measure coverage (floor 55 percent)"
       run: |
         chmod +x tests/coverage.sh
-        COVERAGE_MIN=50 tests/coverage.sh all
+        COVERAGE_MIN=55 tests/coverage.sh all

@@ -154,40 +154,61 @@ key=value'
     [[ "$output" =~ "valid_section" ]]
 }
 
+# CHANGED IN 1.7.0. These previously asserted that mask() revealed most of a
+# short secret -- "short" showed as "•hort" (4 of 5 characters) and "x" was
+# returned verbatim. That documented the leak as intended behaviour. A tail is
+# now revealed only once the secret is long enough for it to be a small
+# fraction of the whole: none under 8 characters, 2 up to 11, 4 from 12.
+# Long-secret behaviour is unchanged.
+
 @test "mask function: properly masks sensitive data" {
+    # Short secrets reveal nothing at all.
     run mask "short"
     [ "$status" -eq 0 ]
-    [[ "$output" == "•hort" ]]
-    
-    run mask "medium_length"  
+    [[ "$output" == "•••••" ]]
+
+    # 13 characters: last 4 shown, as before.
+    run mask "medium_length"
     [ "$status" -eq 0 ]
     [[ "$output" == "•••••••••ngth" ]]
-    
+
+    # Long secrets are unchanged.
     run mask "verylongpasswordthatshouldbehidden"
     [ "$status" -eq 0 ]
     [[ "$output" == "••••••••••••••••••••••••••••••dden" ]]
 }
 
 @test "mask function: handles edge cases" {
-    # Empty string
+    # Empty string is still shown as the empty marker rather than a mask.
     run mask ""
     [ "$status" -eq 0 ]
     [[ "$output" == "∅" ]]
-    
-    # Single character
+
+    # A one- or two-character secret used to be returned VERBATIM.
     run mask "x"
     [ "$status" -eq 0 ]
-    [[ "$output" == "x" ]]
-    
-    # Two characters  
+    [[ "$output" == "•" ]]
+
     run mask "xy"
     [ "$status" -eq 0 ]
-    [[ "$output" == "xy" ]]
-    
-    # Three characters
+    [[ "$output" == "••" ]]
+
     run mask "xyz"
     [ "$status" -eq 0 ]
-    [[ "$output" == "•yz" ]]
+    [[ "$output" == "•••" ]]
+}
+
+@test "mask function: never echoes any part of a short secret" {
+    # Property form of the above: whatever the length, nothing under 8
+    # characters may contribute a literal character to the output.
+    local secret out
+    for secret in a ab abc abcd abcde abcdef abcdefg; do
+        out="$(mask "$secret")"
+        [[ "$out" != *"${secret: -1}"* ]] || {
+            echo "mask('$secret') = '$out' leaks its last character"
+            return 1
+        }
+    done
 }
 
 @test "array helper functions: handle empty arrays" {
@@ -271,6 +292,6 @@ key=value'
 }
 
 @test "version constant is defined" {
-    [[ -n "$VERSION" ]]
-    [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+    [[ -n "$LLM_ENV_VERSION" ]]
+    [[ "$LLM_ENV_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }

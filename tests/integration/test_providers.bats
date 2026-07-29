@@ -165,7 +165,11 @@ teardown() {
     local backup_files=("$BATS_TEST_TMPDIR"/.config/llm-env/backups/*.conf)
     local backup_file="${backup_files[0]}"
     
-    run cmd_config restore "$backup_file"
+    # Confirmation used to be skipped whenever BATS_TMPDIR was set, which bats
+    # exports to every child -- so this test passed only because a production
+    # code path was silently disabled for anyone running under bats. That hook
+    # is gone; opt in explicitly instead.
+    LLM_ENV_ASSUME_YES=1 run cmd_config restore "$backup_file"
     [ "$status" -eq 0 ]
     
     # Check that config was restored (new_provider should be gone)

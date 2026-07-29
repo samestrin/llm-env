@@ -140,7 +140,8 @@ This tool supports any OpenAI API compatible provider, including:
 # Default: user install. Falls back to ~/.local/bin if /usr/local/bin isn't writable.
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | bash
 
-# System-wide install (writes to /usr/local/bin):
+# System-wide install (writes to /usr/local/bin). Linux/macOS only --
+# Git Bash on Windows has no sudo, and the default user install is correct there.
 curl -fsSL https://raw.githubusercontent.com/samestrin/llm-env/main/install.sh | sudo bash
 ```
 
@@ -154,11 +155,24 @@ If the installer falls back to `~/.local/bin` and that directory isn't on your `
    cd llm-env
    ```
 
-2. Copy the script to your PATH:
+2. Copy the script and its runtime assets to your PATH:
    ```bash
+   # Linux/macOS, system-wide:
    sudo cp llm-env /usr/local/bin/
+   sudo mkdir -p /usr/local/bin/config
+   sudo cp config/llm-env.conf /usr/local/bin/config/
+   sudo cp quickstart-*.json /usr/local/bin/
    sudo chmod 755 /usr/local/bin/llm-env
+
+   # Git Bash on Windows (no sudo), or any user install:
+   mkdir -p ~/.local/bin/config
+   cp llm-env ~/.local/bin/
+   cp config/llm-env.conf ~/.local/bin/config/
+   cp quickstart-*.json ~/.local/bin/
    ```
+
+   The `config/` and `quickstart-*.json` files are what `llm-env quickstart`
+   reads; without them it has no provider catalog.
 
 3. Add the helper function to your shell profile (`~/.bashrc` or `~/.zshrc`):
    ```bash
@@ -423,9 +437,10 @@ bats tests/integration/test_providers.bats
 - **Total Coverage**: 93 test cases
 
 **Platform Support:**
-- macOS (Bash 3.2+ and 5.x)
+- macOS (Bash 3.2+ and 5.x, and zsh)
 - Ubuntu/Linux (Bash 4.0+)
-- Multi-version compatibility testing
+- Windows via Git Bash (MSYS2) and WSL2
+- Multi-version and multi-shell compatibility testing
 
 ### Test Requirements
 
