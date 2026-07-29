@@ -63,8 +63,13 @@ stage_fixture() {
     # Pin the platform: on msys, detect_shell_rc correctly prefers a LOGIN file
     # over .bashrc (mintty runs `bash --login -i`). That behaviour is covered
     # in tests/unit/test_platform.bats; this test is about shell precedence.
+    #
+    # LLM_ENV_PLATFORM is consumed by detect_platform at SOURCE time, so a
+    # command prefix on detect_shell_rc has no effect -- it reads the already
+    # computed __LLM_PLATFORM. Re-run the detector with the override instead.
     : > "$HOME/.bashrc"
-    LLM_ENV_PLATFORM=linux CURRENT_SHELL=bash SHELL=/bin/zsh run _qs_detect_shell_rc
+    LLM_ENV_PLATFORM=linux detect_platform
+    CURRENT_SHELL=bash SHELL=/bin/zsh run _qs_detect_shell_rc
     [ "$status" -eq 0 ]
     [[ "$output" == "$HOME/.bashrc" ]]
 }
