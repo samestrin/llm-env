@@ -36,14 +36,18 @@ jobs:
           LLM_SYNTHETIC_API_KEY: ${{ secrets.LLM_SYNTHETIC_API_KEY }}
         run: python -m scripts.update_quickstart
 
-      # Gate the auto-merge on the refreshed catalog actually working.
+      # Gate the refresh on the resulting catalog actually working.
       #
-      # This job scrapes live provider APIs and squash-merges the result with
-      # no human review, and llm-env writes those strings straight into the
-      # user's config. Without this step a scraper or upstream change ships
-      # directly to every user: that is how main came to reference a model id
-      # (kimi-k2.5) the catalog no longer contained, leaving the E2E red and
-      # `llm-env set` pointing at a provider that did not exist.
+      # This job scrapes live provider APIs, and llm-env writes those strings
+      # straight into the user's config. Until now the only checks were the
+      # scraper's own pytest run and a schema assertion -- nothing verified
+      # that llm-env could still CONSUME the result. That is how a rename
+      # (kimi-k2.5 -> kimi-k2.7-code) landed on main and left the E2E red with
+      # `llm-env set` pointing at a provider that no longer existed.
+      #
+      # This gate is also the precondition for auto-merging the refresh
+      # (proposed separately in PR #29): unattended merges are only safe once
+      # something proves the artifact still works.
       - name: Verify the refreshed catalog parses and emits providers
         run: |
           set -euo pipefail
