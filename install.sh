@@ -312,6 +312,28 @@ EOF
     fi
 }
 
+# Print the path an existing llm-env shell integration sources, if one can be
+# parsed. Handles all three block flavours the installer writes: the bash/zsh
+# function body, the fish function body, and the csh/tcsh alias.
+# Prints nothing when the config has no parseable llm-env block.
+existing_shell_function_target() {
+    local config="$1"
+    [[ -f "$config" ]] || return 0
+    sed -n "s|.*source[[:space:]]\{1,\}['\"]*\([^\"' ]*/llm-env\).*|\1|p" "$config" | head -n 1
+}
+
+# Strip the installer-written llm-env block from a shell config, whichever
+# flavour it is. Mirrors the removal uninstall_llm_env performs.
+remove_shell_function_block() {
+    local config="$1"
+    sed -i.tmp \
+        -e '/^# LLM Environment Manager$/d' \
+        -e '/^llm-env() {$/,/^}$/d' \
+        -e '/^function llm-env$/,/^end$/d' \
+        -e "/^alias llm-env 'source .*\/llm-env'$/d" \
+        "$config" && rm -f "$config.tmp"
+}
+
 setup_shell_function() {
     print_step "Setting up shell integration..."
     
@@ -363,12 +385,40 @@ alias llm-env 'source $INSTALL_DIR/$SCRIPT_NAME'"
             ;;
     esac
     
-    # Check if function already exists
-    if [[ -f "$shell_config" ]] && grep -q "llm-env()" "$shell_config"; then
+    # Check if function already exists. A stale block — one sourcing a path
+    # that no longer exists, or a different install dir than this run's — is
+    # repaired rather than skipped. Skipping it leaves the user with a broken
+    # function that no amount of reinstalling fixes.
+    local existing_target
+    existing_target="$(existing_shell_function_target "$shell_config")"
+
+    if [[ -n "$existing_target" ]]; then
+        if [[ "$existing_target" == "$INSTALL_DIR/$SCRIPT_NAME" ]]; then
+            print_warning "llm-env function already exists in $shell_config"
+            return
+        fi
+
+        if [[ -e "$existing_target" ]]; then
+            print_step "Existing llm-env function sources $existing_target; repointing to $INSTALL_DIR/$SCRIPT_NAME..."
+        else
+            print_step "Existing llm-env function sources a missing path ($existing_target); repairing..."
+        fi
+
+        cp "$shell_config" "$shell_config.llm-env-backup"
+        if ! remove_shell_function_block "$shell_config"; then
+            print_error "Failed to update llm-env function in $shell_config"
+            print_warning "Please manually replace it with:"
+            echo "$function_code"
+            return
+        fi
+        print_warning "Backup created: $shell_config.llm-env-backup"
+    elif [[ -f "$shell_config" ]] && grep -q "llm-env()" "$shell_config"; then
+        # A block is present but its source path can't be parsed — most likely
+        # hand-edited. Leave it alone rather than clobber a customisation.
         print_warning "llm-env function already exists in $shell_config"
         return
     fi
-    
+
     # Add function to shell config
     if echo "$function_code" >> "$shell_config"; then
         print_success "Added llm-env function to $shell_config"

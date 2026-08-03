@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`install.sh` no longer leaves a broken `llm-env` shell function in place.**
+  The idempotency guard only checked that *some* `llm-env()` block existed in
+  the shell rc, never that the path it sources still resolves. A function left
+  over from an install to a directory that was later removed or moved survived
+  every subsequent reinstall -- the installer reported "function already
+  exists" and skipped, so `llm-env` stayed broken with no way to repair it
+  short of hand-editing the rc. The installer now parses the sourced path out
+  of the existing block and rewrites it (backing the rc up to
+  `<rc>.llm-env-backup`) when the path is missing or points somewhere other
+  than this run's install dir. A block whose source path cannot be parsed is
+  assumed hand-edited and is still left untouched.
+
 ## [1.7.0] - 2026-07-28
 
 Security and correctness release. Two confirmed remote-code-execution paths
