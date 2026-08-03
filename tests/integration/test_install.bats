@@ -282,3 +282,90 @@ teardown() {
     [ -n "$rc" ]
     grep -q "$target/llm-env" "$rc"
 }
+
+@test "install: repairs a shell function sourcing a path that no longer exists" {
+    # A prior install wrote a function pointing at a directory that has since
+    # been removed. Reinstalling used to skip on "function already exists",
+    # leaving the user with a permanently broken llm-env.
+    local target="$TEST_TMPDIR/explicit-bin"
+    mkdir -p "$target"
+
+    local stale="$TEST_TMPDIR/gone/llm-env"
+    cat > "$HOME/.bashrc" <<RC
+# LLM Environment Manager
+llm-env() {
+    source $stale "\$@"
+}
+RC
+
+    SHELL="/bin/bash" run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
+    [ "$status" -eq 0 ]
+
+    # New path present, stale path gone, and exactly one function definition.
+    grep -q "$target/llm-env" "$HOME/.bashrc"
+    ! grep -q "$stale" "$HOME/.bashrc"
+    [ "$(grep -c '^llm-env() {$' "$HOME/.bashrc")" -eq 1 ]
+
+    # The original rc is preserved.
+    [ -f "$HOME/.bashrc.llm-env-backup" ]
+    grep -q "$stale" "$HOME/.bashrc.llm-env-backup"
+}
+
+@test "install: repoints a shell function aimed at a different install dir" {
+    local old="$TEST_TMPDIR/old-bin"
+    local target="$TEST_TMPDIR/new-bin"
+    mkdir -p "$old" "$target"
+    touch "$old/llm-env"
+
+    cat > "$HOME/.bashrc" <<RC
+# LLM Environment Manager
+llm-env() {
+    source $old/llm-env "\$@"
+}
+RC
+
+    SHELL="/bin/bash" run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
+    [ "$status" -eq 0 ]
+
+    grep -q "$target/llm-env" "$HOME/.bashrc"
+    ! grep -q "$old/llm-env" "$HOME/.bashrc"
+    [ "$(grep -c '^llm-env() {$' "$HOME/.bashrc")" -eq 1 ]
+}
+
+@test "install: leaves an up-to-date shell function untouched" {
+    local target="$TEST_TMPDIR/explicit-bin"
+    mkdir -p "$target"
+
+    SHELL="/bin/bash" run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
+    [ "$status" -eq 0 ]
+
+    local before
+    before="$(cat "$HOME/.bashrc")"
+
+    SHELL="/bin/bash" run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already exists"* ]]
+
+    [ "$(cat "$HOME/.bashrc")" = "$before" ]
+    [ ! -f "$HOME/.bashrc.llm-env-backup" ]
+}
+
+@test "install: does not clobber a hand-edited llm-env function" {
+    # No parseable source path -> the block is someone's own customisation.
+    local target="$TEST_TMPDIR/explicit-bin"
+    mkdir -p "$target"
+
+    cat > "$HOME/.bashrc" <<'RC'
+llm-env() {
+    echo "my own wrapper"
+}
+RC
+    local before
+    before="$(cat "$HOME/.bashrc")"
+
+    SHELL="/bin/bash" run bash "$INSTALL_SH" --offline "$LLM_ENV_SCRIPT" --install-dir "$target"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already exists"* ]]
+
+    [ "$(cat "$HOME/.bashrc")" = "$before" ]
+}
