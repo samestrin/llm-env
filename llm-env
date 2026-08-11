@@ -3593,7 +3593,6 @@ cmd_config_validate() {
             fi
         fi
 
-
         echo
     done
 

@@ -441,8 +441,13 @@ EOF
 }
 
 @test "max_context_tokens: a two hundred digit value is rejected" {
-    local mct long
-    long="$(printf '9%.0s' $(seq 1 200))"
+    # Built with a loop rather than $(seq ...): the unit suite also runs on
+    # Windows under Git Bash, and this needs no external command at all.
+    local mct long="" i=0
+    while [[ $i -lt 200 ]]; do
+        long="${long}9"
+        i=$((i + 1))
+    done
     _load_with_value "$long"
     [ -z "$mct" ]
     [[ "$mct" != -* ]]
