@@ -223,9 +223,11 @@ CONFIG_LOADED=false
 #   * zsh's has_provider_key matching keys as a glob rather than exactly
 #   * key order differing between backends, which made output untestable
 
-# The ten provider maps. Single source of truth: the reset path derives from
+# The provider maps. Single source of truth: the reset path derives from
 # this list, so it cannot drift from the writers the way the old code did.
-LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_MAX_CONTEXT_TOKENS PROVIDER_GROUPS"
+# Deliberately not stating a count -- a number here is prose that rots on every
+# added map, and nothing reads it.
+LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_MAX_CONTEXT_TOKENS PROVIDER_MAX_TOOL_USE_CONCURRENCY PROVIDER_GROUPS"
 
 # Shell-specific indirection, resolved once at source time rather than per call.
 # These are the only two shell branches in the whole store.
@@ -450,7 +452,7 @@ load_config() {
     # Declare loop variables outside the loop for zsh compatibility
     # In zsh, re-declaring local variables inside a loop prints previous values
     # ($line included -- it also used to leak into the caller's shell).
-    local line key value normalized_protocol validated_protocol section_name max_ctx
+    local line key value normalized_protocol validated_protocol section_name max_ctx max_concurrency
     # Tracked so a file that parses to nothing can say so instead of silently
     # presenting an empty provider list as a successful load.
     local sections_found=0 meaningful_lines=0
@@ -581,6 +583,15 @@ load_config() {
                     if [[ -n "$max_ctx" ]]; then
                         set_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$current_provider" "$max_ctx"
                         debug "PROVIDER_MAX_CONTEXT_TOKENS[$current_provider] = $max_ctx"
+                    fi
+                    ;;
+                max_tool_use_concurrency)
+                    # Same __LLM_REPLY contract as max_context_tokens above.
+                    normalize_max_tool_use_concurrency "$current_provider" "$value"
+                    max_concurrency="$__LLM_REPLY"
+                    if [[ -n "$max_concurrency" ]]; then
+                        set_provider_value "PROVIDER_MAX_TOOL_USE_CONCURRENCY" "$current_provider" "$max_concurrency"
+                        debug "PROVIDER_MAX_TOOL_USE_CONCURRENCY[$current_provider] = $max_concurrency"
                     fi
                     ;;
             esac
@@ -954,6 +965,65 @@ normalize_max_context_tokens() {
     # so without this an over-long value would be exported as a plausible lie.
     if [[ ${#digits} -gt 9 ]]; then
         echo "⚠️  Warning: max_context_tokens '$raw' for provider '$provider' is out of range (1-999999999). Ignoring." >&2
+        return 0
+    fi
+
+    __LLM_REPLY="$digits"
+    return 0
+}
+
+# Normalize a max_tool_use_concurrency value to a plain decimal integer.
+# Sets __LLM_REPLY: the count on success, empty on rejection so the caller
+# drops the key. Usage: normalize_max_tool_use_concurrency "$prov" "$v"; n="$__LLM_REPLY"
+#
+# Accepts a bare positive integer only -- no k/m suffix. Concurrency is a
+# tool-call fan-out limit, not a token count, so there is no unit to expand.
+#
+# Shares normalize_max_context_tokens's constraints: no $(( )) (bash 3.2 reads
+# a leading 0 as octal and silently wraps an overlong value), no [[ =~ ]]
+# (BASH_REMATCH/$match must survive for load_config's caller), and always
+# returns 0 (a bare 1 would abort the caller's shell under `set -e`, and
+# llm-env is sourced INTO that shell).
+normalize_max_tool_use_concurrency() {
+    local provider="${1-}" raw="${2-}" digits
+
+    trim "$raw"; raw="$__LLM_REPLY"
+    __LLM_REPLY=""
+    digits="$raw"
+
+    # Digits spelled out, not [0-9] or [[:digit:]] -- see
+    # normalize_max_context_tokens for why a locale-dependent class is unsafe
+    # here. Rejects empty, "5.0", "-5", "+5", "5 5", "1e3" and any k/m suffix.
+    # Note "5 " and " 5" are ACCEPTED: trim ran above, so only an INTERIOR
+    # space survives to be rejected here.
+    case "$digits" in
+        ""|*[!0123456789]*)
+            echo "⚠️  Warning: Invalid max_tool_use_concurrency '$raw' for provider '$provider'. Expected a positive integer (e.g. 5). Ignoring." >&2
+            return 0
+            ;;
+    esac
+
+    # Strip leading zeros rather than hand them to $(( )), where 010 is octal
+    # 8. The pattern requires a second character, so a lone "0" survives to be
+    # rejected below instead of becoming the empty string.
+    while :; do
+        case "$digits" in
+            0?*) digits="${digits#0}" ;;
+            *)   break ;;
+        esac
+    done
+
+    if [[ "$digits" == "0" ]]; then
+        echo "⚠️  Warning: max_tool_use_concurrency '$raw' for provider '$provider' must be greater than zero. Ignoring." >&2
+        return 0
+    fi
+
+    # Range by digit count, not numeric comparison -- see
+    # normalize_max_context_tokens for why. Three digits caps this at 999,
+    # comfortably past any real tool-fan-out limit and small enough that no
+    # consumer's arithmetic on it can overflow.
+    if [[ ${#digits} -gt 3 ]]; then
+        echo "⚠️  Warning: max_tool_use_concurrency '$raw' for provider '$provider' is out of range (1-999). Ignoring." >&2
         return 0
     fi
 
@@ -1345,7 +1415,11 @@ LLM_MANAGED_VARS_OPENAI="OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL"
 # outright. Leaving a previous provider's window exported is worse than never
 # setting one -- Claude Code would size auto-compact to a window the new model
 # does not have.
-LLM_MANAGED_VARS_ANTHROPIC="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_MAX_CONTEXT_TOKENS"
+#
+# CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY is listed for the same reason: it is
+# derived from the provider's own max_tool_use_concurrency, so a stale value
+# from a previous provider must not survive a switch.
+LLM_MANAGED_VARS_ANTHROPIC="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_MAX_CONTEXT_TOKENS CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY"
 # Protocol-agnostic variables llm-env owns outright.
 LLM_MANAGED_VARS_COMMON="LLM_PROVIDER LLM_PROTOCOL OPENAI_MODEL_OVERRIDE"
 
@@ -1405,16 +1479,18 @@ set_single_provider() {
         key=""
     fi
 
-    # Get auth token and declared context window for Anthropic protocol.
-    # max_ctx stays empty under the openai protocol: CLAUDE_CODE_* variables
-    # only mean anything when ANTHROPIC_BASE_URL points at this provider.
-    local max_ctx=""
+    # Get auth token and declared context window / tool concurrency for
+    # Anthropic protocol. Both stay empty under the openai protocol:
+    # CLAUDE_CODE_* variables only mean anything when ANTHROPIC_BASE_URL
+    # points at this provider.
+    local max_ctx="" max_concurrency=""
     if [[ "$protocol" == "anthropic" ]]; then
         get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
         if [[ -n "$auth_token_var" ]]; then
             get_var_value "$auth_token_var"; auth_token="$__LLM_REPLY"
         fi
         get_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$provider"; max_ctx="$__LLM_REPLY"
+        get_provider_value "PROVIDER_MAX_TOOL_USE_CONCURRENCY" "$provider"; max_concurrency="$__LLM_REPLY"
     fi
 
     debug "Resolving environment for provider $provider:"
@@ -1516,12 +1592,25 @@ set_single_provider() {
         # and simply overwrites; a value that is only exported *sometimes* has
         # no such backstop, so a member declaring max_context_tokens would
         # leave its window standing against the next member's model.
-        local ctx_report=""
+        # Named for what it carries -- the optional, declared-only fields --
+        # rather than for the first one that happened to use it. It accumulates
+        # one field per declared key, so a context-specific name would be a lie
+        # the moment a second key appended to it.
+        local optional_report=""
         if [[ -n "$max_ctx" ]]; then
             export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$max_ctx"
-            ctx_report=", CLAUDE_CODE_MAX_CONTEXT_TOKENS=$max_ctx"
+            optional_report=", CLAUDE_CODE_MAX_CONTEXT_TOKENS=$max_ctx"
         else
             unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
+        fi
+
+        # Same else-unset shape, same reason: a group member that declares no
+        # max_tool_use_concurrency must not inherit the previous member's.
+        if [[ -n "$max_concurrency" ]]; then
+            export CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY="$max_concurrency"
+            optional_report="${optional_report}, CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=$max_concurrency"
+        else
+            unset CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
         fi
 
         if [[ -n "$key" ]]; then
@@ -1560,9 +1649,11 @@ set_single_provider() {
             cred_display="${cred_display}auth_token=$(mask "$auth_token")"
         }
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
-        # $ctx_report is empty unless the provider declared max_context_tokens,
-        # so this line stays byte-identical for every provider that does not.
-        echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL${ctx_report}"
+        # $optional_report is empty unless the provider declared
+        # max_context_tokens or max_tool_use_concurrency, so this line stays
+        # byte-identical for every provider that declares neither. Each
+        # declared key appends its own field, in that order.
+        echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL${optional_report}"
     else
         if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
             _clear_protocol_env anthropic
@@ -1816,6 +1907,10 @@ cmd_show() {
         # and would push every line above it out of alignment.
         if [[ -n "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]]; then
             echo "  CLAUDE_CODE_MAX_CONTEXT_TOKENS = ${CLAUDE_CODE_MAX_CONTEXT_TOKENS}"
+        fi
+        # Same shown-only-when-declared rule as above, same reason.
+        if [[ -n "${CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY:-}" ]]; then
+            echo "  CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY = ${CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY}"
         fi
     fi
 
@@ -3494,7 +3589,7 @@ cmd_config_validate() {
 
     # Declare loop variables outside loop for zsh compatibility
     local provider base_url api_key_var auth_token_var default_model enabled protocol cred_val
-    local max_ctx
+    local max_ctx max_concurrency
     local url_pattern="^https?://"
 
     # Check each provider
@@ -3509,6 +3604,7 @@ cmd_config_validate() {
         get_provider_value "PROVIDER_ENABLED" "$provider"; enabled="${__LLM_REPLY:-true}"
         get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
         get_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$provider"; max_ctx="$__LLM_REPLY"
+        get_provider_value "PROVIDER_MAX_TOOL_USE_CONCURRENCY" "$provider"; max_concurrency="$__LLM_REPLY"
 
         echo "Checking provider: $provider"
 
@@ -3589,6 +3685,16 @@ cmd_config_validate() {
                 echo "  ✅ max_context_tokens: $max_ctx"
             else
                 echo "  ⚠️  max_context_tokens is only read for protocol=anthropic; ignored here"
+                warnings=$((warnings + 1))
+            fi
+        fi
+
+        # Same dead-configuration shape as max_context_tokens above.
+        if [[ -n "$max_concurrency" ]]; then
+            if [[ "$protocol" == "anthropic" ]]; then
+                echo "  ✅ max_tool_use_concurrency: $max_concurrency"
+            else
+                echo "  ⚠️  max_tool_use_concurrency is only read for protocol=anthropic; ignored here"
                 warnings=$((warnings + 1))
             fi
         fi

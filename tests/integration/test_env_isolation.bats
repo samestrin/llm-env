@@ -50,8 +50,19 @@ protocol=anthropic
 enabled=true
 max_context_tokens=1m
 
+[anth_conc5]
+base_url=https://anth-conc5.test
+api_key_var=LLM_ANTH_A_KEY
+default_model=anth-conc5-1
+protocol=anthropic
+enabled=true
+max_tool_use_concurrency=5
+
 [group:mixed]
-providers=anth_1m,anth_a" >/dev/null
+providers=anth_1m,anth_a
+
+[group:mixed_conc]
+providers=anth_conc5,anth_a" >/dev/null
 }
 
 teardown() {
@@ -123,6 +134,34 @@ _after_sets() {
     assert_env_is CLAUDE_CODE_MAX_CONTEXT_TOKENS 1000000
 }
 
+# ---- B1b: the declared tool concurrency must not outlive its provider ----
+#
+# Same three switch paths as B1a, same reason: a stale
+# CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY from a previous provider must not
+# survive onto one that declared no cap of its own.
+
+@test "isolation: switching anthropic -> openai clears CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" {
+    _after_sets "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" anth_conc5 oai
+    assert_env_unset CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
+}
+
+@test "isolation: switching to an anthropic provider without the concurrency key clears it" {
+    _after_sets "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY ANTHROPIC_BASE_URL" anth_conc5 anth_a
+    assert_env_is ANTHROPIC_BASE_URL "https://anth-a.test"
+    assert_env_unset CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
+}
+
+@test "isolation: a group member without the concurrency key does not inherit it from an earlier member" {
+    _after_sets "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY ANTHROPIC_BASE_URL" mixed_conc
+    assert_env_is ANTHROPIC_BASE_URL "https://anth-a.test"
+    assert_env_unset CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
+}
+
+@test "isolation: an anthropic provider with the concurrency key exports it" {
+    _after_sets "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" anth_conc5
+    assert_env_is CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY 5
+}
+
 @test "isolation: switching openai -> anthropic clears OPENAI_ variables" {
     _after_sets "OPENAI_BASE_URL OPENAI_API_KEY OPENAI_MODEL" oai anth_a
     assert_env_unset OPENAI_BASE_URL OPENAI_API_KEY OPENAI_MODEL
@@ -168,6 +207,15 @@ _after_sets() {
                      ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
                      CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_MAX_CONTEXT_TOKENS \
                      LLM_PROVIDER LLM_PROTOCOL
+}
+
+@test "isolation: unset clears CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" {
+    dump_env_after "
+        export XDG_CONFIG_HOME='$XDG_CONFIG_HOME' HOME='$HOME' LLM_ANTH_A_KEY=sk-anth-a
+        source '$SUT' set anth_conc5 >/dev/null 2>&1
+        source '$SUT' unset >/dev/null 2>&1
+    " CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
+    assert_env_unset CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
 }
 
 @test "isolation: unset preserves a user-set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" {
