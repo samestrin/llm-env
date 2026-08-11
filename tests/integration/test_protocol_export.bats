@@ -15,6 +15,7 @@ default_model = gpt-4
 description = OpenAI provider with explicit protocol
 enabled = true
 protocol = openai
+max_context_tokens = 1m
 
 [anthropic_provider]
 base_url = https://api.anthropic.com
@@ -41,12 +42,24 @@ description = Real Anthropic API, key only (no auth token)
 enabled = true
 protocol = anthropic
 
+[anthropic_1m]
+base_url = https://gateway.example.com/anthropic
+api_key_var = ANTHROPIC_GATEWAY_KEY
+default_model = kimi-k2.5
+description = Third-party gateway declaring a 1M window
+enabled = true
+protocol = anthropic
+max_context_tokens = 1m
+
 [provider_no_protocol]
 base_url = https://api.noprotocol.com/v1
 api_key_var = PROT_NO_PROTO_KEY
 default_model = default-model-1
 description = Provider without protocol field
-enabled = true'
+enabled = true
+
+[group:mixed_windows]
+providers = anthropic_1m,anthropic_gateway'
 
     create_test_config "$test_config"
 
@@ -60,6 +73,9 @@ teardown() {
     unset OPENAI_TEST_KEY ANTHROPIC_TEST_KEY ANTHROPIC_TEST_TOKEN PROT_NO_PROTO_KEY ANTHROPIC_GATEWAY_KEY ANTHROPIC_REAL_KEY
     unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL LLM_PROVIDER
     unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL
+    unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL
+    unset ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL
+    unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
 }
 
 @test "OpenAI protocol: exports OPENAI_API_KEY correctly" {
@@ -234,6 +250,7 @@ teardown() {
     [ -z "${ANTHROPIC_DEFAULT_SONNET_MODEL:-}" ]
     [ -z "${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}" ]
     [ -z "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ]
+    [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
 
     [ -n "$OPENAI_API_KEY" ]
     [ -n "$OPENAI_BASE_URL" ]
@@ -241,6 +258,96 @@ teardown() {
 
     [ "$LLM_PROVIDER" = "openai_provider" ]
     [ "$LLM_PROTOCOL" = "openai" ]
+}
+
+# ---- max_context_tokens -> CLAUDE_CODE_MAX_CONTEXT_TOKENS ----
+#
+# The key declares a third-party model's real context window so Claude Code can
+# size auto-compact for a model it does not recognize. A stale value is worse
+# than none: the session then overruns the real window and fails hard mid-task
+# instead of merely printing the cosmetic warning the key exists to remove.
+
+@test "max context: an anthropic provider with the key exports the expanded count" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_1m"
+
+    [ "$CLAUDE_CODE_MAX_CONTEXT_TOKENS" = "1000000" ]
+}
+
+@test "max context: an anthropic provider without the key exports nothing" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_gateway"
+
+    [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
+}
+
+@test "max context: an openai provider never exports it even when configured" {
+    # openai_provider carries max_context_tokens=1m in the fixture on purpose.
+    # Testing an openai provider WITHOUT the key would prove nothing.
+    export OPENAI_TEST_KEY="sk-test-key-12345"
+
+    cmd_set "openai_provider"
+
+    [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
+}
+
+@test "max context: anthropic -> anthropic without the key drops the value" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_1m"
+    [ "$CLAUDE_CODE_MAX_CONTEXT_TOKENS" = "1000000" ]
+
+    cmd_set "anthropic_gateway"
+    [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
+}
+
+@test "max context: a group member without the key does not inherit it" {
+    # set_multiple_providers clears both protocols once and sets
+    # __LLM_SET_ADDITIVE=1, so members never clear each other. Every other
+    # anthropic variable survives that because it is exported unconditionally.
+    # A conditional export without a matching unset leaves the first member's
+    # window standing against the second member's model.
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "mixed_windows"
+
+    [ "$ANTHROPIC_MODEL" = "glm-5" ]
+    [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
+}
+
+# ---- the "Additional Claude Code variables set" confirmation line ----
+#
+# Pinned by exact equality, not a substring glob: a glob cannot detect an
+# appended field, which is precisely the change being guarded. This line is
+# quoted in docs/claude-code-quickstart.md and had no test at all before, so
+# any edit to it was invisible to CI.
+
+_claude_code_line() {
+    printf '%s\n' "$output" | grep 'Additional Claude Code variables set'
+}
+
+@test "max context: the Claude Code variables line is unchanged when the key is unset" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    run cmd_set "anthropic_gateway"
+    [ "$status" -eq 0 ]
+
+    local line
+    line="$(_claude_code_line)"
+    [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5, ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5, ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5, CLAUDE_CODE_SUBAGENT_MODEL=glm-5" ]
+}
+
+@test "max context: the Claude Code variables line appends the token count when set" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    run cmd_set "anthropic_1m"
+    [ "$status" -eq 0 ]
+
+    local line
+    line="$(_claude_code_line)"
+    [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_SONNET_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5, CLAUDE_CODE_SUBAGENT_MODEL=kimi-k2.5, CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000" ]
 }
 
 @test "No protocol field: defaults to openai behavior" {
@@ -341,6 +448,44 @@ teardown() {
     [[ "$output" =~ "ANTHROPIC_API_KEY" ]]
     [[ ! "$output" =~ "OPENAI_BASE_URL" ]]
     [[ ! "$output" =~ "OPENAI_API_KEY" ]]
+}
+
+# cmd_show is the only surface where a user can confirm the declared window
+# actually landed -- `set` scrolls past, and a wrong value is otherwise silent
+# until Claude Code overruns the real context.
+
+@test "cmd_show: displays CLAUDE_CODE_MAX_CONTEXT_TOKENS when it is set" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_1m"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CLAUDE_CODE_MAX_CONTEXT_TOKENS = 1000000"* ]]
+}
+
+@test "cmd_show: omits CLAUDE_CODE_MAX_CONTEXT_TOKENS when it is unset" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_gateway"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"ANTHROPIC_BASE_URL"* ]]
+    [[ "$output" != *"MAX_CONTEXT_TOKENS"* ]]
+}
+
+@test "cmd_show: omits CLAUDE_CODE_MAX_CONTEXT_TOKENS under the openai protocol" {
+    export OPENAI_TEST_KEY="sk-test-key-12345"
+
+    cmd_set "openai_provider"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"MAX_CONTEXT_TOKENS"* ]]
 }
 
 @test "cmd_show: displays only active protocol when other is not configured" {

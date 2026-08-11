@@ -223,9 +223,9 @@ CONFIG_LOADED=false
 #   * zsh's has_provider_key matching keys as a glob rather than exactly
 #   * key order differing between backends, which made output untestable
 
-# The nine provider maps. Single source of truth: the reset path derives from
+# The ten provider maps. Single source of truth: the reset path derives from
 # this list, so it cannot drift from the writers the way the old code did.
-LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS"
+LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_MAX_CONTEXT_TOKENS PROVIDER_GROUPS"
 
 # Shell-specific indirection, resolved once at source time rather than per call.
 # These are the only two shell branches in the whole store.
@@ -450,7 +450,7 @@ load_config() {
     # Declare loop variables outside the loop for zsh compatibility
     # In zsh, re-declaring local variables inside a loop prints previous values
     # ($line included -- it also used to leak into the caller's shell).
-    local line key value normalized_protocol validated_protocol section_name
+    local line key value normalized_protocol validated_protocol section_name max_ctx
     # Tracked so a file that parses to nothing can say so instead of silently
     # presenting an empty provider list as a successful load.
     local sections_found=0 meaningful_lines=0
@@ -563,6 +563,25 @@ load_config() {
                     validated_protocol="$(validate_protocol "$current_provider" "$normalized_protocol")"
                     set_provider_value "PROVIDER_PROTOCOLS" "$current_provider" "$validated_protocol"
                     debug "PROVIDER_PROTOCOLS[$current_provider] = $validated_protocol"
+                    ;;
+                max_context_tokens)
+                    # No command substitution, unlike the protocol branch above:
+                    # the value comes back in __LLM_REPLY, so a fifty-provider
+                    # config costs no forks here instead of one per line.
+                    #
+                    # Copied out of __LLM_REPLY before set_provider_value runs.
+                    # That function's key-registry path calls __llm_var_get,
+                    # which overwrites __LLM_REPLY with the key count.
+                    normalize_max_context_tokens "$current_provider" "$value"
+                    max_ctx="$__LLM_REPLY"
+                    # Only store a value that parsed. set_provider_value appends
+                    # to the ordered key registry on first write regardless of
+                    # value, so writing "" would register the provider for good
+                    # and make get_provider_keys report a key nobody configured.
+                    if [[ -n "$max_ctx" ]]; then
+                        set_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$current_provider" "$max_ctx"
+                        debug "PROVIDER_MAX_CONTEXT_TOKENS[$current_provider] = $max_ctx"
+                    fi
                     ;;
             esac
         fi
@@ -848,6 +867,97 @@ validate_protocol() {
     # Invalid protocol - emit warning and return empty (will be defaulted to openai)
     echo "⚠️  Warning: Invalid protocol '$protocol' for provider '$provider'. Valid values: openai, anthropic. Defaulting to 'openai'." >&2
     echo ""
+    return 0
+}
+
+# Normalize a max_context_tokens value to a plain decimal token count.
+# Sets __LLM_REPLY: the count on success, empty on rejection so the caller
+# drops the key. Usage: normalize_max_context_tokens "$prov" "$v"; n="$__LLM_REPLY"
+#
+# Accepts 262144, 200k, 200K, 1m, 1M. The suffixes are DECIMAL -- 200k is
+# 200000, not 204800 -- matching CLAUDE_CODE_AUTO_COMPACT_WINDOW, whose
+# documented maximum is exactly 1000000. Anyone wanting a power of two writes
+# the integer out.
+#
+# One function, not the normalize_*/validate_* pair used for protocol. That
+# pair is invoked as "$(normalize_protocol ...)" and "$(validate_protocol ...)",
+# so every protocol= line costs two forks, and normalize_protocol spends a
+# third on `tr` (recorded in docs/technical-debt.md). Nothing here forks: no
+# $( ), no tr, no sed, no awk. Case folding is unnecessary because only the
+# trailing unit letter has case, so the patterns simply spell both. ${var,,}
+# is not an option either -- on bash 3.2 it is a parse ERROR, not merely an
+# unsupported feature, and a parse error in a sourced file takes the whole
+# source down with it.
+#
+# No [[ =~ ]]: BASH_REMATCH and zsh's $match survive this call, so load_config
+# stays free to read a capture through get_match after the dispatch that calls
+# us. Whether a capture happens to be live right now is not something a leaf
+# validator should have to know -- see _llm_id_is_safe.
+#
+# Returns 0 even for garbage. A bare call that returned 1 would abort the
+# caller's shell under `set -e`, and llm-env is sourced INTO that shell
+# (tests/unit/test_set_u.bats pins the `set -euo pipefail` case). Rejection is
+# signalled by an empty __LLM_REPLY, the contract validate_protocol also uses.
+normalize_max_context_tokens() {
+    local provider="${1-}" raw="${2-}" digits scale
+
+    trim "$raw"; raw="$__LLM_REPLY"
+    __LLM_REPLY=""
+
+    # Split off an optional k/m unit. `scale` is the zeros to append, not a
+    # multiplier: nothing here goes near $(( )), which would read 010 as octal
+    # and silently wrap a long value into a plausible-looking lie.
+    scale=""
+    case "$raw" in
+        *[kK]) digits="${raw%?}"; scale="000" ;;
+        *[mM]) digits="${raw%?}"; scale="000000" ;;
+        *)     digits="$raw" ;;
+    esac
+
+    # Digits spelled out rather than [0-9] or [[:digit:]]: a range is ordered by
+    # the locale's collation table and a character class is locale-defined, and
+    # this must accept ASCII 0-9 and nothing else under every LC_ALL. The same
+    # test rejects an empty value, a bare "m" or "k", 1_000_000, 1.5m, -5, +7,
+    # "1 m", 12k34, 1mm and 1km, because none of those leave digits behind.
+    case "$digits" in
+        ""|*[!0123456789]*)
+            echo "⚠️  Warning: Invalid max_context_tokens '$raw' for provider '$provider'. Expected a positive integer, optionally suffixed k or m (e.g. 262144, 200k, 1m). Ignoring." >&2
+            return 0
+            ;;
+    esac
+
+    # Strip leading zeros rather than hand them to $(( )), where 010 is octal 8.
+    # The pattern requires a second character, so a lone "0" survives to be
+    # rejected below instead of becoming the empty string.
+    while :; do
+        case "$digits" in
+            0?*) digits="${digits#0}" ;;
+            *)   break ;;
+        esac
+    done
+
+    # Rejects 0, 00, 0k and 000m. Checked BEFORE the unit is applied: 0k would
+    # otherwise become "0000", which is digits-only and would pass every
+    # remaining test.
+    if [[ "$digits" == "0" ]]; then
+        echo "⚠️  Warning: max_context_tokens '$raw' for provider '$provider' must be greater than zero. Ignoring." >&2
+        return 0
+    fi
+
+    digits="${digits}${scale}"
+
+    # Range by string length, not by numeric comparison: after the strip above,
+    # digit count IS magnitude. Nine digits is 999,999,999 tokens -- three
+    # orders of magnitude past any real context window, and small enough that a
+    # consumer doing 32-bit arithmetic on it cannot overflow. On bash 3.2
+    # $(( 99999999999999999999 )) yields 7766279631452241919 with exit status 0,
+    # so without this an over-long value would be exported as a plausible lie.
+    if [[ ${#digits} -gt 9 ]]; then
+        echo "⚠️  Warning: max_context_tokens '$raw' for provider '$provider' is out of range (1-999999999). Ignoring." >&2
+        return 0
+    fi
+
+    __LLM_REPLY="$digits"
     return 0
 }
 
@@ -1229,7 +1339,13 @@ _config_atomic_write() {
 # user preference that set_single_provider only defaults (via :-false) rather
 # than owns, so unsetting it would destroy a value from the user's own profile.
 LLM_MANAGED_VARS_OPENAI="OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL"
-LLM_MANAGED_VARS_ANTHROPIC="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL"
+#
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS *is* listed, unlike the traffic flag above:
+# llm-env derives it from the provider's own max_context_tokens, so it is owned
+# outright. Leaving a previous provider's window exported is worse than never
+# setting one -- Claude Code would size auto-compact to a window the new model
+# does not have.
+LLM_MANAGED_VARS_ANTHROPIC="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_MAX_CONTEXT_TOKENS"
 # Protocol-agnostic variables llm-env owns outright.
 LLM_MANAGED_VARS_COMMON="LLM_PROVIDER LLM_PROTOCOL OPENAI_MODEL_OVERRIDE"
 
@@ -1289,12 +1405,16 @@ set_single_provider() {
         key=""
     fi
 
-    # Get auth token for Anthropic protocol
+    # Get auth token and declared context window for Anthropic protocol.
+    # max_ctx stays empty under the openai protocol: CLAUDE_CODE_* variables
+    # only mean anything when ANTHROPIC_BASE_URL points at this provider.
+    local max_ctx=""
     if [[ "$protocol" == "anthropic" ]]; then
         get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
         if [[ -n "$auth_token_var" ]]; then
             get_var_value "$auth_token_var"; auth_token="$__LLM_REPLY"
         fi
+        get_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$provider"; max_ctx="$__LLM_REPLY"
     fi
 
     debug "Resolving environment for provider $provider:"
@@ -1389,6 +1509,21 @@ set_single_provider() {
         export CLAUDE_CODE_SUBAGENT_MODEL="$model"
         export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-false}"
 
+        # `else unset`, not a bare conditional export. Inside a group,
+        # set_multiple_providers clears both protocols ONCE and sets
+        # __LLM_SET_ADDITIVE=1, so members never clear each other. Every
+        # variable above survives that because it is exported unconditionally
+        # and simply overwrites; a value that is only exported *sometimes* has
+        # no such backstop, so a member declaring max_context_tokens would
+        # leave its window standing against the next member's model.
+        local ctx_report=""
+        if [[ -n "$max_ctx" ]]; then
+            export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$max_ctx"
+            ctx_report=", CLAUDE_CODE_MAX_CONTEXT_TOKENS=$max_ctx"
+        else
+            unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
+        fi
+
         if [[ -n "$key" ]]; then
             export ANTHROPIC_API_KEY="$key"
         fi
@@ -1425,7 +1560,9 @@ set_single_provider() {
             cred_display="${cred_display}auth_token=$(mask "$auth_token")"
         }
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
-        echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL"
+        # $ctx_report is empty unless the provider declared max_context_tokens,
+        # so this line stays byte-identical for every provider that does not.
+        echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL${ctx_report}"
     else
         if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
             _clear_protocol_env anthropic
@@ -1672,6 +1809,14 @@ cmd_show() {
         echo "  ANTHROPIC_MODEL    = ${ANTHROPIC_MODEL:-∅}"
         echo "  ANTHROPIC_API_KEY  = $(mask "${ANTHROPIC_API_KEY:-}")"
         echo "  ANTHROPIC_AUTH_TOKEN = $(mask "${ANTHROPIC_AUTH_TOKEN:-}")"
+        # Shown only when the provider declared max_context_tokens. Printing
+        # a placeholder would imply llm-env manages a window for every
+        # provider, when most correctly leave Claude Code to its own default.
+        # Deliberately not padded to the = column: the name is 30 characters
+        # and would push every line above it out of alignment.
+        if [[ -n "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]]; then
+            echo "  CLAUDE_CODE_MAX_CONTEXT_TOKENS = ${CLAUDE_CODE_MAX_CONTEXT_TOKENS}"
+        fi
     fi
 
     # Show configuration source
@@ -3349,6 +3494,7 @@ cmd_config_validate() {
 
     # Declare loop variables outside loop for zsh compatibility
     local provider base_url api_key_var auth_token_var default_model enabled protocol cred_val
+    local max_ctx
     local url_pattern="^https?://"
 
     # Check each provider
@@ -3362,6 +3508,7 @@ cmd_config_validate() {
         get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; default_model="$__LLM_REPLY"
         get_provider_value "PROVIDER_ENABLED" "$provider"; enabled="${__LLM_REPLY:-true}"
         get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
+        get_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$provider"; max_ctx="$__LLM_REPLY"
 
         echo "Checking provider: $provider"
 
@@ -3430,7 +3577,22 @@ cmd_config_validate() {
             echo "  ⚠️  enabled should be 'true' or 'false', got: $enabled"
             warnings=$((warnings + 1))
         fi
-        
+
+        # Dead configuration, phrased as such. Only set_single_provider's
+        # anthropic branch reads this, so on an openai provider the key parses
+        # fine and then does nothing -- and quickstart emits paired
+        # openai_*/anth_* providers per model, which is exactly how it ends up
+        # on the wrong one. A warning, not an error: the key is optional and
+        # the provider is otherwise fine.
+        if [[ -n "$max_ctx" ]]; then
+            if [[ "$protocol" == "anthropic" ]]; then
+                echo "  ✅ max_context_tokens: $max_ctx"
+            else
+                echo "  ⚠️  max_context_tokens is only read for protocol=anthropic; ignored here"
+                warnings=$((warnings + 1))
+            fi
+        fi
+
         echo
     done
 

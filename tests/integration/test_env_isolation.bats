@@ -40,7 +40,18 @@ base_url=https://anth-b.test
 auth_token_var=LLM_ANTH_B_TOKEN
 default_model=anth-b-1
 protocol=anthropic
-enabled=true" >/dev/null
+enabled=true
+
+[anth_1m]
+base_url=https://anth-1m.test
+api_key_var=LLM_ANTH_A_KEY
+default_model=anth-1m-1
+protocol=anthropic
+enabled=true
+max_context_tokens=1m
+
+[group:mixed]
+providers=anth_1m,anth_a" >/dev/null
 }
 
 teardown() {
@@ -74,6 +85,42 @@ _after_sets() {
         anth_a oai
     assert_env_unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL \
                      ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL
+}
+
+# ---- B1a: the declared context window must not outlive its provider ----
+#
+# A stale CLAUDE_CODE_MAX_CONTEXT_TOKENS is worse than none. Claude Code
+# believes it has the previous provider's window and stops auto-compacting in
+# time, so the user gets hard context-overflow errors instead of the cosmetic
+# unrecognized-model warning the key exists to remove. Three switch paths reach
+# it and the obvious implementation only closes one.
+
+@test "isolation: switching anthropic -> openai clears CLAUDE_CODE_MAX_CONTEXT_TOKENS" {
+    _after_sets "CLAUDE_CODE_MAX_CONTEXT_TOKENS" anth_1m oai
+    assert_env_unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
+}
+
+@test "isolation: switching to an anthropic provider without the key clears it" {
+    # Both providers are anthropic, so _clear_protocol_env openai never runs.
+    # Only the anthropic branch's self-clear covers this.
+    _after_sets "CLAUDE_CODE_MAX_CONTEXT_TOKENS ANTHROPIC_BASE_URL" anth_1m anth_a
+    assert_env_is ANTHROPIC_BASE_URL "https://anth-a.test"
+    assert_env_unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
+}
+
+@test "isolation: a group member without the key does not inherit it from an earlier member" {
+    # set_multiple_providers clears both protocols ONCE and sets
+    # __LLM_SET_ADDITIVE=1, so no member clears another. Every other anthropic
+    # variable survives that because it is exported unconditionally; a
+    # conditional export would leave anth_1m's window standing against anth_a.
+    _after_sets "CLAUDE_CODE_MAX_CONTEXT_TOKENS ANTHROPIC_BASE_URL" mixed
+    assert_env_is ANTHROPIC_BASE_URL "https://anth-a.test"
+    assert_env_unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
+}
+
+@test "isolation: an anthropic provider with the key exports the expanded count" {
+    _after_sets "CLAUDE_CODE_MAX_CONTEXT_TOKENS" anth_1m
+    assert_env_is CLAUDE_CODE_MAX_CONTEXT_TOKENS 1000000
 }
 
 @test "isolation: switching openai -> anthropic clears OPENAI_ variables" {
@@ -112,13 +159,15 @@ _after_sets() {
 @test "isolation: unset clears every variable that set exported" {
     dump_env_after "
         export XDG_CONFIG_HOME='$XDG_CONFIG_HOME' HOME='$HOME' LLM_ANTH_A_KEY=sk-anth-a
-        source '$SUT' set anth_a >/dev/null 2>&1
+        source '$SUT' set anth_1m >/dev/null 2>&1
         source '$SUT' unset >/dev/null 2>&1
     " ANTHROPIC_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_MODEL \
-      ANTHROPIC_DEFAULT_OPUS_MODEL CLAUDE_CODE_SUBAGENT_MODEL LLM_PROVIDER LLM_PROTOCOL
+      ANTHROPIC_DEFAULT_OPUS_MODEL CLAUDE_CODE_SUBAGENT_MODEL \
+      CLAUDE_CODE_MAX_CONTEXT_TOKENS LLM_PROVIDER LLM_PROTOCOL
     assert_env_unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN \
                      ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL \
-                     CLAUDE_CODE_SUBAGENT_MODEL LLM_PROVIDER LLM_PROTOCOL
+                     CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_MAX_CONTEXT_TOKENS \
+                     LLM_PROVIDER LLM_PROTOCOL
 }
 
 @test "isolation: unset preserves a user-set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" {

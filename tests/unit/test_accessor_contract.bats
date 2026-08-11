@@ -161,6 +161,49 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+# Body only, comments stripped: the comment block above the function names both
+# constructs on purpose, and one comment inside it mentions $(( )).
+_mct_validator_body() {
+    sed -n '/^normalize_max_context_tokens() {/,/^}/p' \
+        "$BATS_TEST_DIRNAME/../../llm-env" | grep -v '^[[:space:]]*#'
+}
+
+@test "max_context_tokens validation uses case globbing, not a regex" {
+    # [[ =~ ]] clobbers BASH_REMATCH and zsh's $match. load_config reads those
+    # through get_match while iterating lines, so a leaf validator that used a
+    # regex would corrupt whatever the parser read next -- a silent,
+    # data-dependent parse bug. Today the captures happen to be consumed before
+    # the dispatch that calls this function, which is exactly why the trap
+    # would survive review.
+    local body
+    body="$(_mct_validator_body)"
+    [ -n "$body" ]
+    run grep -n '=~' <<< "$body"
+    [ "$status" -ne 0 ]
+}
+
+@test "max_context_tokens validation forks no subshell" {
+    # normalize_protocol/validate_protocol cost two forks plus a `tr` pipe per
+    # protocol= line (docs/technical-debt.md). The newer validator must not
+    # repeat that: it returns through __LLM_REPLY instead.
+    local body
+    body="$(_mct_validator_body)"
+    [ -n "$body" ]
+    run grep -nE '\$\(|`|\| *(tr|sed|awk|grep) ' <<< "$body"
+    [ "$status" -ne 0 ]
+}
+
+@test "max_context_tokens validation does no arithmetic on the config value" {
+    # $(( )) re-evaluates a variable's VALUE as an expression, reads a leading
+    # zero as octal, and wraps a long digit run silently with exit status 0.
+    # The k/m expansion is string concatenation for all three reasons.
+    local body
+    body="$(_mct_validator_body)"
+    [ -n "$body" ]
+    run grep -nE '\$\(\(|(^|[^[:alnum:]_])let ' <<< "$body"
+    [ "$status" -ne 0 ]
+}
+
 @test "no unquoted word-split loop over a space-separated list" {
     # zsh does not word-split unquoted parameter expansions, so
     # `for x in $list` silently iterates ONCE with the whole string. That is

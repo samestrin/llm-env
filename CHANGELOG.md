@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **New optional provider key `max_context_tokens`, exported as
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`.** Claude Code sizes auto-compact from a
+  table of models it recognizes, and every third-party gateway model is absent
+  from it -- so it warns on startup and caps the session at the 200k window it
+  assumes, wasting most of a larger one. Adding `max_context_tokens=1m` (or
+  `200k`, or a plain integer such as `262144`) to a `protocol=anthropic`
+  provider declares the real window. The `k` and `m` suffixes are decimal:
+  `200k` is 200000, not 204800, matching `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
+  whose documented maximum is exactly 1000000. A malformed value is rejected
+  with a warning and the key ignored; the provider still loads. The variable is
+  ignored under `protocol=openai`, where no `ANTHROPIC_BASE_URL` makes it
+  meaningful, and `config validate` warns when it is set there -- the quickstart
+  importer emits paired `openai_*`/`anth_*` providers per model, so landing it
+  on the wrong half is easy and otherwise silent.
+
+- **`llm-env show` reports `CLAUDE_CODE_MAX_CONTEXT_TOKENS` when it is set.**
+  The confirmation line from `set` scrolls away, and a window that failed to
+  apply is otherwise invisible until Claude Code overruns the real one
+  mid-session. Providers that declare no window print nothing, so the existing
+  output is unchanged for them.
+
 ### Fixed
+
+- **Documented Claude Code model overrides that never worked.**
+  `docs/configuration.md` told users to pre-export
+  `ANTHROPIC_DEFAULT_OPUS_MODEL` and friends before `llm-env set`. Those
+  variables are owned by `set_single_provider`, which clears and re-exports
+  them from the provider's config, so a pre-exported value was destroyed every
+  time. The documented mechanism is now `OPENAI_MODEL_OVERRIDE`, which is
+  actually honoured and applies under both protocols, with the two genuine
+  exceptions (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which llm-env only
+  defaults, and `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, which comes from the
+  provider) called out.
 
 - **`install.sh` no longer leaves a broken `llm-env` shell function in place.**
   The idempotency guard only checked that *some* `llm-env()` block existed in

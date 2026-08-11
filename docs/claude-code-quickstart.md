@@ -114,6 +114,24 @@ claude
 
 Claude Code now talks to Kimi K2.5 via Synthetic. Use it exactly like you would against real Claude — the protocol is identical.
 
+**If Claude Code warns about the model on startup**, it will say something like:
+
+```
+"hf:moonshotai/Kimi-K2.5" is not a model this version of Claude Code
+recognizes, so auto-compact will keep this session within 200k tokens (the
+context window it assumes).
+```
+
+That's Claude Code being conservative about a model it has no entry for, and it will squeeze long sessions into 200k even when the model accepts far more. Tell it the real window by adding one line to that provider in `~/.config/llm-env/config.conf`:
+
+```ini
+[anth_synth_kimi-k2.5]
+# …existing keys…
+max_context_tokens=1m
+```
+
+Re-run `llm-env set anth_synth_kimi-k2.5` and the warning is gone. Check the model's own documentation for its real window — `1m`, `200k`, or a plain integer such as `262144` all work, and the suffixes are decimal. Details in [docs/configuration.md](configuration.md#declaring-a-context-window).
+
 ## Step 6 — Switch models any time
 
 ```bash
