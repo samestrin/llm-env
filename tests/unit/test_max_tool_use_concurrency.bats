@@ -73,6 +73,12 @@ _load_with_value() {
     [ "$mtc" = "999" ]
 }
 
+@test "max_tool_use_concurrency: a mid-range three digit value is accepted" {
+    local mtc
+    _load_with_value "100"
+    [ "$mtc" = "100" ]
+}
+
 @test "max_tool_use_concurrency: surrounding whitespace is trimmed" {
     local mtc
     _load_with_value "  5  "
@@ -221,6 +227,15 @@ _load_with_value() {
     local mtc
     _load_with_value "0010"
     [ "$mtc" = "10" ]
+}
+
+# The range bound is a digit COUNT, so it must be applied to the stripped value,
+# not the raw one. "0999" is four characters and would fail a naive length test
+# even though it denotes 999, which is in range.
+@test "max_tool_use_concurrency: the range bound applies after leading zeros are stripped" {
+    local mtc
+    _load_with_value "0999"
+    [ "$mtc" = "999" ]
 }
 
 # ========================================

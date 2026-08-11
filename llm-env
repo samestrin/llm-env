@@ -223,8 +223,10 @@ CONFIG_LOADED=false
 #   * zsh's has_provider_key matching keys as a glob rather than exactly
 #   * key order differing between backends, which made output untestable
 
-# The ten provider maps. Single source of truth: the reset path derives from
+# The provider maps. Single source of truth: the reset path derives from
 # this list, so it cannot drift from the writers the way the old code did.
+# Deliberately not stating a count -- a number here is prose that rots on every
+# added map, and nothing reads it.
 LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_MAX_CONTEXT_TOKENS PROVIDER_MAX_TOOL_USE_CONCURRENCY PROVIDER_GROUPS"
 
 # Shell-specific indirection, resolved once at source time rather than per call.
@@ -1641,8 +1643,10 @@ set_single_provider() {
             cred_display="${cred_display}auth_token=$(mask "$auth_token")"
         }
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
-        # $ctx_report is empty unless the provider declared max_context_tokens,
-        # so this line stays byte-identical for every provider that does not.
+        # $ctx_report is empty unless the provider declared max_context_tokens
+        # or max_tool_use_concurrency, so this line stays byte-identical for
+        # every provider that declares neither. Each declared key appends its
+        # own field, in that order.
         echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL${ctx_report}"
     else
         if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
