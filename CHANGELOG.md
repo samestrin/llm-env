@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-08-11
+
+Two new optional per-provider keys for driving Claude Code against third-party
+Anthropic-compatible gateways: `max_context_tokens` declares a model's real
+context window, and `max_tool_use_concurrency` caps parallel tool-call
+fan-out. Both are `protocol=anthropic` only, both are owned outright by
+llm-env so a stale value cannot survive a provider switch, and both are
+reported by `llm-env show` and checked by `config validate`.
+
 ### Added
 
 - **New optional provider key `max_context_tokens`, exported as
