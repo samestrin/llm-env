@@ -3494,6 +3494,7 @@ cmd_config_validate() {
 
     # Declare loop variables outside loop for zsh compatibility
     local provider base_url api_key_var auth_token_var default_model enabled protocol cred_val
+    local max_ctx
     local url_pattern="^https?://"
 
     # Check each provider
@@ -3507,6 +3508,7 @@ cmd_config_validate() {
         get_provider_value "PROVIDER_DEFAULT_MODELS" "$provider"; default_model="$__LLM_REPLY"
         get_provider_value "PROVIDER_ENABLED" "$provider"; enabled="${__LLM_REPLY:-true}"
         get_provider_value "PROVIDER_PROTOCOLS" "$provider"; protocol="${__LLM_REPLY:-openai}"
+        get_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$provider"; max_ctx="$__LLM_REPLY"
 
         echo "Checking provider: $provider"
 
@@ -3575,7 +3577,23 @@ cmd_config_validate() {
             echo "  ⚠️  enabled should be 'true' or 'false', got: $enabled"
             warnings=$((warnings + 1))
         fi
-        
+
+        # Dead configuration, phrased as such. Only set_single_provider's
+        # anthropic branch reads this, so on an openai provider the key parses
+        # fine and then does nothing -- and quickstart emits paired
+        # openai_*/anth_* providers per model, which is exactly how it ends up
+        # on the wrong one. A warning, not an error: the key is optional and
+        # the provider is otherwise fine.
+        if [[ -n "$max_ctx" ]]; then
+            if [[ "$protocol" == "anthropic" ]]; then
+                echo "  ✅ max_context_tokens: $max_ctx"
+            else
+                echo "  ⚠️  max_context_tokens is only read for protocol=anthropic; ignored here"
+                warnings=$((warnings + 1))
+            fi
+        fi
+
+
         echo
     done
 
