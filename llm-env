@@ -1516,8 +1516,10 @@ set_single_provider() {
         # and simply overwrites; a value that is only exported *sometimes* has
         # no such backstop, so a member declaring max_context_tokens would
         # leave its window standing against the next member's model.
+        local ctx_report=""
         if [[ -n "$max_ctx" ]]; then
             export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$max_ctx"
+            ctx_report=", CLAUDE_CODE_MAX_CONTEXT_TOKENS=$max_ctx"
         else
             unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
         fi
@@ -1558,7 +1560,9 @@ set_single_provider() {
             cred_display="${cred_display}auth_token=$(mask "$auth_token")"
         }
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
-        echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL"
+        # $ctx_report is empty unless the provider declared max_context_tokens,
+        # so this line stays byte-identical for every provider that does not.
+        echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL${ctx_report}"
     else
         if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
             _clear_protocol_env anthropic
