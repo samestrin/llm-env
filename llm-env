@@ -223,9 +223,9 @@ CONFIG_LOADED=false
 #   * zsh's has_provider_key matching keys as a glob rather than exactly
 #   * key order differing between backends, which made output untestable
 
-# The nine provider maps. Single source of truth: the reset path derives from
+# The ten provider maps. Single source of truth: the reset path derives from
 # this list, so it cannot drift from the writers the way the old code did.
-LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_GROUPS"
+LLM_PROVIDER_MAPS="PROVIDER_BASE_URLS PROVIDER_API_KEY_VARS PROVIDER_DEFAULT_MODELS PROVIDER_DESCRIPTIONS PROVIDER_ENABLED PROVIDER_PROTOCOLS PROVIDER_AUTH_TOKENS PROVIDER_SIGNUP_URLS PROVIDER_MAX_CONTEXT_TOKENS PROVIDER_GROUPS"
 
 # Shell-specific indirection, resolved once at source time rather than per call.
 # These are the only two shell branches in the whole store.
@@ -450,7 +450,7 @@ load_config() {
     # Declare loop variables outside the loop for zsh compatibility
     # In zsh, re-declaring local variables inside a loop prints previous values
     # ($line included -- it also used to leak into the caller's shell).
-    local line key value normalized_protocol validated_protocol section_name
+    local line key value normalized_protocol validated_protocol section_name max_ctx
     # Tracked so a file that parses to nothing can say so instead of silently
     # presenting an empty provider list as a successful load.
     local sections_found=0 meaningful_lines=0
@@ -563,6 +563,25 @@ load_config() {
                     validated_protocol="$(validate_protocol "$current_provider" "$normalized_protocol")"
                     set_provider_value "PROVIDER_PROTOCOLS" "$current_provider" "$validated_protocol"
                     debug "PROVIDER_PROTOCOLS[$current_provider] = $validated_protocol"
+                    ;;
+                max_context_tokens)
+                    # No command substitution, unlike the protocol branch above:
+                    # the value comes back in __LLM_REPLY, so a fifty-provider
+                    # config costs no forks here instead of one per line.
+                    #
+                    # Copied out of __LLM_REPLY before set_provider_value runs.
+                    # That function's key-registry path calls __llm_var_get,
+                    # which overwrites __LLM_REPLY with the key count.
+                    normalize_max_context_tokens "$current_provider" "$value"
+                    max_ctx="$__LLM_REPLY"
+                    # Only store a value that parsed. set_provider_value appends
+                    # to the ordered key registry on first write regardless of
+                    # value, so writing "" would register the provider for good
+                    # and make get_provider_keys report a key nobody configured.
+                    if [[ -n "$max_ctx" ]]; then
+                        set_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$current_provider" "$max_ctx"
+                        debug "PROVIDER_MAX_CONTEXT_TOKENS[$current_provider] = $max_ctx"
+                    fi
                     ;;
             esac
         fi
@@ -848,6 +867,66 @@ validate_protocol() {
     # Invalid protocol - emit warning and return empty (will be defaulted to openai)
     echo "⚠️  Warning: Invalid protocol '$protocol' for provider '$provider'. Valid values: openai, anthropic. Defaulting to 'openai'." >&2
     echo ""
+    return 0
+}
+
+# Normalize a max_context_tokens value to a plain decimal token count.
+# Sets __LLM_REPLY: the count on success, empty on rejection so the caller
+# drops the key. Usage: normalize_max_context_tokens "$prov" "$v"; n="$__LLM_REPLY"
+#
+# Accepts 262144, 200k, 200K, 1m, 1M. The suffixes are DECIMAL -- 200k is
+# 200000, not 204800 -- matching CLAUDE_CODE_AUTO_COMPACT_WINDOW, whose
+# documented maximum is exactly 1000000. Anyone wanting a power of two writes
+# the integer out.
+#
+# One function, not the normalize_*/validate_* pair used for protocol. That
+# pair is invoked as "$(normalize_protocol ...)" and "$(validate_protocol ...)",
+# so every protocol= line costs two forks, and normalize_protocol spends a
+# third on `tr` (recorded in docs/technical-debt.md). Nothing here forks: no
+# $( ), no tr, no sed, no awk. Case folding is unnecessary because only the
+# trailing unit letter has case, so the patterns simply spell both. ${var,,}
+# is not an option either -- on bash 3.2 it is a parse ERROR, not merely an
+# unsupported feature, and a parse error in a sourced file takes the whole
+# source down with it.
+#
+# No [[ =~ ]]: BASH_REMATCH and zsh's $match survive this call, so load_config
+# stays free to read a capture through get_match after the dispatch that calls
+# us. Whether a capture happens to be live right now is not something a leaf
+# validator should have to know -- see _llm_id_is_safe.
+#
+# Returns 0 even for garbage. A bare call that returned 1 would abort the
+# caller's shell under `set -e`, and llm-env is sourced INTO that shell
+# (tests/unit/test_set_u.bats pins the `set -euo pipefail` case). Rejection is
+# signalled by an empty __LLM_REPLY, the contract validate_protocol also uses.
+normalize_max_context_tokens() {
+    local provider="${1-}" raw="${2-}" digits scale
+
+    trim "$raw"; raw="$__LLM_REPLY"
+    __LLM_REPLY=""
+
+    # Split off an optional k/m unit. `scale` is the zeros to append, not a
+    # multiplier: nothing here goes near $(( )), which would read 010 as octal
+    # and silently wrap a long value into a plausible-looking lie.
+    scale=""
+    case "$raw" in
+        *[kK]) digits="${raw%?}"; scale="000" ;;
+        *[mM]) digits="${raw%?}"; scale="000000" ;;
+        *)     digits="$raw" ;;
+    esac
+
+    # Digits spelled out rather than [0-9] or [[:digit:]]: a range is ordered by
+    # the locale's collation table and a character class is locale-defined, and
+    # this must accept ASCII 0-9 and nothing else under every LC_ALL. The same
+    # test rejects an empty value, a bare "m" or "k", 1_000_000, 1.5m, -5, +7,
+    # "1 m", 12k34, 1mm and 1km, because none of those leave digits behind.
+    case "$digits" in
+        ""|*[!0123456789]*)
+            echo "⚠️  Warning: Invalid max_context_tokens '$raw' for provider '$provider'. Expected a positive integer, optionally suffixed k or m (e.g. 262144, 200k, 1m). Ignoring." >&2
+            return 0
+            ;;
+    esac
+
+    __LLM_REPLY="${digits}${scale}"
     return 0
 }
 
