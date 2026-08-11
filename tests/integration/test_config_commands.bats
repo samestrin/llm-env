@@ -52,6 +52,79 @@ _sut() {
         LLM_ENV_ASSUME_YES=1 bash -c "source '$SUT' $*"
 }
 
+# ---- validate: max_context_tokens ----
+#
+# config validate is the only surface where a user can learn whether the key
+# landed. load_config drops an unrecognized key silently (its case has no
+# default arm), and quickstart emits paired openai_*/anth_* providers per
+# model, so putting the key on the wrong half of a pair -- or misspelling it --
+# is invisible everywhere else. The symptom is that Claude Code keeps printing
+# the unrecognized-model warning, with nothing to distinguish "wrong provider"
+# from "this feature does not work".
+
+_validate_with() {
+    create_test_config "$1" >/dev/null
+    _sut config validate
+}
+
+@test "config validate: reports max_context_tokens for an anthropic provider" {
+    _validate_with "[anth]
+base_url=https://anth.test
+api_key_var=LLM_ANTH_KEY
+default_model=anth-1
+protocol=anthropic
+enabled=true
+max_context_tokens=1m"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"max_context_tokens: 1000000"* ]]
+}
+
+@test "config validate: warns when max_context_tokens is set on an openai provider" {
+    _validate_with "[oai]
+base_url=https://oai.test/v1
+api_key_var=LLM_OAI_KEY
+default_model=oai-1
+protocol=openai
+enabled=true
+max_context_tokens=1m"
+
+    # Warnings must not change the exit status. cmd_config_validate returns 0
+    # on warnings and 1 only on errors; a new warning that flipped that would
+    # break every CI job running `config validate`.
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"max_context_tokens"* ]]
+    [[ "$output" == *"protocol=anthropic"* ]]
+    [[ "$output" == *"Errors: 0"* ]]
+}
+
+@test "config validate: says nothing about max_context_tokens when it is absent" {
+    _validate_with "[anth]
+base_url=https://anth.test
+api_key_var=LLM_ANTH_KEY
+default_model=anth-1
+protocol=anthropic
+enabled=true"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"max_context_tokens"* ]]
+}
+
+@test "config validate: an unparseable max_context_tokens is not an error" {
+    # The key is optional. A rejected value already warned at load time and
+    # must not escalate into something that fails the whole validation.
+    _validate_with "[anth]
+base_url=https://anth.test
+api_key_var=LLM_ANTH_KEY
+default_model=anth-1
+protocol=anthropic
+enabled=true
+max_context_tokens=banana"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Errors: 0"* ]]
+}
+
 # ---- remove ----
 
 @test "config remove: deletes only the named provider" {
