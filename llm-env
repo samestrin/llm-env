@@ -1809,6 +1809,14 @@ cmd_show() {
         echo "  ANTHROPIC_MODEL    = ${ANTHROPIC_MODEL:-∅}"
         echo "  ANTHROPIC_API_KEY  = $(mask "${ANTHROPIC_API_KEY:-}")"
         echo "  ANTHROPIC_AUTH_TOKEN = $(mask "${ANTHROPIC_AUTH_TOKEN:-}")"
+        # Shown only when the provider declared max_context_tokens. Printing
+        # a placeholder would imply llm-env manages a window for every
+        # provider, when most correctly leave Claude Code to its own default.
+        # Deliberately not padded to the = column: the name is 30 characters
+        # and would push every line above it out of alignment.
+        if [[ -n "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]]; then
+            echo "  CLAUDE_CODE_MAX_CONTEXT_TOKENS = ${CLAUDE_CODE_MAX_CONTEXT_TOKENS}"
+        fi
     fi
 
     # Show configuration source
