@@ -1339,7 +1339,13 @@ _config_atomic_write() {
 # user preference that set_single_provider only defaults (via :-false) rather
 # than owns, so unsetting it would destroy a value from the user's own profile.
 LLM_MANAGED_VARS_OPENAI="OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL"
-LLM_MANAGED_VARS_ANTHROPIC="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL"
+#
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS *is* listed, unlike the traffic flag above:
+# llm-env derives it from the provider's own max_context_tokens, so it is owned
+# outright. Leaving a previous provider's window exported is worse than never
+# setting one -- Claude Code would size auto-compact to a window the new model
+# does not have.
+LLM_MANAGED_VARS_ANTHROPIC="ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CODE_MAX_CONTEXT_TOKENS"
 # Protocol-agnostic variables llm-env owns outright.
 LLM_MANAGED_VARS_COMMON="LLM_PROVIDER LLM_PROTOCOL OPENAI_MODEL_OVERRIDE"
 
@@ -1399,12 +1405,16 @@ set_single_provider() {
         key=""
     fi
 
-    # Get auth token for Anthropic protocol
+    # Get auth token and declared context window for Anthropic protocol.
+    # max_ctx stays empty under the openai protocol: CLAUDE_CODE_* variables
+    # only mean anything when ANTHROPIC_BASE_URL points at this provider.
+    local max_ctx=""
     if [[ "$protocol" == "anthropic" ]]; then
         get_provider_value "PROVIDER_AUTH_TOKENS" "$provider"; auth_token_var="$__LLM_REPLY"
         if [[ -n "$auth_token_var" ]]; then
             get_var_value "$auth_token_var"; auth_token="$__LLM_REPLY"
         fi
+        get_provider_value "PROVIDER_MAX_CONTEXT_TOKENS" "$provider"; max_ctx="$__LLM_REPLY"
     fi
 
     debug "Resolving environment for provider $provider:"
@@ -1498,6 +1508,19 @@ set_single_provider() {
         export ANTHROPIC_DEFAULT_HAIKU_MODEL="$model"
         export CLAUDE_CODE_SUBAGENT_MODEL="$model"
         export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-false}"
+
+        # `else unset`, not a bare conditional export. Inside a group,
+        # set_multiple_providers clears both protocols ONCE and sets
+        # __LLM_SET_ADDITIVE=1, so members never clear each other. Every
+        # variable above survives that because it is exported unconditionally
+        # and simply overwrites; a value that is only exported *sometimes* has
+        # no such backstop, so a member declaring max_context_tokens would
+        # leave its window standing against the next member's model.
+        if [[ -n "$max_ctx" ]]; then
+            export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$max_ctx"
+        else
+            unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
+        fi
 
         if [[ -n "$key" ]]; then
             export ANTHROPIC_API_KEY="$key"
