@@ -993,7 +993,9 @@ normalize_max_tool_use_concurrency() {
 
     # Digits spelled out, not [0-9] or [[:digit:]] -- see
     # normalize_max_context_tokens for why a locale-dependent class is unsafe
-    # here. Rejects empty, "5.0", "-5", "+5", "5 ", "1e3" and any k/m suffix.
+    # here. Rejects empty, "5.0", "-5", "+5", "5 5", "1e3" and any k/m suffix.
+    # Note "5 " and " 5" are ACCEPTED: trim ran above, so only an INTERIOR
+    # space survives to be rejected here.
     case "$digits" in
         ""|*[!0123456789]*)
             echo "⚠️  Warning: Invalid max_tool_use_concurrency '$raw' for provider '$provider'. Expected a positive integer (e.g. 5). Ignoring." >&2

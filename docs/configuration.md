@@ -293,7 +293,7 @@ llm-env set anthropic
 
 `OPENAI_MODEL_OVERRIDE` replaces the provider's `default_model`, and every Claude Code model variable follows it - `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`. Despite the name it applies under both protocols.
 
-Two variables are exceptions:
+Three variables are exceptions:
 
 - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is only defaulted to `false`, never owned, so `export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true` in your profile does survive an `llm-env set` and an `llm-env unset`.
 - `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is owned outright and comes from the provider's `max_context_tokens` - see [Declaring a context window](#declaring-a-context-window).

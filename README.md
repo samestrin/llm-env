@@ -114,7 +114,8 @@ The `k` and `m` suffixes are decimal (`200k` is 200,000). See [Declaring a conte
 [anth_synth_kimi-k2.5]
 # …
 protocol=anthropic
-max_tool_use_concurrency=5     # exports CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=5
+# exports CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=5
+max_tool_use_concurrency=5
 ```
 
 See [Declaring tool-use concurrency](docs/configuration.md#declaring-tool-use-concurrency).

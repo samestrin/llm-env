@@ -130,10 +130,18 @@ _load_with_value() {
     [ -z "$mtc" ]
 }
 
-@test "max_tool_use_concurrency: a space before digits is rejected" {
+# An INTERIOR space only. A leading or trailing one is trimmed before the digit
+# test runs, so " 5" and "5 " are accepted -- pinned above by the trim test.
+@test "max_tool_use_concurrency: a space between digits is rejected" {
     local mtc
     _load_with_value "5 5"
     [ -z "$mtc" ]
+}
+
+@test "max_tool_use_concurrency: a trailing space is trimmed, not rejected" {
+    local mtc
+    _load_with_value "5 "
+    [ "$mtc" = "5" ]
 }
 
 @test "max_tool_use_concurrency: an empty value is rejected" {

@@ -68,6 +68,16 @@ enabled = true
 protocol = anthropic
 max_tool_use_concurrency = 5
 
+[anthropic_both]
+base_url = https://gateway.example.com/anthropic
+api_key_var = ANTHROPIC_GATEWAY_KEY
+default_model = kimi-k2.5
+description = Third-party gateway declaring both optional keys
+enabled = true
+protocol = anthropic
+max_context_tokens = 1m
+max_tool_use_concurrency = 7
+
 [group:mixed_windows]
 providers = anthropic_1m,anthropic_gateway
 
@@ -423,6 +433,47 @@ _claude_code_line() {
     local line
     line="$(_claude_code_line)"
     [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_SONNET_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5, CLAUDE_CODE_SUBAGENT_MODEL=kimi-k2.5, CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=5" ]
+}
+
+# ---- both optional keys on one provider ----
+#
+# $optional_report accumulates one field per declared key, but until this
+# fixture existed every test declared exactly ONE of the two, so the
+# accumulation was asserted only in a comment. The two branches use different
+# assignment forms -- the first assigns, the second appends -- so a third
+# optional key copied from the FIRST branch would silently drop every earlier
+# field and every single-key test above would still pass.
+
+@test "both keys: a provider declaring both exports both variables" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_both"
+
+    [ "$CLAUDE_CODE_MAX_CONTEXT_TOKENS" = "1000000" ]
+    [ "$CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" = "7" ]
+}
+
+@test "both keys: the Claude Code variables line appends both fields in order" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    run cmd_set "anthropic_both"
+    [ "$status" -eq 0 ]
+
+    local line
+    line="$(_claude_code_line)"
+    [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_SONNET_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5, CLAUDE_CODE_SUBAGENT_MODEL=kimi-k2.5, CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000, CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=7" ]
+}
+
+@test "both keys: switching to a provider declaring neither clears both" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_both"
+    [ -n "$CLAUDE_CODE_MAX_CONTEXT_TOKENS" ]
+    [ -n "$CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" ]
+
+    cmd_set "anthropic_gateway"
+    [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
+    [ -z "${CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY:-}" ]
 }
 
 @test "No protocol field: defaults to openai behavior" {
