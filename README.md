@@ -84,7 +84,7 @@ The full set, naming scheme, and how `family-latest` aliases work is documented 
 
 The headline use case for v1.5: **run Claude Code against Kimi, GLM, MiniMax, Qwen, DeepSeek, Llama, and more** — through Synthetic or Alibaba's Coding Plan, without an Anthropic API key.
 
-Both providers expose Anthropic-compatible endpoints, and `llm-env` exports the exact environment variables Claude Code reads to choose its endpoint and model (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` / `SONNET` / `HAIKU`, `CLAUDE_CODE_SUBAGENT_MODEL`). So switching is a single command in the same shell you'll run `claude` from:
+Both providers expose Anthropic-compatible endpoints, and `llm-env` exports the exact environment variables Claude Code reads to choose its endpoint and model (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` / `SONNET` / `HAIKU`, `CLAUDE_CODE_SUBAGENT_MODEL`, and `CLAUDE_CODE_MAX_CONTEXT_TOKENS`). So switching is a single command in the same shell you'll run `claude` from:
 
 ```bash
 llm-env set anth_synth_kimi-k2.5     # Claude Code talks to Kimi K2.5 via Synthetic
@@ -96,6 +96,17 @@ claude
 llm-env unset                         # clear all overrides — Claude Code falls back
 claude                                # to its own native login (real Claude)
 ```
+
+**Context windows:** Claude Code caps auto-compact at 200k for any model it doesn't recognize — which is every third-party model — and says so on startup. Add `max_context_tokens` to the provider to declare the real window:
+
+```ini
+[anth_synth_kimi-k2.5]
+# …
+protocol=anthropic
+max_context_tokens=1m     # exports CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000
+```
+
+The `k` and `m` suffixes are decimal (`200k` is 200,000). See [Declaring a context window](docs/configuration.md#declaring-a-context-window).
 
 **Full walkthrough:** [docs/claude-code-quickstart.md](docs/claude-code-quickstart.md) covers install → `quickstart` → sign up for Synthetic or Alibaba → set provider → run `claude`. Eight steps, ~5 minutes.
 
