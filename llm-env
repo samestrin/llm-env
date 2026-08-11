@@ -1590,10 +1590,14 @@ set_single_provider() {
         # and simply overwrites; a value that is only exported *sometimes* has
         # no such backstop, so a member declaring max_context_tokens would
         # leave its window standing against the next member's model.
-        local ctx_report=""
+        # Named for what it carries -- the optional, declared-only fields --
+        # rather than for the first one that happened to use it. It accumulates
+        # one field per declared key, so a context-specific name would be a lie
+        # the moment a second key appended to it.
+        local optional_report=""
         if [[ -n "$max_ctx" ]]; then
             export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$max_ctx"
-            ctx_report=", CLAUDE_CODE_MAX_CONTEXT_TOKENS=$max_ctx"
+            optional_report=", CLAUDE_CODE_MAX_CONTEXT_TOKENS=$max_ctx"
         else
             unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
         fi
@@ -1602,7 +1606,7 @@ set_single_provider() {
         # max_tool_use_concurrency must not inherit the previous member's.
         if [[ -n "$max_concurrency" ]]; then
             export CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY="$max_concurrency"
-            ctx_report="${ctx_report}, CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=$max_concurrency"
+            optional_report="${optional_report}, CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=$max_concurrency"
         else
             unset CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
         fi
@@ -1643,11 +1647,11 @@ set_single_provider() {
             cred_display="${cred_display}auth_token=$(mask "$auth_token")"
         }
         echo "✅ Set: provider=$LLM_PROVIDER protocol=$protocol host=$host model=$ANTHROPIC_MODEL $cred_display"
-        # $ctx_report is empty unless the provider declared max_context_tokens
-        # or max_tool_use_concurrency, so this line stays byte-identical for
-        # every provider that declares neither. Each declared key appends its
-        # own field, in that order.
-        echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL${ctx_report}"
+        # $optional_report is empty unless the provider declared
+        # max_context_tokens or max_tool_use_concurrency, so this line stays
+        # byte-identical for every provider that declares neither. Each
+        # declared key appends its own field, in that order.
+        echo "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=$ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_SONNET_MODEL=$ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL=$ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDE_CODE_SUBAGENT_MODEL${optional_report}"
     else
         if [[ "${__LLM_SET_ADDITIVE:-0}" != "1" ]]; then
             _clear_protocol_env anthropic

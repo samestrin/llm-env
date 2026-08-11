@@ -30,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mid-session. Providers that declare no window print nothing, so the existing
   output is unchanged for them.
 
+- **New optional provider key `max_tool_use_concurrency`, exported as
+  `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`.** Claude Code fans tool calls out in
+  parallel, and against a rate-limited or flatrate-throttled gateway that
+  fan-out can trip the provider's own limits. Adding
+  `max_tool_use_concurrency=5` to a `protocol=anthropic` provider caps it.
+  Accepts a bare positive integer from 1 to 999 -- no `k`/`m` suffix, since a
+  fan-out count is not a token count and there is no unit to expand. A
+  malformed value is rejected with a warning and the key ignored; the provider
+  still loads. Like `max_context_tokens` it is ignored under `protocol=openai`,
+  `config validate` warns when it is set there, and `llm-env show` reports it
+  only when the provider declared it.
+
 ### Fixed
 
 - **Documented Claude Code model overrides that never worked.**

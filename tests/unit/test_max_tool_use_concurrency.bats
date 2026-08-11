@@ -287,3 +287,38 @@ _load_with_value() {
     [ -z "$mtc" ]
     [ ! -e /tmp/mtc_pwned2 ]
 }
+
+# ========================================
+# Non-ASCII digits
+# ========================================
+#
+# The digit test spells out 0123456789 rather than using [0-9] or [[:digit:]],
+# both of which are locale-defined. The validator's header comment claims
+# ASCII-only acceptance "under every LC_ALL"; without these the claim is
+# asserted in a comment and tested nowhere.
+
+@test "max_tool_use_concurrency: an Arabic-Indic digit is rejected" {
+    local mtc
+    _load_with_value "٣"
+    [ -z "$mtc" ]
+}
+
+@test "max_tool_use_concurrency: a fullwidth digit is rejected" {
+    local mtc
+    _load_with_value "１0"
+    [ -z "$mtc" ]
+}
+
+# A CRLF config must behave identically to an LF one. load_config strips the
+# trailing CR before the key dispatch; if that ever regressed, the value would
+# arrive as "5\r" and be rejected as non-numeric.
+@test "max_tool_use_concurrency: a CRLF config parses the value" {
+    local cfg="$BATS_TEST_TMPDIR/crlf.conf"
+    printf '[crlf_provider]\r\nbase_url=https://api.test.com/v1\r\napi_key_var=TEST_API_KEY\r\ndefault_model=test-model\r\nenabled=true\r\nprotocol=anthropic\r\nmax_tool_use_concurrency=5\r\n' > "$cfg"
+
+    load_config "$cfg"
+
+    local mtc
+    get_provider_value "PROVIDER_MAX_TOOL_USE_CONCURRENCY" "crlf_provider"; mtc="$__LLM_REPLY"
+    [ "$mtc" = "5" ]
+}
