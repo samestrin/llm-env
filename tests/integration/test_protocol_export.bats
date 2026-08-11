@@ -317,6 +317,39 @@ teardown() {
     [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
 }
 
+# ---- the "Additional Claude Code variables set" confirmation line ----
+#
+# Pinned by exact equality, not a substring glob: a glob cannot detect an
+# appended field, which is precisely the change being guarded. This line is
+# quoted in docs/claude-code-quickstart.md and had no test at all before, so
+# any edit to it was invisible to CI.
+
+_claude_code_line() {
+    printf '%s\n' "$output" | grep 'Additional Claude Code variables set'
+}
+
+@test "max context: the Claude Code variables line is unchanged when the key is unset" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    run cmd_set "anthropic_gateway"
+    [ "$status" -eq 0 ]
+
+    local line
+    line="$(_claude_code_line)"
+    [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5, ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5, ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5, CLAUDE_CODE_SUBAGENT_MODEL=glm-5" ]
+}
+
+@test "max context: the Claude Code variables line appends the token count when set" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    run cmd_set "anthropic_1m"
+    [ "$status" -eq 0 ]
+
+    local line
+    line="$(_claude_code_line)"
+    [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_SONNET_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5, CLAUDE_CODE_SUBAGENT_MODEL=kimi-k2.5, CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000" ]
+}
+
 @test "No protocol field: defaults to openai behavior" {
     # Set up environment for provider without protocol field
     export PROT_NO_PROTO_KEY="sk-default-key-12345"
