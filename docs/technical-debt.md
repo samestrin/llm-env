@@ -99,7 +99,16 @@ legitimately contain `#` (some URLs do).
 - **`load_config` slurps the file via `$(cat ...)`** instead of redirecting it
   into the `while` loop, costing a fork per load. `normalize_protocol` and
   `validate_protocol` are each called in a command substitution per `protocol=`
-  line.
+  line. (`normalize_max_context_tokens`, added later, deliberately avoids this
+  pattern -- it returns through `__LLM_REPLY` and forks nothing. It is the
+  shape the protocol pair should be refactored into.)
+- **`trim` is locale-sensitive at the edge.** `[[:space:]]` matches U+00A0
+  under a UTF-8 locale but not under `LC_ALL=C`, so a config value with a
+  trailing non-breaking space is trimmed on one machine and not the other.
+  Measured identically in bash 3.2 and zsh. For most keys the value simply
+  keeps a stray byte; for a validated key such as `max_context_tokens` it is
+  the difference between accepting `1m` and warning that it is malformed.
+  Affects every value `load_config` reads, not one key.
 
 ---
 

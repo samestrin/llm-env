@@ -61,10 +61,13 @@ enabled=true
 
 - **base_url**: The API endpoint URL
 - **api_key_var**: Environment variable name for the API key
+- **auth_token_var**: Environment variable name for a bearer token (`protocol=anthropic` only; either this or `api_key_var` is required there)
 - **default_model**: Default model to use with this provider
 - **description**: Human-readable description
 - **enabled**: Whether this provider is available (true/false)
 - **protocol**: API protocol type - `openai` (default) or `anthropic`
+- **signup_url**: Optional link shown when the provider's credential is missing
+- **max_context_tokens**: Optional. The model's real context window, exported as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (`protocol=anthropic` only). See [Declaring a context window](#declaring-a-context-window)
 
 ### Protocol Support
 
@@ -75,7 +78,7 @@ By default, all providers use the OpenAI protocol, exporting `OPENAI_*` environm
 - Uses: `Authorization: Bearer <key>` header
 
 **Anthropic Protocol:**
-- Exports: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+- Exports: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, and `CLAUDE_CODE_MAX_CONTEXT_TOKENS` when the provider declares `max_context_tokens`
 - Uses: `x-api-key: <key>` and `anthropic-version: 2023-06-01` headers
 - `ANTHROPIC_AUTH_TOKEN` is exported from the provider's `auth_token_var` when configured. When a provider only declares `api_key_var` (the common case for third-party Anthropic-compatible gateways like synthetic or alibaba), the API key is also mirrored into `ANTHROPIC_AUTH_TOKEN` so the key is sent as the `Authorization: Bearer` header those gateways expect. The mirror is skipped for the real Anthropic API (`api.anthropic.com`), which takes the `sk-ant-*` key via `x-api-key` and may reject it as a Bearer token. An explicit `auth_token_var` is never overwritten.
 
@@ -127,6 +130,46 @@ When you run `llm-env set anthropic`, this exports:
 - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` - Flag to reduce non-essential API traffic (defaults to false)
 
 The `llm-env test anthropic` command uses proper Anthropic authentication headers (`x-api-key` and `anthropic-version`).
+
+### Declaring a context window
+
+Claude Code sizes auto-compact from a table of models it recognizes. Point it at a third-party gateway and it warns:
+
+```
+"qwen3.7-plus" is not a model this version of Claude Code recognizes, so
+auto-compact will keep this session within 200k tokens (the context window it
+assumes).
+```
+
+A 200k ceiling on a model with a far larger window wastes most of it. Add `max_context_tokens` to the provider to declare the real one:
+
+```ini
+[claude_qwen-37]
+base_url=https://coding-intl.dashscope.aliyuncs.com/apps/anthropic
+auth_token_var=LLM_ALIBABA_API_KEY
+default_model=qwen3.7-plus
+protocol=anthropic
+enabled=true
+max_context_tokens=1m
+```
+
+`llm-env set claude_qwen-37` then exports `CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000`.
+
+**Accepted values.** A positive integer, optionally suffixed `k` or `m`:
+
+| Value | Exported |
+|---|---|
+| `1m` or `1M` | `1000000` |
+| `200k` or `200K` | `200000` |
+| `262144` | `262144` |
+
+The suffixes are **decimal**, not binary - `200k` is 200,000, not 204,800. This matches `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, whose documented maximum is exactly 1,000,000. Write the integer out if you need a power of two. Anything else - `1_000_000`, `1.5m`, `0`, a value above 999,999,999 - is rejected with a warning and the key is ignored; the provider still loads.
+
+**Only under `protocol=anthropic`.** `CLAUDE_CODE_*` variables mean nothing unless `ANTHROPIC_BASE_URL` points at the provider, so the key is ignored on an OpenAI-protocol provider. Since the quickstart importer emits paired `openai_*` and `anth_*` providers for each model, it is easy to put it on the wrong half - `llm-env config validate` warns when that happens.
+
+**llm-env owns the variable.** It is unset on every `set` of a provider that does not declare the key, including switching between two Anthropic providers and moving between members of a group. A stale window is worse than none: Claude Code would keep filling context against a limit the new model does not have, turning a cosmetic warning into hard mid-session overflow errors. Pre-exporting `CLAUDE_CODE_MAX_CONTEXT_TOKENS` in your shell profile therefore does not survive an `llm-env set` - put it in the provider's config instead.
+
+An alternative Claude Code offers is appending `[1m]` to the model name (`default_model=qwen3.7-plus[1m]`). That is Claude Code's own mechanism and llm-env passes the model string through untouched; the two are independent.
 
 ### Provider Groups
 
@@ -218,16 +261,19 @@ Manual edits to the JSONs are fine but will be overwritten by the next daily ref
 
 ### Claude Code Specific Configuration
 
-For enhanced Claude Code compatibility during Anthropic outages, you can override the Claude-specific model variables by setting them as environment variables before running `llm-env set anthropic`:
+`llm-env` owns most of the Claude Code variables: `set` clears them and re-exports them from the provider's configuration, so pre-exporting them in your shell profile has no effect. To point Claude Code at a different model during an Anthropic outage, override the model itself:
 
 ```bash
-export ANTHROPIC_DEFAULT_OPUS_MODEL="your-custom-model"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="your-custom-model"
-export ANTHROPIC_DEFAULT_HAIKU_MODEL="your-custom-model"
-export CLAUDE_CODE_SUBAGENT_MODEL="your-custom-model"
-export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="true"
+export OPENAI_MODEL_OVERRIDE="your-custom-model"
 llm-env set anthropic
 ```
+
+`OPENAI_MODEL_OVERRIDE` replaces the provider's `default_model`, and every Claude Code model variable follows it - `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL`. Despite the name it applies under both protocols.
+
+Two variables are exceptions:
+
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is only defaulted to `false`, never owned, so `export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true` in your profile does survive an `llm-env set` and an `llm-env unset`.
+- `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is owned outright and comes from the provider's `max_context_tokens` - see [Declaring a context window](#declaring-a-context-window).
 
 ### Overriding Existing Providers
 
