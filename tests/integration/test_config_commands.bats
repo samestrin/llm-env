@@ -125,6 +125,64 @@ max_context_tokens=banana"
     [[ "$output" == *"Errors: 0"* ]]
 }
 
+# ---- validate: max_tool_use_concurrency ----
+#
+# Same rationale as the max_context_tokens block above: config validate is the
+# only surface where a misplaced or misspelled key becomes visible.
+
+@test "config validate: reports max_tool_use_concurrency for an anthropic provider" {
+    _validate_with "[anth]
+base_url=https://anth.test
+api_key_var=LLM_ANTH_KEY
+default_model=anth-1
+protocol=anthropic
+enabled=true
+max_tool_use_concurrency=5"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"max_tool_use_concurrency: 5"* ]]
+}
+
+@test "config validate: warns when max_tool_use_concurrency is set on an openai provider" {
+    _validate_with "[oai]
+base_url=https://oai.test/v1
+api_key_var=LLM_OAI_KEY
+default_model=oai-1
+protocol=openai
+enabled=true
+max_tool_use_concurrency=5"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"max_tool_use_concurrency"* ]]
+    [[ "$output" == *"protocol=anthropic"* ]]
+    [[ "$output" == *"Errors: 0"* ]]
+}
+
+@test "config validate: says nothing about max_tool_use_concurrency when it is absent" {
+    _validate_with "[anth]
+base_url=https://anth.test
+api_key_var=LLM_ANTH_KEY
+default_model=anth-1
+protocol=anthropic
+enabled=true"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"max_tool_use_concurrency"* ]]
+}
+
+@test "config validate: an unparseable max_tool_use_concurrency is not an error" {
+    _validate_with "[anth]
+base_url=https://anth.test
+api_key_var=LLM_ANTH_KEY
+default_model=anth-1
+protocol=anthropic
+enabled=true
+max_tool_use_concurrency=banana"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Errors: 0"* ]]
+}
+
 # ---- remove ----
 
 @test "config remove: deletes only the named provider" {

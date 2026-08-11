@@ -68,6 +68,7 @@ enabled=true
 - **protocol**: API protocol type - `openai` (default) or `anthropic`
 - **signup_url**: Optional link shown when the provider's credential is missing
 - **max_context_tokens**: Optional. The model's real context window, exported as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (`protocol=anthropic` only). See [Declaring a context window](#declaring-a-context-window)
+- **max_tool_use_concurrency**: Optional. Caps how many tool calls Claude Code runs in parallel, exported as `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` (`protocol=anthropic` only). See [Declaring tool-use concurrency](#declaring-tool-use-concurrency)
 
 ### Protocol Support
 
@@ -78,7 +79,7 @@ By default, all providers use the OpenAI protocol, exporting `OPENAI_*` environm
 - Uses: `Authorization: Bearer <key>` header
 
 **Anthropic Protocol:**
-- Exports: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, and `CLAUDE_CODE_MAX_CONTEXT_TOKENS` when the provider declares `max_context_tokens`
+- Exports: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS` when the provider declares `max_context_tokens`, and `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` when the provider declares `max_tool_use_concurrency`
 - Uses: `x-api-key: <key>` and `anthropic-version: 2023-06-01` headers
 - `ANTHROPIC_AUTH_TOKEN` is exported from the provider's `auth_token_var` when configured. When a provider only declares `api_key_var` (the common case for third-party Anthropic-compatible gateways like synthetic or alibaba), the API key is also mirrored into `ANTHROPIC_AUTH_TOKEN` so the key is sent as the `Authorization: Bearer` header those gateways expect. The mirror is skipped for the real Anthropic API (`api.anthropic.com`), which takes the `sk-ant-*` key via `x-api-key` and may reject it as a Bearer token. An explicit `auth_token_var` is never overwritten.
 
@@ -170,6 +171,28 @@ The suffixes are **decimal**, not binary - `200k` is 200,000, not 204,800. This 
 **llm-env owns the variable.** It is unset on every `set` of a provider that does not declare the key, including switching between two Anthropic providers and moving between members of a group. A stale window is worse than none: Claude Code would keep filling context against a limit the new model does not have, turning a cosmetic warning into hard mid-session overflow errors. Pre-exporting `CLAUDE_CODE_MAX_CONTEXT_TOKENS` in your shell profile therefore does not survive an `llm-env set` - put it in the provider's config instead.
 
 An alternative Claude Code offers is appending `[1m]` to the model name (`default_model=qwen3.7-plus[1m]`). That is Claude Code's own mechanism and llm-env passes the model string through untouched; the two are independent.
+
+### Declaring tool-use concurrency
+
+Claude Code runs multiple tool calls in parallel by default. Against a rate-limited or flatrate-throttled gateway, that fan-out can trip the provider's own limits. Add `max_tool_use_concurrency` to cap it:
+
+```ini
+[claude_qwen-37]
+base_url=https://coding-intl.dashscope.aliyuncs.com/apps/anthropic
+auth_token_var=LLM_ALIBABA_API_KEY
+default_model=qwen3.7-plus
+protocol=anthropic
+enabled=true
+max_tool_use_concurrency=5
+```
+
+`llm-env set claude_qwen-37` then exports `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=5`.
+
+**Accepted values.** A bare positive integer from 1 to 999 - no `k`/`m` suffix, since this is a fan-out count, not a token count. Anything else - `0`, a negative number, a decimal, a value above 999 - is rejected with a warning and the key is ignored; the provider still loads.
+
+**Only under `protocol=anthropic`**, for the same reason as `max_context_tokens`: `CLAUDE_CODE_*` variables mean nothing unless `ANTHROPIC_BASE_URL` points at the provider. `llm-env config validate` warns if the key ends up on the OpenAI-protocol half of a quickstart-emitted pair.
+
+**llm-env owns the variable**, unset on every `set` that does not declare the key, the same as `max_context_tokens` - see [Declaring a context window](#declaring-a-context-window) for why that matters across group switches.
 
 ### Provider Groups
 
@@ -274,6 +297,7 @@ Two variables are exceptions:
 
 - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is only defaulted to `false`, never owned, so `export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true` in your profile does survive an `llm-env set` and an `llm-env unset`.
 - `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is owned outright and comes from the provider's `max_context_tokens` - see [Declaring a context window](#declaring-a-context-window).
+- `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY` is owned outright and comes from the provider's `max_tool_use_concurrency` - see [Declaring tool-use concurrency](#declaring-tool-use-concurrency).
 
 ### Overriding Existing Providers
 
