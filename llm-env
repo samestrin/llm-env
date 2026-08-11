@@ -926,7 +926,38 @@ normalize_max_context_tokens() {
             ;;
     esac
 
-    __LLM_REPLY="${digits}${scale}"
+    # Strip leading zeros rather than hand them to $(( )), where 010 is octal 8.
+    # The pattern requires a second character, so a lone "0" survives to be
+    # rejected below instead of becoming the empty string.
+    while :; do
+        case "$digits" in
+            0?*) digits="${digits#0}" ;;
+            *)   break ;;
+        esac
+    done
+
+    # Rejects 0, 00, 0k and 000m. Checked BEFORE the unit is applied: 0k would
+    # otherwise become "0000", which is digits-only and would pass every
+    # remaining test.
+    if [[ "$digits" == "0" ]]; then
+        echo "⚠️  Warning: max_context_tokens '$raw' for provider '$provider' must be greater than zero. Ignoring." >&2
+        return 0
+    fi
+
+    digits="${digits}${scale}"
+
+    # Range by string length, not by numeric comparison: after the strip above,
+    # digit count IS magnitude. Nine digits is 999,999,999 tokens -- three
+    # orders of magnitude past any real context window, and small enough that a
+    # consumer doing 32-bit arithmetic on it cannot overflow. On bash 3.2
+    # $(( 99999999999999999999 )) yields 7766279631452241919 with exit status 0,
+    # so without this an over-long value would be exported as a plausible lie.
+    if [[ ${#digits} -gt 9 ]]; then
+        echo "⚠️  Warning: max_context_tokens '$raw' for provider '$provider' is out of range (1-999999999). Ignoring." >&2
+        return 0
+    fi
+
+    __LLM_REPLY="$digits"
     return 0
 }
 
