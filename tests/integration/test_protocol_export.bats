@@ -450,6 +450,44 @@ _claude_code_line() {
     [[ ! "$output" =~ "OPENAI_API_KEY" ]]
 }
 
+# cmd_show is the only surface where a user can confirm the declared window
+# actually landed -- `set` scrolls past, and a wrong value is otherwise silent
+# until Claude Code overruns the real context.
+
+@test "cmd_show: displays CLAUDE_CODE_MAX_CONTEXT_TOKENS when it is set" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_1m"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CLAUDE_CODE_MAX_CONTEXT_TOKENS = 1000000"* ]]
+}
+
+@test "cmd_show: omits CLAUDE_CODE_MAX_CONTEXT_TOKENS when it is unset" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_gateway"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"ANTHROPIC_BASE_URL"* ]]
+    [[ "$output" != *"MAX_CONTEXT_TOKENS"* ]]
+}
+
+@test "cmd_show: omits CLAUDE_CODE_MAX_CONTEXT_TOKENS under the openai protocol" {
+    export OPENAI_TEST_KEY="sk-test-key-12345"
+
+    cmd_set "openai_provider"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"MAX_CONTEXT_TOKENS"* ]]
+}
+
 @test "cmd_show: displays only active protocol when other is not configured" {
     # Set up only OpenAI
     export OPENAI_TEST_KEY="sk-test-key-12345"
