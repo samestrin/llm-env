@@ -349,6 +349,164 @@ EOF
     [ "$second_model" = "second-model" ]
 }
 
+# ========================================
+# Leading zeros: never octal
+# ========================================
+#
+# The expansion is string concatenation precisely so a value never reaches
+# $(( )), where 010 is octal 8. Leading zeros are stripped by parameter
+# expansion instead, which is exact at any magnitude.
+
+@test "max_context_tokens: 010 is ten, not octal eight" {
+    local mct
+    _load_with_value "010"
+    [ "$mct" = "10" ]
+}
+
+@test "max_context_tokens: 0200 is two hundred, not octal one twenty-eight" {
+    local mct
+    _load_with_value "0200"
+    [ "$mct" = "200" ]
+}
+
+@test "max_context_tokens: leading zeros are stripped before the suffix applies" {
+    local mct
+    _load_with_value "0200k"
+    [ "$mct" = "200000" ]
+}
+
+# ========================================
+# Zero
+# ========================================
+#
+# Rejected before the unit is applied. Applying it first would turn 0k into
+# "0000", which is digits-only and would sail through any later check.
+
+@test "max_context_tokens: zero is rejected" {
+    local mct
+    _load_with_value "0"
+    [ -z "$mct" ]
+}
+
+@test "max_context_tokens: repeated zeros are rejected" {
+    local mct
+    _load_with_value "00"
+    [ -z "$mct" ]
+}
+
+@test "max_context_tokens: zero with a k suffix is rejected" {
+    local mct
+    _load_with_value "0k"
+    [ -z "$mct" ]
+}
+
+@test "max_context_tokens: zero with an m suffix is rejected" {
+    local mct
+    _load_with_value "0m"
+    [ -z "$mct" ]
+}
+
+# ========================================
+# Range: no silent wrap
+# ========================================
+#
+# bash 3.2 evaluates $(( 99999999999999999999 )) to 7766279631452241919 with
+# exit status 0, so an over-long value would otherwise be exported as a
+# plausible-looking wrong number. The bound is a digit count, which after the
+# leading-zero strip is exactly magnitude.
+
+@test "max_context_tokens: ten digits is rejected at the lower out-of-range boundary" {
+    local mct
+    _load_with_value "1000000000"
+    [ -z "$mct" ]
+}
+
+@test "max_context_tokens: a value that overflows only after the suffix is rejected" {
+    local mct
+    _load_with_value "1000m"
+    [ -z "$mct" ]
+}
+
+@test "max_context_tokens: an absurd window is rejected" {
+    local mct
+    _load_with_value "9999m"
+    [ -z "$mct" ]
+}
+
+@test "max_context_tokens: a twenty digit value is rejected, not wrapped" {
+    local mct
+    _load_with_value "99999999999999999999"
+    [ -z "$mct" ]
+    [[ "$mct" != -* ]]
+}
+
+@test "max_context_tokens: a two hundred digit value is rejected" {
+    local mct long
+    long="$(printf '9%.0s' $(seq 1 200))"
+    _load_with_value "$long"
+    [ -z "$mct" ]
+    [[ "$mct" != -* ]]
+}
+
+# ========================================
+# Metacharacters
+# ========================================
+#
+# A filesystem sentinel, not output grepping: a payload that ran inside a
+# command substitution can corrupt the runner into reporting a pass.
+
+@test "max_context_tokens: a shell metacharacter payload is rejected and never runs" {
+    local mct sentinel
+    sentinel="$(new_sentinel mct-semicolon)"
+    _load_with_value "1000; touch $sentinel"
+    [ -z "$mct" ]
+    assert_sentinel_absent "$sentinel"
+}
+
+@test "max_context_tokens: a command substitution payload is rejected and never runs" {
+    local mct sentinel
+    sentinel="$(new_sentinel mct-cmdsub)"
+    _load_with_value '1000$(touch '"$sentinel"')'
+    [ -z "$mct" ]
+    assert_sentinel_absent "$sentinel"
+}
+
+@test "max_context_tokens: a backtick payload is rejected and never runs" {
+    local mct sentinel
+    sentinel="$(new_sentinel mct-backtick)"
+    _load_with_value '1000`touch '"$sentinel"'`'
+    [ -z "$mct" ]
+    assert_sentinel_absent "$sentinel"
+}
+
+@test "max_context_tokens: a rejected payload leaves no metacharacter in the store" {
+    local mct
+    _load_with_value "1000; rm -rf /tmp/nothing"
+    [[ "$mct" != *";"* ]]
+    [[ "$mct" != *"\$"* ]]
+    [[ "$mct" != *'`'* ]]
+    [ -z "$mct" ]
+}
+
+# ========================================
+# Non-ASCII digits
+# ========================================
+#
+# The digit test spells out 0123456789 rather than using [0-9] or [[:digit:]],
+# both of which are locale-defined. These must reject under every LC_ALL.
+
+@test "max_context_tokens: an Arabic-Indic digit is rejected" {
+    local mct
+    _load_with_value "٣m"
+    [ -z "$mct" ]
+}
+
+@test "max_context_tokens: a fullwidth digit is rejected" {
+    local mct
+    _load_with_value "1２8k"
+    [ -z "$mct" ]
+}
+
 # A CRLF config must behave identically to an LF one. load_config strips the
 # trailing CR before the key dispatch; if that ever regressed, the value would
 # arrive as "200k\r" and be rejected as non-numeric.
