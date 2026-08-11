@@ -30,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mid-session. Providers that declare no window print nothing, so the existing
   output is unchanged for them.
 
+- **New optional provider key `max_tool_use_concurrency`, exported as
+  `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`.** Claude Code fans tool calls out in
+  parallel, and against a rate-limited or flatrate-throttled gateway that
+  fan-out can trip the provider's own limits. Adding
+  `max_tool_use_concurrency=5` to a `protocol=anthropic` provider caps it.
+  Accepts a bare positive integer from 1 to 999 -- no `k`/`m` suffix, since a
+  fan-out count is not a token count and there is no unit to expand. A
+  malformed value is rejected with a warning and the key ignored; the provider
+  still loads. Like `max_context_tokens` it is ignored under `protocol=openai`,
+  `config validate` warns when it is set there, and `llm-env show` reports it
+  only when the provider declared it.
+
 ### Fixed
 
 - **Documented Claude Code model overrides that never worked.**
@@ -38,10 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variables are owned by `set_single_provider`, which clears and re-exports
   them from the provider's config, so a pre-exported value was destroyed every
   time. The documented mechanism is now `OPENAI_MODEL_OVERRIDE`, which is
-  actually honoured and applies under both protocols, with the two genuine
+  actually honoured and applies under both protocols, with the genuine
   exceptions (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which llm-env only
-  defaults, and `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, which comes from the
-  provider) called out.
+  defaults, and the `CLAUDE_CODE_MAX_*` keys, which come from the provider)
+  called out.
 
 - **`install.sh` no longer leaves a broken `llm-env` shell function in place.**
   The idempotency guard only checked that *some* `llm-env()` block existed in

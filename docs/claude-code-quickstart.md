@@ -132,6 +132,16 @@ max_context_tokens=1m
 
 Re-run `llm-env set anth_synth_kimi-k2.5` and the warning is gone. Check the model's own documentation for its real window — `1m`, `200k`, or a plain integer such as `262144` all work, and the suffixes are decimal. Details in [docs/configuration.md](configuration.md#declaring-a-context-window).
 
+**If your provider rate-limits parallel tool calls**, add `max_tool_use_concurrency` the same way:
+
+```ini
+[anth_synth_kimi-k2.5]
+# …existing keys…
+max_tool_use_concurrency=5
+```
+
+Re-run `llm-env set anth_synth_kimi-k2.5` and Claude Code caps its tool-call fan-out at 5. Details in [docs/configuration.md](configuration.md#declaring-tool-use-concurrency).
+
 ## Step 6 — Switch models any time
 
 ```bash

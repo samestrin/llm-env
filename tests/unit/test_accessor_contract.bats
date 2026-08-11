@@ -204,6 +204,35 @@ _mct_validator_body() {
     [ "$status" -ne 0 ]
 }
 
+_mtc_validator_body() {
+    sed -n '/^normalize_max_tool_use_concurrency() {/,/^}/p' \
+        "$BATS_TEST_DIRNAME/../../llm-env" | grep -v '^[[:space:]]*#'
+}
+
+@test "max_tool_use_concurrency validation uses case globbing, not a regex" {
+    local body
+    body="$(_mtc_validator_body)"
+    [ -n "$body" ]
+    run grep -n '=~' <<< "$body"
+    [ "$status" -ne 0 ]
+}
+
+@test "max_tool_use_concurrency validation forks no subshell" {
+    local body
+    body="$(_mtc_validator_body)"
+    [ -n "$body" ]
+    run grep -nE '\$\(|`|\| *(tr|sed|awk|grep) ' <<< "$body"
+    [ "$status" -ne 0 ]
+}
+
+@test "max_tool_use_concurrency validation does no arithmetic on the config value" {
+    local body
+    body="$(_mtc_validator_body)"
+    [ -n "$body" ]
+    run grep -nE '\$\(\(|(^|[^[:alnum:]_])let ' <<< "$body"
+    [ "$status" -ne 0 ]
+}
+
 @test "no unquoted word-split loop over a space-separated list" {
     # zsh does not word-split unquoted parameter expansions, so
     # `for x in $list` silently iterates ONCE with the whole string. That is

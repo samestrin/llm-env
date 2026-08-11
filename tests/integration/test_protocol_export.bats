@@ -16,6 +16,7 @@ description = OpenAI provider with explicit protocol
 enabled = true
 protocol = openai
 max_context_tokens = 1m
+max_tool_use_concurrency = 5
 
 [anthropic_provider]
 base_url = https://api.anthropic.com
@@ -58,8 +59,30 @@ default_model = default-model-1
 description = Provider without protocol field
 enabled = true
 
+[anthropic_conc5]
+base_url = https://gateway.example.com/anthropic
+api_key_var = ANTHROPIC_GATEWAY_KEY
+default_model = kimi-k2.5
+description = Third-party gateway declaring a concurrency cap
+enabled = true
+protocol = anthropic
+max_tool_use_concurrency = 5
+
+[anthropic_both]
+base_url = https://gateway.example.com/anthropic
+api_key_var = ANTHROPIC_GATEWAY_KEY
+default_model = kimi-k2.5
+description = Third-party gateway declaring both optional keys
+enabled = true
+protocol = anthropic
+max_context_tokens = 1m
+max_tool_use_concurrency = 7
+
 [group:mixed_windows]
-providers = anthropic_1m,anthropic_gateway'
+providers = anthropic_1m,anthropic_gateway
+
+[group:mixed_concurrency]
+providers = anthropic_conc5,anthropic_gateway'
 
     create_test_config "$test_config"
 
@@ -76,6 +99,7 @@ teardown() {
     unset ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL
     unset ANTHROPIC_DEFAULT_HAIKU_MODEL CLAUDE_CODE_SUBAGENT_MODEL
     unset CLAUDE_CODE_MAX_CONTEXT_TOKENS
+    unset CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
 }
 
 @test "OpenAI protocol: exports OPENAI_API_KEY correctly" {
@@ -317,6 +341,56 @@ teardown() {
     [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
 }
 
+# ---- max_tool_use_concurrency -> CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY ----
+#
+# Same rationale and switch-path coverage as max_context_tokens above: a stale
+# concurrency cap from a previous provider is worse than none.
+
+@test "max concurrency: an anthropic provider with the key exports it" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_conc5"
+
+    [ "$CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" = "5" ]
+}
+
+@test "max concurrency: an anthropic provider without the key exports nothing" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_gateway"
+
+    [ -z "${CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY:-}" ]
+}
+
+@test "max concurrency: an openai provider never exports it even when configured" {
+    # openai_provider carries max_tool_use_concurrency=5 in the fixture on
+    # purpose. Testing an openai provider WITHOUT the key would prove nothing.
+    export OPENAI_TEST_KEY="sk-test-key-12345"
+
+    cmd_set "openai_provider"
+
+    [ -z "${CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY:-}" ]
+}
+
+@test "max concurrency: anthropic -> anthropic without the key drops the value" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_conc5"
+    [ "$CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" = "5" ]
+
+    cmd_set "anthropic_gateway"
+    [ -z "${CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY:-}" ]
+}
+
+@test "max concurrency: a group member without the key does not inherit it" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "mixed_concurrency"
+
+    [ "$ANTHROPIC_MODEL" = "glm-5" ]
+    [ -z "${CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY:-}" ]
+}
+
 # ---- the "Additional Claude Code variables set" confirmation line ----
 #
 # Pinned by exact equality, not a substring glob: a glob cannot detect an
@@ -348,6 +422,58 @@ _claude_code_line() {
     local line
     line="$(_claude_code_line)"
     [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_SONNET_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5, CLAUDE_CODE_SUBAGENT_MODEL=kimi-k2.5, CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000" ]
+}
+
+@test "max concurrency: the Claude Code variables line appends the concurrency cap when set" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    run cmd_set "anthropic_conc5"
+    [ "$status" -eq 0 ]
+
+    local line
+    line="$(_claude_code_line)"
+    [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_SONNET_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5, CLAUDE_CODE_SUBAGENT_MODEL=kimi-k2.5, CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=5" ]
+}
+
+# ---- both optional keys on one provider ----
+#
+# $optional_report accumulates one field per declared key, but until this
+# fixture existed every test declared exactly ONE of the two, so the
+# accumulation was asserted only in a comment. The two branches use different
+# assignment forms -- the first assigns, the second appends -- so a third
+# optional key copied from the FIRST branch would silently drop every earlier
+# field and every single-key test above would still pass.
+
+@test "both keys: a provider declaring both exports both variables" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_both"
+
+    [ "$CLAUDE_CODE_MAX_CONTEXT_TOKENS" = "1000000" ]
+    [ "$CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" = "7" ]
+}
+
+@test "both keys: the Claude Code variables line appends both fields in order" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    run cmd_set "anthropic_both"
+    [ "$status" -eq 0 ]
+
+    local line
+    line="$(_claude_code_line)"
+    [ "$line" = "🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_SONNET_MODEL=kimi-k2.5, ANTHROPIC_DEFAULT_HAIKU_MODEL=kimi-k2.5, CLAUDE_CODE_SUBAGENT_MODEL=kimi-k2.5, CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000, CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=7" ]
+}
+
+@test "both keys: switching to a provider declaring neither clears both" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_both"
+    [ -n "$CLAUDE_CODE_MAX_CONTEXT_TOKENS" ]
+    [ -n "$CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY" ]
+
+    cmd_set "anthropic_gateway"
+    [ -z "${CLAUDE_CODE_MAX_CONTEXT_TOKENS:-}" ]
+    [ -z "${CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY:-}" ]
 }
 
 @test "No protocol field: defaults to openai behavior" {
@@ -486,6 +612,40 @@ _claude_code_line() {
 
     [ "$status" -eq 0 ]
     [[ "$output" != *"MAX_CONTEXT_TOKENS"* ]]
+}
+
+@test "cmd_show: displays CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY when it is set" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_conc5"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY = 5"* ]]
+}
+
+@test "cmd_show: omits CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY when it is unset" {
+    export ANTHROPIC_GATEWAY_KEY="gateway-key-12345"
+
+    cmd_set "anthropic_gateway"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"ANTHROPIC_BASE_URL"* ]]
+    [[ "$output" != *"MAX_TOOL_USE_CONCURRENCY"* ]]
+}
+
+@test "cmd_show: omits CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY under the openai protocol" {
+    export OPENAI_TEST_KEY="sk-test-key-12345"
+
+    cmd_set "openai_provider"
+
+    run cmd_show
+
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"MAX_TOOL_USE_CONCURRENCY"* ]]
 }
 
 @test "cmd_show: displays only active protocol when other is not configured" {
