@@ -1,6 +1,6 @@
 {
   "schema_version": "2",
-  "generated_at": "2026-07-12T08:21:49Z",
+  "generated_at": "2026-09-05T10:10:46Z",
   "source": "synthetic",
   "vendor_short": "synth",
   "endpoints": {
@@ -22,6 +22,17 @@
       "upstream_id": "hf:openai/gpt-oss-120b"
     },
     {
+      "id": "glm-5.3-flash",
+      "family": "glm",
+      "version": "5.3",
+      "description": "GLM 5.3 Flash from synthetic.new",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
+      "upstream_id": "hf:zai-org/GLM-5.3-Flash"
+    },
+    {
       "id": "glm-5.2",
       "family": "glm",
       "version": "5.2",
@@ -33,37 +44,26 @@
       "upstream_id": "hf:zai-org/GLM-5.2"
     },
     {
-      "id": "kimi-k2.7-code",
+      "id": "kimi-k3",
       "family": "kimi",
-      "version": "2.7",
-      "description": "Kimi 2.7 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:moonshotai/Kimi-K2.7-Code"
-    },
-    {
-      "id": "qwen3.6-27b",
-      "family": "qwen",
-      "version": "3.6",
-      "description": "Qwen 3.6 from synthetic.new",
-      "protocols": [
-        "openai",
-        "anthropic"
-      ],
-      "upstream_id": "hf:Qwen/Qwen3.6-27B"
-    },
-    {
-      "id": "minimax-m3",
-      "family": "minimax",
       "version": "3",
-      "description": "Minimax 3 from synthetic.new",
+      "description": "Kimi 3 from synthetic.new",
       "protocols": [
         "openai",
         "anthropic"
       ],
-      "upstream_id": "hf:MiniMaxAI/MiniMax-M3"
+      "upstream_id": "hf:moonshotai/Kimi-K3"
+    },
+    {
+      "id": "qwen3.8-27b",
+      "family": "qwen",
+      "version": "3.8",
+      "description": "Qwen 3.8 from synthetic.new",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
+      "upstream_id": "hf:Qwen/Qwen3.8-27B"
     },
     {
       "id": "glm-4.7-flash",
@@ -79,10 +79,9 @@
   ],
   "family_latest": {
     "gpt-oss": "gpt-oss-120b",
+    "glm-flash": "glm-5.3-flash",
     "glm": "glm-5.2",
-    "kimi": "kimi-k2.7-code",
-    "qwen": "qwen3.6-27b",
-    "minimax": "minimax-m3",
-    "glm-flash": "glm-4.7-flash"
+    "kimi": "kimi-k3",
+    "qwen": "qwen3.8-27b"
   }
 }
