@@ -140,6 +140,7 @@ user_config() {
     grep -A 2 '^\[group:anth_synth_kimi\]$' "$cfg" | grep -q '^providers=anth_synth_kimi-k2.5$'
 
     # And `set` resolves it to the anthropic provider only.
+    export LLM_SYNTHETIC_API_KEY="test-key"
     load_config "$cfg"
     cmd_set anth_synth_kimi
     [ "$ANTHROPIC_MODEL" = "hf:moonshotai/Kimi-K2.5" ]
