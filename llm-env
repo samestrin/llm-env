@@ -3036,6 +3036,12 @@ _qs_process_v2_file() {
             esac
             [[ -z "$providers_csv" ]] && continue
             _qs_emit_group "$user_config" "${vendor_short}_${fam}" "$providers_csv"
+            # Version-free Anthropic alias (anth_synth_kimi), so docs and
+            # Claude Code setups don't break when the catalog bumps a version.
+            if [[ "${model_protocols[$idx]}" == *anthropic* ]]; then
+                _qs_emit_group "$user_config" "anth_${vendor_short}_${fam}" \
+                    "anth_${vendor_short}_${fam_id}"
+            fi
         done < <(_qs_extract_string_pairs "$family_latest_obj")
     fi
 

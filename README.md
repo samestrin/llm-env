@@ -47,7 +47,7 @@ If you work with multiple AI providers, you've likely experienced these pain poi
 `llm-env quickstart` is an interactive setup command that adds the "Recommended" coding models from two providers to your config and walks you through getting an API key:
 
 - **[Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww)** — Kimi, GLM, MiniMax, DeepSeek, Qwen, Llama, GPT-OSS, and more, all hosted behind one subscription.
-- **[Alibaba Cloud Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX)** — the four models Alibaba currently recommends for coding (today: `qwen3.6-plus`, `kimi-k2.5`, `glm-5`, `MiniMax-M2.5`).
+- **[Alibaba Cloud Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX)** — the models Alibaba currently recommends for coding (today: `qwen3.7-plus`, `qwen3.6-plus`, `kimi-k2.5`, `glm-5`, `MiniMax-M2.5`).
 
 Both providers serve the same models on **OpenAI-compatible** *and* **Anthropic-compatible** endpoints, so each model becomes addressable from any tool you already use — including Claude Code.
 
@@ -72,10 +72,10 @@ Once your config is populated, pick a model:
 
 ```bash
 llm-env set synth_kimi              # latest Kimi on Synthetic, both protocols
-llm-env set synth_qwen-coder        # latest Qwen Coder on Synthetic
+llm-env set synth_qwen              # latest Qwen on Synthetic
 llm-env set synth_glm-flash         # latest GLM Flash (the speed-tuned variant)
 llm-env set alibaba_qwen            # latest Qwen on Alibaba's Coding Plan
-llm-env set anth_synth_kimi-k2.5    # specific model, Anthropic protocol only
+llm-env set anth_synth_kimi         # latest Kimi, Anthropic protocol only
 ```
 
 The full set, naming scheme, and how `family-latest` aliases work is documented in [docs/configuration.md](docs/configuration.md#quickstart-json-schema-v2). The model lists in this repo are refreshed daily by an automated job; once you've run `quickstart`, your config stays as-is unless you re-run it after a `git pull`. (The parser skips providers that already exist, so re-running is safe and won't touch any sections you've added or edited.)
@@ -87,20 +87,20 @@ The headline use case for v1.5: **run Claude Code against Kimi, GLM, MiniMax, Qw
 Both providers expose Anthropic-compatible endpoints, and `llm-env` exports the exact environment variables Claude Code reads to choose its endpoint and model (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL` / `SONNET` / `HAIKU`, `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY`). So switching is a single command in the same shell you'll run `claude` from:
 
 ```bash
-llm-env set anth_synth_kimi-k2.5     # Claude Code talks to Kimi K2.5 via Synthetic
+llm-env set anth_synth_kimi          # Claude Code talks to the latest Kimi via Synthetic
 claude
 
-llm-env set anth_alibaba_qwen3.6-plus # …or Qwen 3.6 via Alibaba Coding Plan
+llm-env set anth_alibaba_qwen        # …or the latest Qwen via Alibaba Coding Plan
 claude
 
 llm-env unset                         # clear all overrides — Claude Code falls back
 claude                                # to its own native login (real Claude)
 ```
 
-**Context windows:** Claude Code caps auto-compact at 200k for any model it doesn't recognize — which is every third-party model — and says so on startup. Add `max_context_tokens` to the provider to declare the real window:
+**Context windows:** Claude Code caps auto-compact at 200k for any model it doesn't recognize — which is every third-party model — and says so on startup. Add `max_context_tokens` to the provider to declare the real window. Put it on the versioned provider section (`llm-env list` shows which one `anth_synth_kimi` points at), not on the alias:
 
 ```ini
-[anth_synth_kimi-k2.5]
+[anth_synth_kimi-k3]
 # …
 protocol=anthropic
 max_context_tokens=1m     # exports CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000
@@ -111,7 +111,7 @@ The `k` and `m` suffixes are decimal (`200k` is 200,000). See [Declaring a conte
 **Tool concurrency:** add `max_tool_use_concurrency` to cap how many tool calls Claude Code runs in parallel against a rate-limited gateway:
 
 ```ini
-[anth_synth_kimi-k2.5]
+[anth_synth_kimi-k3]
 # …
 protocol=anthropic
 # exports CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=5
@@ -478,7 +478,7 @@ bats tests/integration/test_providers.bats
 ### 1. [Claude Code](https://docs.claude.com/en/docs/claude-code)
 Run Claude Code against **any Anthropic-compatible endpoint** — no Anthropic API key required. The `quickstart` command sets you up on [Synthetic](https://synthetic.new/?referral=ugceNlJ08A3Eeww) and [Alibaba Coding Plan](https://www.alibabacloud.com/campaign/benefits?referral_code=A92LUX), which between them give you Kimi, GLM, Qwen, DeepSeek, MiniMax, and more behind one subscription each. Provider-direct APIs (e.g. [Kimi](https://www.kimi.com/code/en), [MiniMax](https://platform.minimax.io/subscribe/token-plan)) also work.
 ```bash
-llm-env set anth_synth_kimi-k2.5    # Claude Code now talks to Kimi via Synthetic
+llm-env set anth_synth_kimi         # Claude Code now talks to Kimi via Synthetic
 claude
 ```
 Full walkthrough: [docs/claude-code-quickstart.md](docs/claude-code-quickstart.md).

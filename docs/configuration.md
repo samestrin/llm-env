@@ -268,7 +268,14 @@ providers=openai_synth_glm-5.1,anth_synth_glm-5.1
 providers=openai_synth_qwen3-coder-480b-a35b-instruct,anth_synth_qwen3-coder-480b-a35b-instruct
 ```
 
-So `llm-env set synth_glm` always points at the newest GLM, even when the daily refresh promotes a new version.
+When the latest model speaks the Anthropic protocol, a second, Anthropic-only alias is added for Claude Code:
+
+```ini
+[group:anth_synth_glm]
+providers=anth_synth_glm-5.1
+```
+
+So `llm-env set synth_glm` (or `anth_synth_glm`) always points at the newest GLM, even when the daily refresh promotes a new version.
 
 #### Where the JSONs come from
 
