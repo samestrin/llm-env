@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Version-free Anthropic aliases from `quickstart`.** Each `family_latest` entry whose model speaks the Anthropic protocol now also emits `[group:anth_<vendor>_<family>]` (e.g. `anth_synth_kimi`, `anth_alibaba_qwen`) pointing at that model's `anth_` provider only. Claude Code setups and docs no longer break when the daily catalog refresh bumps a version (`kimi-k2.5` -> `kimi-k2.7-code` -> `kimi-k3`). Existing configs pick them up on the next `quickstart` run; nothing already present is touched.
+
+### Changed
+
+- README, `docs/claude-code-quickstart.md` and `docs/configuration.md` now use version-free aliases in examples, and drop names the catalog no longer ships (`synth_qwen-coder`, `anth_synth_kimi-k2.5`). The quickstart Step 4 output no longer shows two protocol lines for an Anthropic-only `set`.
+
 ## [1.8.0] - 2026-08-11
 
 Two new optional per-provider keys for driving Claude Code against third-party

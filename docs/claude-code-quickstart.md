@@ -10,7 +10,7 @@ Claude Code is a great CLI; it's not married to Claude. Both Synthetic and Aliba
 
 Real-world reasons to do this:
 - **Pricing.** Synthetic's flat subscription and Alibaba's Coding Plan tiers are both cheaper than direct Anthropic API access at moderate volume.
-- **Model variety.** Kimi-K2.5 for long context, Qwen3-Coder-480B for code-specific work, GLM-5.1 for fast general-purpose, DeepSeek-R1 for reasoning. All addressable from the same `claude` invocation.
+- **Model variety.** Kimi, Qwen, GLM, DeepSeek, MiniMax, and more. All addressable from the same `claude` invocation.
 - **Quota separation.** Your Synthetic/Alibaba subscription doesn't burn against your Anthropic API limits or vice versa.
 
 ## Step 1 — Install llm-env
@@ -93,18 +93,17 @@ source ~/.bashrc   # or source ~/.zshrc
 ## Step 4 — Point Claude Code at your model of choice
 
 ```bash
-llm-env set anth_synth_kimi-k2.5
+llm-env set anth_synth_kimi
 ```
 
 You should see:
 
 ```
-✅ Set: provider=openai_synth_kimi-k2.5 protocol=openai host=api.synthetic.new model=hf:moonshotai/Kimi-K2.5
-✅ Set: provider=anth_synth_kimi-k2.5 protocol=anthropic host=api.synthetic.new model=hf:moonshotai/Kimi-K2.5
-🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=hf:moonshotai/Kimi-K2.5, ...
+✅ Set: provider=anth_synth_kimi-k3 protocol=anthropic host=api.synthetic.new model=hf:moonshotai/Kimi-K3 key=•••••
+🔧 Additional Claude Code variables set: ANTHROPIC_DEFAULT_OPUS_MODEL=hf:moonshotai/Kimi-K3, ...
 ```
 
-This is using the per-model **group** — it activates both the OpenAI-compatible and Anthropic-compatible variants of the same model in one shot, so any tool you run in this shell (Claude Code, aichat, your own scripts) all use the same backend.
+`anth_synth_kimi` is a **family-latest alias**: it always points at the newest Kimi and sets only the Anthropic-compatible variables Claude Code reads. Use `synth_kimi` instead to activate both the OpenAI-compatible and Anthropic-compatible variants in one shot, so any tool you run in this shell (Claude Code, aichat, your own scripts) uses the same backend.
 
 ## Step 5 — Run Claude Code
 
@@ -112,48 +111,48 @@ This is using the per-model **group** — it activates both the OpenAI-compatibl
 claude
 ```
 
-Claude Code now talks to Kimi K2.5 via Synthetic. Use it exactly like you would against real Claude — the protocol is identical.
+Claude Code now talks to Kimi via Synthetic. Use it exactly like you would against real Claude — the protocol is identical.
 
 **If Claude Code warns about the model on startup**, it will say something like:
 
 ```
-"hf:moonshotai/Kimi-K2.5" is not a model this version of Claude Code
+"hf:moonshotai/Kimi-K3" is not a model this version of Claude Code
 recognizes, so auto-compact will keep this session within 200k tokens (the
 context window it assumes).
 ```
 
-That's Claude Code being conservative about a model it has no entry for, and it will squeeze long sessions into 200k even when the model accepts far more. Tell it the real window by adding one line to that provider in `~/.config/llm-env/config.conf`:
+That's Claude Code being conservative about a model it has no entry for, and it will squeeze long sessions into 200k even when the model accepts far more. Tell it the real window by adding one line to that provider in `~/.config/llm-env/config.conf`. Use the versioned section the alias points at (shown in the `✅ Set:` line), not the alias:
 
 ```ini
-[anth_synth_kimi-k2.5]
+[anth_synth_kimi-k3]
 # …existing keys…
 max_context_tokens=1m
 ```
 
-Re-run `llm-env set anth_synth_kimi-k2.5` and the warning is gone. Check the model's own documentation for its real window — `1m`, `200k`, or a plain integer such as `262144` all work, and the suffixes are decimal. Details in [docs/configuration.md](configuration.md#declaring-a-context-window).
+Re-run `llm-env set anth_synth_kimi` and the warning is gone. Check the model's own documentation for its real window — `1m`, `200k`, or a plain integer such as `262144` all work, and the suffixes are decimal. Details in [docs/configuration.md](configuration.md#declaring-a-context-window).
 
 **If your provider rate-limits parallel tool calls**, add `max_tool_use_concurrency` the same way:
 
 ```ini
-[anth_synth_kimi-k2.5]
+[anth_synth_kimi-k3]
 # …existing keys…
 max_tool_use_concurrency=5
 ```
 
-Re-run `llm-env set anth_synth_kimi-k2.5` and Claude Code caps its tool-call fan-out at 5. Details in [docs/configuration.md](configuration.md#declaring-tool-use-concurrency).
+Re-run `llm-env set anth_synth_kimi` and Claude Code caps its tool-call fan-out at 5. Details in [docs/configuration.md](configuration.md#declaring-tool-use-concurrency).
 
 ## Step 6 — Switch models any time
 
 ```bash
-llm-env set anth_synth_glm-5.1            # GLM 5.1
-llm-env set anth_synth_qwen3-coder-480b   # Qwen3 Coder 480B
-llm-env set synth_kimi                    # whatever's currently latest in the Kimi family
-llm-env set alibaba_qwen                  # latest Qwen on Alibaba's Coding Plan
+llm-env set anth_synth_qwen               # latest Qwen on Synthetic
+llm-env set anth_synth_glm-flash          # latest GLM Flash on Synthetic
+llm-env set anth_alibaba_qwen             # latest Qwen on Alibaba's Coding Plan
+llm-env set anth_synth_kimi-k3            # pin one specific version
 
 llm-env unset                             # clear everything; back to Claude Code's native login
 ```
 
-The "family-latest" aliases (`synth_kimi`, `synth_glm`, `synth_qwen-coder`, `alibaba_qwen`, etc.) automatically resolve to whichever version is currently latest in that effective family — convenient when you don't want to track specific version numbers.
+The "family-latest" aliases (`synth_kimi`, `synth_qwen`, `synth_glm-flash`, `alibaba_qwen`, their Anthropic-only twins such as `anth_synth_kimi`, etc.) automatically resolve to whichever version is currently latest in that effective family — convenient when you don't want to track specific version numbers.
 
 `llm-env list` shows everything currently available.
 
@@ -162,12 +161,13 @@ The "family-latest" aliases (`synth_kimi`, `synth_glm`, `synth_qwen-coder`, `ali
 | What you want | Command |
 |---|---|
 | Latest Kimi on Synthetic | `llm-env set synth_kimi` |
-| Latest Qwen Coder on Synthetic | `llm-env set synth_qwen-coder` |
+| Latest Qwen on Synthetic | `llm-env set synth_qwen` |
 | Latest GLM Flash on Synthetic | `llm-env set synth_glm-flash` |
 | Latest Qwen on Alibaba | `llm-env set alibaba_qwen` |
-| Specific version, both protocols | `llm-env set synth_kimi-k2.5` |
-| Specific version, Anthropic protocol only (Claude Code) | `llm-env set anth_synth_kimi-k2.5` |
-| Specific version, OpenAI protocol only (aichat, Cursor, etc.) | `llm-env set openai_synth_kimi-k2.5` |
+| Latest Kimi, Anthropic protocol only (Claude Code) | `llm-env set anth_synth_kimi` |
+| Specific version, both protocols | `llm-env set synth_kimi-k3` |
+| Specific version, Anthropic protocol only (Claude Code) | `llm-env set anth_synth_kimi-k3` |
+| Specific version, OpenAI protocol only (aichat, Cursor, etc.) | `llm-env set openai_synth_kimi-k3` |
 | Show what's currently set | `llm-env show` |
 | Test connectivity | `llm-env test <provider>` |
 | Clear everything | `llm-env unset` |
@@ -176,7 +176,7 @@ The "family-latest" aliases (`synth_kimi`, `synth_glm`, `synth_qwen-coder`, `ali
 
 **Claude Code reports auth errors.** Run `llm-env show` — it should display the current `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY` (masked). If those are empty, the `set` command didn't run in your current shell — make sure `llm-env` is on your `PATH` (the installer adds a wrapper function so you don't need `source`).
 
-**Provider name not recognized.** Run `llm-env list` to see exactly what's in your config. Names follow the scheme `<protocol>_<vendor-short>_<model>` (e.g., `anth_synth_kimi-k2.5`). If your config still has v1-style names, run `llm-env quickstart` to add the v2 entries (existing entries are skipped).
+**Provider name not recognized.** Run `llm-env list` to see exactly what's in your config. Names follow the scheme `<protocol>_<vendor-short>_<model>` (e.g., `anth_synth_kimi-k3`). If your config still has v1-style names, run `llm-env quickstart` to add the v2 entries (existing entries are skipped).
 
 **The model list is out of date.** Pull the latest repo and re-run `quickstart`:
 
