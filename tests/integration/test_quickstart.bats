@@ -124,6 +124,26 @@ user_config() {
     cfg="$(user_config)"
     grep -q '^\[group:synth_glm-flash\]$' "$cfg"
     grep -A 2 '^\[group:synth_glm-flash\]$' "$cfg" | grep -q '^providers=openai_synth_glm-4.7-flash$'
+    # No anthropic provider behind it, so no anth_ alias either.
+    run grep -c '^\[group:anth_synth_glm-flash\]$' "$cfg"
+    [ "$output" = "0" ]
+}
+
+@test "v2: family_latest emits a version-free anth_ alias" {
+    stage_fixture quickstart-synthetic-v2.json quickstart-synthetic.json
+
+    run cmd_quickstart
+    [ "$status" -eq 0 ]
+
+    local cfg
+    cfg="$(user_config)"
+    grep -A 2 '^\[group:anth_synth_kimi\]$' "$cfg" | grep -q '^providers=anth_synth_kimi-k2.5$'
+
+    # And `set` resolves it to the anthropic provider only.
+    load_config "$cfg"
+    cmd_set anth_synth_kimi
+    [ "$ANTHROPIC_MODEL" = "hf:moonshotai/Kimi-K2.5" ]
+    [ -z "${OPENAI_BASE_URL:-}" ]
 }
 
 @test "v2: handles alibaba fixture independently" {
