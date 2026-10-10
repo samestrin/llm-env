@@ -1,6 +1,6 @@
 {
   "schema_version": "2",
-  "generated_at": "2026-09-23T18:33:49Z",
+  "generated_at": "2026-10-10T12:06:31Z",
   "source": "synthetic",
   "vendor_short": "synth",
   "endpoints": {
@@ -20,6 +20,17 @@
         "anthropic"
       ],
       "upstream_id": "hf:openai/gpt-oss-120b"
+    },
+    {
+      "id": "glm-5.3",
+      "family": "glm",
+      "version": "5.3",
+      "description": "GLM 5.3 from synthetic.new",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
+      "upstream_id": "hf:zai-org/GLM-5.3"
     },
     {
       "id": "glm-5.3-flash",
@@ -79,6 +90,7 @@
   ],
   "family_latest": {
     "gpt-oss": "gpt-oss-120b",
+    "glm": "glm-5.3",
     "glm-flash": "glm-5.3-flash",
     "deepseek-flash": "deepseek-v4.1-flash",
     "kimi": "kimi-k3",
