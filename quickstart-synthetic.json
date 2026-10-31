@@ -1,6 +1,6 @@
 {
   "schema_version": "2",
-  "generated_at": "2026-09-23T18:33:49Z",
+  "generated_at": "2026-10-31T11:52:47Z",
   "source": "synthetic",
   "vendor_short": "synth",
   "endpoints": {
@@ -22,6 +22,17 @@
       "upstream_id": "hf:openai/gpt-oss-120b"
     },
     {
+      "id": "glm-5.3",
+      "family": "glm",
+      "version": "5.3",
+      "description": "GLM 5.3 from synthetic.new",
+      "protocols": [
+        "openai",
+        "anthropic"
+      ],
+      "upstream_id": "hf:zai-org/GLM-5.3"
+    },
+    {
       "id": "glm-5.3-flash",
       "family": "glm",
       "version": "5.3",
@@ -33,7 +44,7 @@
       "upstream_id": "hf:zai-org/GLM-5.3-Flash"
     },
     {
-      "id": "deepseek-v4.1-flash",
+      "id": "deepseek-v4.1-flash-1017",
       "family": "deepseek",
       "version": "4.1",
       "description": "Deepseek 4.1 Flash from synthetic.new",
@@ -41,7 +52,7 @@
         "openai",
         "anthropic"
       ],
-      "upstream_id": "hf:deepseek-ai/DeepSeek-V4.1-Flash"
+      "upstream_id": "hf:deepseek-ai/DeepSeek-V4.1-Flash-1017"
     },
     {
       "id": "kimi-k3",
@@ -79,8 +90,9 @@
   ],
   "family_latest": {
     "gpt-oss": "gpt-oss-120b",
+    "glm": "glm-5.3",
     "glm-flash": "glm-5.3-flash",
-    "deepseek-flash": "deepseek-v4.1-flash",
+    "deepseek-flash": "deepseek-v4.1-flash-1017",
     "kimi": "kimi-k3",
     "qwen": "qwen3.8-27b"
   }
